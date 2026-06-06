@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "sast/sastshopv2/catalog/v1/product_template.proto";
+import "sast/sastshopv2/errand/v1/errand_demand_detail_requester.proto";
+
+// 团长接单弹窗中的商品聚合详情，商品描述实时读取 catalog 商品模板
+message ErrandDemandDetail {
+  // 买家视角跑腿订单 ID部分接单后，已接单商品会拆分到新的 demand
+  int64 errand_demand_id = 1;
+  // catalog 商品模板实时信息
+  sast.sastshopv2.catalog.v1.ProductTemplate product_template = 2;
+  // 下单时的预估单价，单位为分
+  int32 estimated_unit_price_cents = 3;
+  // 当前商品聚合后的总需求数量
+  int32 quantity = 4;
+  // 每个购买人的需求行
+  repeated sast.sastshopv2.errand.v1.ErrandDemandDetailRequester requesters = 5;
+}

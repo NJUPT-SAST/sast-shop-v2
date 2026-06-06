@@ -1,0 +1,27 @@
+version: "2"
+linters:
+  enable:
+    - bodyclose
+    - errorlint
+    - gocyclo
+    - gosec
+    - misspell
+    - noctx
+    - unconvert
+  settings:
+    gocyclo:
+      min-complexity: 15
+    errorlint:
+      errorf: true
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+    - goimports
+    - golines
+  settings:
+    golines:
+      max-len: 120

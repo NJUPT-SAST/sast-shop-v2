@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package sast.sastshopv2.spot.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/catalog/v1/product_template.proto";
+import "sast/sastshopv2/user/v1/user_info.proto";
+
+// 现货商品列表项，商品描述实时读取 catalog 商品模板
+message SpotGoodsBrief {
+  // 现货商品 ID，对应 spot_goods.id
+  int64 id = 1;
+  // catalog 商品模板实时信息
+  sast.sastshopv2.catalog.v1.ProductTemplate product_template = 2;
+  // 当前售卖单价，单位为分
+  int32 sale_price_cents = 3;
+  // 上架创建时间
+  google.protobuf.Timestamp created_at = 4;
+  // 现货商品最近更新时间，用于下单和改价改库存的并发校验
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+// 现货商品详情，包含详情页额外展示的库存和卖家信息
+message SpotGoodsDetail {
+  int64 id = 1;
+  sast.sastshopv2.catalog.v1.ProductTemplate product_template = 2;
+  int32 sale_price_cents = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  // 当前剩余库存
+  int32 stock = 6;
+  // 上架售卖人信息
+  sast.sastshopv2.user.v1.UserInfo seller = 7;
+}

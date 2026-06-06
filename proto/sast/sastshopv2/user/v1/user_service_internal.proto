@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package sast.sastshopv2.user.v1;
+
+import "sast/sastshopv2/user/v1/user_info.proto";
+
+message GetUsersRequest {
+  repeated int64 user_ids = 1;
+}
+
+message GetUsersResponse {
+  repeated UserInfo users = 1;
+}
+
+service UserInternalService {
+  // 批量获取用户信息
+  rpc GetUsers(GetUsersRequest) returns (GetUsersResponse);
+}

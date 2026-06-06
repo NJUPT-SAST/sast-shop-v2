@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/errand/v1/errand_demand.proto";
+import "sast/sastshopv2/errand/v1/errand_demand_by_store.proto";
+import "sast/sastshopv2/errand/v1/errand_demand_detail.proto";
+
+message CreateErrandDemandRequest {
+  // 目标店铺 ID
+  int64 store_id = 1;
+  // 买家期望送达时间
+  google.protobuf.Timestamp deadline = 2;
+  // 买家一次提交的商品需求行
+  repeated sast.sastshopv2.errand.v1.ErrandDemandItemDraft demand_items = 3;
+}
+
+message CreateErrandDemandResponse {
+  // 买家视角跑腿订单 ID
+  int64 errand_demand_id = 1;
+}
+
+message GetDemandListRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  // 可选店铺名搜索
+  optional string store_name = 3;
+}
+
+message GetDemandListResponse {
+  repeated sast.sastshopv2.errand.v1.ErrandDemandByStore demands = 1;
+  int32 current_page = 2;
+  int32 total_count = 3;
+}
+
+message GetDemandDetailRequest {
+  // 按店铺查看当前未接单需求
+  int64 store_id = 1;
+}
+
+message GetDemandDetailResponse {
+  repeated sast.sastshopv2.errand.v1.ErrandDemandDetail details = 1;
+}
+
+service ErrandDemandService {
+  // 买家创建跑腿需求订单
+  rpc CreateErrandDemand(CreateErrandDemandRequest) returns (CreateErrandDemandResponse);
+  // 团长获取未接单跑腿需求大厅列表
+  rpc GetDemandList(GetDemandListRequest) returns (GetDemandListResponse);
+  // 团长查看某个店铺下可接单的需求详情
+  rpc GetDemandDetail(GetDemandDetailRequest) returns (GetDemandDetailResponse);
+}

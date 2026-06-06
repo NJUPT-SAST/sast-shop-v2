@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/errand/v1/collecting_payment_bill.proto";
+import "sast/sastshopv2/errand/v1/distributing_item.proto";
+import "sast/sastshopv2/errand/v1/errand_task.proto";
+import "sast/sastshopv2/errand/v1/errand_task_item.proto";
+import "sast/sastshopv2/errand/v1/errand_task_status.proto";
+import "sast/sastshopv2/errand/v1/task_demand_item.proto";
+
+message CreateTaskRequest {
+  // 接单店铺 ID
+  int64 store_id = 1;
+  // 团长选择的需求行列表
+  repeated TaskDemandItem demand_items = 2;
+}
+
+message CreateTaskResponse {
+  // 新创建的团长采购任务 ID
+  int64 errand_task_id = 1;
+}
+
+message GetShoppingTaskDetailRequest {
+  int64 errand_task_id = 1;
+}
+
+message GetShoppingTaskDetailResponse {
+  int64 errand_task_id = 1;
+  int64 store_id = 2;
+  string store_name = 3;
+  repeated ErrandTaskItem task_items = 4;
+}
+
+message SaveShoppingTaskItemRequest {
+  int64 errand_task_id = 1;
+  int64 errand_task_item_id = 2;
+  int32 purchased_quantity = 3;
+  optional string non_purchase_reason = 4;
+  // 前端读取 task_item 时拿到的 updated_at，用于采购结果并发校验
+  google.protobuf.Timestamp errand_task_item_updated_at = 5;
+}
+
+message SaveShoppingTaskItemResponse {}
+
+message TransitionToPendingDistributingRequest {
+  int64 errand_task_id = 1;
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message TransitionToPendingDistributingResponse {}
+
+message GetDistributingTaskDetailRequest {
+  int64 errand_task_id = 1;
+}
+
+message GetDistributingTaskDetailResponse {
+  int64 errand_task_id = 1;
+  int64 store_id = 2;
+  string store_name = 3;
+  int32 packaging_fee_cents = 4;
+  repeated DistributingItem distributing_items = 5;
+}
+
+message UpdateActualPriceRequest {
+  int64 errand_task_id = 1;
+  int64 errand_task_item_id = 2;
+  int32 actual_unit_price_cents = 3;
+  // 前端读取 task_item 时拿到的 updated_at，用于改价并发校验
+  google.protobuf.Timestamp errand_task_item_updated_at = 4;
+}
+
+message UpdateActualPriceResponse {}
+
+message TransitionToDistributingRequest {
+  int64 errand_task_id = 1;
+  // 包装费总额，单位为分，由参与人向上取整平摊
+  int32 packaging_fee_cents = 2;
+  // 前端读取 task 时拿到的 updated_at，用于状态流转并发校验
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+message TransitionToDistributingResponse {}
+
+message SaveDistributingTaskAssignmentRequest {
+  // 团长采购任务商品行 ID
+  int64 errand_task_item_id = 1;
+  // 分发明细 ID
+  int64 errand_task_assignment_id = 2;
+  // 实际分发数量
+  int32 distributed_quantity = 3;
+  // 前端读取 assignment 时拿到的 updated_at，用于分发结果并发校验
+  google.protobuf.Timestamp errand_task_assignment_updated_at = 4;
+}
+
+message SaveDistributingTaskAssignmentResponse {}
+
+message TransitionToCollectingPaymentRequest {
+  int64 errand_task_id = 1;
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message TransitionToCollectingPaymentResponse {}
+
+message GetCollectingPaymentDetailRequest {
+  int64 errand_task_id = 1;
+}
+
+message GetCollectingPaymentDetailResponse {
+  repeated CollectingPaymentBillDetail bills = 1;
+}
+
+message TransitionToCompletedRequest {
+  int64 errand_task_id = 1;
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message TransitionToCompletedResponse {}
+
+message GetErrandTaskListRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  optional sast.sastshopv2.errand.v1.ErrandTaskStatus filter_status = 3;
+}
+
+message GetErrandTaskListResponse {
+  repeated ErrandTask errand_tasks = 1;
+  int32 current_page = 2;
+  int32 total_count = 3;
+}
+
+message CancelTaskRequest {
+  int64 errand_task_id = 1;
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message CancelTaskResponse {}
+
+service ErrandTaskService {
+  // 团长接单并创建采购任务
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  // 获取采购中的跑腿任务详情
+  rpc GetShoppingTaskDetail(GetShoppingTaskDetailRequest) returns (GetShoppingTaskDetailResponse);
+  // 更新采购中的跑腿任务商品项
+  rpc SaveShoppingTaskItem(SaveShoppingTaskItemRequest) returns (SaveShoppingTaskItemResponse);
+  // 将采购任务从采购中流转到待分发
+  rpc TransitionToPendingDistributing(TransitionToPendingDistributingRequest) returns (TransitionToPendingDistributingResponse);
+  // 获取待分发和分发中的跑腿任务详情
+  rpc GetDistributingTaskDetail(GetDistributingTaskDetailRequest) returns (GetDistributingTaskDetailResponse);
+  // 待分发阶段修改实际采购单价
+  rpc UpdateActualPrice(UpdateActualPriceRequest) returns (UpdateActualPriceResponse);
+  // 将采购任务从待分发流转到分发中
+  rpc TransitionToDistributing(TransitionToDistributingRequest) returns (TransitionToDistributingResponse);
+  // 更新分发中的购买人分发结果
+  rpc SaveDistributingTaskAssignment(SaveDistributingTaskAssignmentRequest) returns (SaveDistributingTaskAssignmentResponse);
+  // 分发完成后流转到收款中，并创建支付账单
+  rpc TransitionToCollectingPayment(TransitionToCollectingPaymentRequest) returns (TransitionToCollectingPaymentResponse);
+  // 获取收款中状态的跑腿任务详情
+  rpc GetCollectingPaymentDetail(GetCollectingPaymentDetailRequest) returns (GetCollectingPaymentDetailResponse);
+  // 所有账单确认后将采购任务标记为完成
+  rpc TransitionToCompleted(TransitionToCompletedRequest) returns (TransitionToCompletedResponse);
+  // 获取当前团长的跑腿任务列表
+  rpc GetErrandTaskList(GetErrandTaskListRequest) returns (GetErrandTaskListResponse);
+  // 取消未完成的跑腿任务
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+}

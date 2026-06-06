@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/catalog/v1/product_template.proto";
+import "sast/sastshopv2/catalog/v1/store.proto";
+import "sast/sastshopv2/errand/v1/errand_demand_status.proto";
+import "sast/sastshopv2/payment/v1/bill.proto";
+import "sast/sastshopv2/user/v1/user_info.proto";
+
+// 买家跑腿订单中的商品明细
+message BuyerErrandOrderProductItem {
+  // 商品模板快照
+  sast.sastshopv2.catalog.v1.ProductTemplate product_template = 1;
+  // 实际采购单价，单位为分
+  int32 actual_unit_price_cents = 2;
+  // 买家需求数量
+  int32 required_quantity = 3;
+  // 团长实际购买数量
+  optional int32 purchased_quantity = 4;
+  // 未购买原因
+  optional string non_purchase_reason = 5;
+  // 实际分发数量
+  optional int32 distributed_quantity = 6;
+  // 单件跑腿费，单位为分
+  int32 service_fee_per_unit_cents = 7;
+  // 当前商品明细小计，单位为分
+  int32 subtotal_cents = 8;
+  // 对应的买家需求行 ID
+  int64 errand_demand_item_id = 9;
+}
+
+// 买家跑腿订单列表项
+message BuyerErrandOrderBrief {
+  // 买家视角跑腿订单 ID
+  int64 errand_demand_id = 1;
+  // 店铺 ID
+  int64 store_id = 2;
+  // 订单创建时间
+  google.protobuf.Timestamp created_at = 3;
+  // 店铺信息
+  sast.sastshopv2.catalog.v1.Store store_info = 4;
+  // 买家视角订单状态
+  sast.sastshopv2.errand.v1.ErrandDemandStatus status = 5;
+  // 列表预览商品，最多 3 件
+  repeated sast.sastshopv2.catalog.v1.ProductTemplate product_templates = 6;
+  // 原始预估商品总金额，单位为分
+  int32 total_origin_amount_cents = 7;
+  // 实际采购商品总金额，单位为分
+  optional int32 total_actual_amount_cents = 8;
+  // 跑腿费总额，单位为分
+  int32 total_service_fee_cents = 9;
+  // 商品种类总数
+  int32 product_total_count = 10;
+}
+
+// 买家跑腿订单详情
+message BuyerErrandOrderDetail {
+  int64 errand_demand_id = 1;
+  int64 store_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+  sast.sastshopv2.catalog.v1.Store store_info = 4;
+  sast.sastshopv2.errand.v1.ErrandDemandStatus status = 5;
+  repeated BuyerErrandOrderProductItem product_items = 6;
+  int32 total_origin_amount_cents = 7;
+  optional int32 total_actual_amount_cents = 8;
+  int32 total_service_fee_cents = 9;
+  // 接单团长信息，仅详情返回
+  sast.sastshopv2.user.v1.UserInfo captain_info = 10;
+  // 关联支付账单，进入待支付后存在
+  optional sast.sastshopv2.payment.v1.Bill bill = 11;
+  // 期望送达时间
+  google.protobuf.Timestamp deadline = 12;
+  // 采购开始时间
+  google.protobuf.Timestamp shopping_start_at = 13;
+  // 采购完成时间
+  google.protobuf.Timestamp shopping_completed_at = 14;
+  // 分发完成时间
+  google.protobuf.Timestamp distribution_completed_at = 15;
+  // 支付完成时间
+  google.protobuf.Timestamp payment_completed_at = 16;
+  // 订单取消时间
+  google.protobuf.Timestamp cancelled_at = 17;
+}

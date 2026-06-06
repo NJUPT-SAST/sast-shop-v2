@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package sast.sastshopv2.payment.v1;
+
+import "sast/sastshopv2/user/v1/user_info.proto";
+import "sast/sastshopv2/payment/v1/channel.proto";
+import "google/protobuf/timestamp.proto";
+
+enum BillStatus {
+  BILL_STATUS_UNSPECIFIED = 0;
+  // 待支付
+  BILL_STATUS_UNPAID = 1;
+  // 付款方完成支付，等待收款方确认收款
+  BILL_STATUS_SUBMITTED = 2;
+  // 收款方确认收款，交易完成
+  BILL_STATUS_COMPLETED = 3;
+  // 交易关闭，由业务订单取消或管理员修正触发
+  BILL_STATUS_CLOSED = 4;
+}
+
+// 支付账单
+message Bill {
+  // 账单 ID
+  int64 id = 1;
+  // 面向用户展示的账单号
+  string bill_no = 2;
+  // 付款人信息
+  sast.sastshopv2.user.v1.UserInfo payer = 3;
+  // 收款人信息
+  sast.sastshopv2.user.v1.UserInfo payee = 4;
+  // 账单状态
+  BillStatus status = 5;
+  // 应付金额，单位为分
+  int32 amount_cents = 6;
+  // 四位核验码
+  string verify_code = 7;
+  // 用户选择的支付渠道
+  Channel channel = 8;
+  // 用户补充的支付流水号或备注信息
+  optional string serial_number = 9;
+  // 买家标记已付款时间
+  optional google.protobuf.Timestamp submitted_at = 10;
+  // 收款方确认收款时间
+  optional google.protobuf.Timestamp completed_at = 11;
+  // 账单关闭时间
+  optional google.protobuf.Timestamp closed_at = 12;
+  // 账单创建时间
+  google.protobuf.Timestamp created_at = 13;
+  // 账单更新时间
+  google.protobuf.Timestamp updated_at = 14;
+  // 业务来源类型，例如 spot_order 或 errand_task
+  optional string source_type = 15;
+  // 业务来源 ID
+  optional int64 source_id = 16;
+}

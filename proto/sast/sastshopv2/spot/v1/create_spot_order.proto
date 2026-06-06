@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package sast.sastshopv2.spot.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message CreateSpotOrder {
+  int64 spot_listing_id = 1;
+  int32 quantity = 2;
+  // 用于现货是否被更新过，作为乐观锁的版本号
+  google.protobuf.Timestamp updated_at = 3;
+}

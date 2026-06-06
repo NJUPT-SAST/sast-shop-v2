@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package sast.sastshopv2.catalog.v1;
+
+import "sast/sastshopv2/catalog/v1/product_template.proto";
+import "sast/sastshopv2/catalog/v1/store.proto";
+
+message GetProductTemplateRequest {
+  int64 product_template_id = 1;
+}
+
+message GetProductTemplateResponse {
+  ProductTemplate product_template = 1;
+}
+
+message GetStoreRequest {
+  int64 store_id = 1;
+}
+
+message GetStoreResponse {
+  Store store = 1;
+}
+
+service CatalogInternalService {
+  // 读取商品模板快照，供 group-trade 创建现货 listing 或跑腿需求使用
+  rpc GetProductTemplate(GetProductTemplateRequest) returns (GetProductTemplateResponse);
+
+  // 读取店铺快照，供 group-trade 展示和校验店铺使用
+  rpc GetStore(GetStoreRequest) returns (GetStoreResponse);
+}

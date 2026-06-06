@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// 创建跑腿需求时提交的商品行草稿
+// 持久化后的买家视角订单由 errand_demand_id 表示，单个商品行由 errand_demand_item_id 表示
+message ErrandDemandItemDraft {
+  // catalog 商品模板 ID
+  int64 product_template_id = 1;
+  // 需求数量
+  int32 quantity = 2;
+  // 单件跑腿费，单位为分
+  int32 service_fee_per_unit_cents = 3;
+  // 前端读取商品模板时拿到的 updated_at，用于校验商品模板是否被更新
+  google.protobuf.Timestamp updated_at = 4;
+}

@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package sast.sastshopv2.common.v1;
+
+import "sast/sastshopv2/catalog/v1/error.proto";
+import "sast/sastshopv2/common/v1/error.proto";
+import "sast/sastshopv2/errand/v1/error.proto";
+import "sast/sastshopv2/payment/v1/error.proto";
+import "sast/sastshopv2/spot/v1/error.proto";
+import "sast/sastshopv2/user/v1/error.proto";
+
+message BusinessError {
+  string error_message = 1;
+  oneof detail {
+    CommonError common_error = 9;
+    sast.sastshopv2.user.v1.UserError user_error = 10;
+    sast.sastshopv2.catalog.v1.CatalogError catalog_error = 11;
+    sast.sastshopv2.payment.v1.PaymentError payment_error = 12;
+    sast.sastshopv2.spot.v1.SpotError spot_error = 13;
+    sast.sastshopv2.errand.v1.ErrandError errand_error = 14;
+  }
+}

@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package sast.sastshopv2.payment.v1;
+
+enum Channel {
+  CHANNEL_UNSPECIFIED = 0;
+  CHANNEL_WECHAT = 1;
+  CHANNEL_ALIPAY = 2;
+}

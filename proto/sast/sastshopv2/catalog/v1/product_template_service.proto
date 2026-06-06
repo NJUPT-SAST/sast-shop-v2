@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package sast.sastshopv2.catalog.v1;
+
+import "google/protobuf/field_mask.proto";
+import "sast/sastshopv2/catalog/v1/product_template.proto";
+import "sast/sastshopv2/catalog/v1/store.proto";
+
+message GetProductTemplateListRequest {
+  int64 store_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message GetProductTemplateListResponse {
+  repeated ProductTemplate product_templates = 1;
+  int32 current_page = 2;
+  int32 total_count = 3;
+}
+
+message CreateProductTemplateRequest {
+  int64 store_id = 1;
+  string title = 2;
+  string description = 3;
+  int32 price_cents = 4;
+  string main_image_url = 5;
+  string barcode = 6;
+}
+
+message CreateProductTemplateResponse {
+  ProductTemplate product_template = 1;
+}
+
+message UpdateProductTemplateRequest {
+  ProductTemplate product_template = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateProductTemplateResponse {
+  ProductTemplate product_template = 1;
+}
+
+message GetProductTemplateByBarcodeRequest {
+  string barcode = 2;
+}
+
+message GetProductTemplateByBarcodeResponse {
+  message Item {
+    ProductTemplate product_template = 1;
+    sast.sastshopv2.catalog.v1.Store store = 2;
+  }
+  repeated Item items = 1;
+}
+
+service ProductTemplateService {
+  // 店铺详情-跑腿-获取商品模板列表
+  rpc GetProductTemplateList(GetProductTemplateListRequest) returns (GetProductTemplateListResponse);
+
+  // 创建商品模板
+  rpc CreateProductTemplate(CreateProductTemplateRequest) returns (CreateProductTemplateResponse);
+
+  // 更新商品模板
+  rpc UpdateProductTemplate(UpdateProductTemplateRequest) returns (UpdateProductTemplateResponse);
+
+  // 根据条形码获取商品模板
+  rpc GetProductTemplateByBarcode(GetProductTemplateByBarcodeRequest) returns (GetProductTemplateByBarcodeResponse);
+}

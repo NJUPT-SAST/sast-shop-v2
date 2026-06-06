@@ -1,0 +1,112 @@
+package v1
+
+import (
+	"context"
+
+	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/errand/v1/errandv1connect"
+	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
+	"connectrpc.com/connect"
+	"github.com/labstack/echo/v5"
+	"github.com/rs/zerolog/log"
+)
+
+type ErrandTaskServiceServer struct {
+	errandv1connect.ErrandTaskServiceHandler
+}
+
+func (s *ErrandTaskServiceServer) CreateTask(
+	ctx context.Context,
+	r *connect.Request[errandv1.CreateTaskRequest],
+) (*connect.Response[errandv1.CreateTaskResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) GetShoppingTaskDetail(
+	ctx context.Context,
+	r *connect.Request[errandv1.GetShoppingTaskDetailRequest],
+) (*connect.Response[errandv1.GetShoppingTaskDetailResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) SaveShoppingTaskItem(
+	ctx context.Context,
+	r *connect.Request[errandv1.SaveShoppingTaskItemRequest],
+) (*connect.Response[errandv1.SaveShoppingTaskItemResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) TransitionToPendingDistributing(
+	ctx context.Context,
+	r *connect.Request[errandv1.TransitionToPendingDistributingRequest],
+) (*connect.Response[errandv1.TransitionToPendingDistributingResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) GetDistributingTaskDetail(
+	ctx context.Context,
+	r *connect.Request[errandv1.GetDistributingTaskDetailRequest],
+) (*connect.Response[errandv1.GetDistributingTaskDetailResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) UpdateActualPrice(
+	ctx context.Context,
+	r *connect.Request[errandv1.UpdateActualPriceRequest],
+) (*connect.Response[errandv1.UpdateActualPriceResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) TransitionToDistributing(
+	ctx context.Context,
+	r *connect.Request[errandv1.TransitionToDistributingRequest],
+) (*connect.Response[errandv1.TransitionToDistributingResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) SaveDistributingTaskAssignment(
+	ctx context.Context,
+	r *connect.Request[errandv1.SaveDistributingTaskAssignmentRequest],
+) (*connect.Response[errandv1.SaveDistributingTaskAssignmentResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) TransitionToCollectingPayment(
+	ctx context.Context,
+	r *connect.Request[errandv1.TransitionToCollectingPaymentRequest],
+) (*connect.Response[errandv1.TransitionToCollectingPaymentResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) GetCollectingPaymentDetail(
+	ctx context.Context,
+	r *connect.Request[errandv1.GetCollectingPaymentDetailRequest],
+) (*connect.Response[errandv1.GetCollectingPaymentDetailResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) TransitionToCompleted(
+	ctx context.Context,
+	r *connect.Request[errandv1.TransitionToCompletedRequest],
+) (*connect.Response[errandv1.TransitionToCompletedResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) GetErrandTaskList(
+	ctx context.Context,
+	r *connect.Request[errandv1.GetErrandTaskListRequest],
+) (*connect.Response[errandv1.GetErrandTaskListResponse], error) {
+	return nil, errandError()
+}
+
+func (s *ErrandTaskServiceServer) CancelTask(
+	ctx context.Context,
+	r *connect.Request[errandv1.CancelTaskRequest],
+) (*connect.Response[errandv1.CancelTaskResponse], error) {
+	return nil, errandError()
+}
+
+func InitErrandTaskServiceHandler(e *echo.Echo, opts ...connect.HandlerOption) {
+	apiPath, apiHandler := errandv1connect.NewErrandTaskServiceHandler(&ErrandTaskServiceServer{}, opts...)
+	log.Debug().Msgf("ErrandTaskService API registered at path: %s", apiPath)
+	e.Any(apiPath+"*", echo.WrapHandler(apiHandler))
+}

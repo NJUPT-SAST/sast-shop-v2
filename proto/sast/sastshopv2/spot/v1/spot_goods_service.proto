@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package sast.sastshopv2.spot.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/spot/v1/spot_goods.proto";
+
+message ListSpotGoodsRequest {
+  // 店铺 ID
+  int64 store_id = 1;
+  // 页码，从 1 开始
+  int32 page = 2;
+  // 每页数量
+  int32 page_size = 3;
+}
+
+message ListSpotGoodsResponse {
+  // 当前页现货商品列表
+  repeated SpotGoodsBrief spot_goods_list = 1;
+  int32 current_page = 2;
+  int32 total_count = 3;
+}
+
+message GetSpotGoodsRequest {
+  // 现货商品 ID
+  int64 spot_goods_id = 1;
+}
+
+message GetSpotGoodsResponse {
+  SpotGoodsDetail spot_goods_detail = 1;
+}
+
+message CreateSpotGoodsRequest {
+  // catalog 商品模板 ID
+  int64 product_template_id = 1;
+  // 上架售卖单价，单位为分
+  int32 sale_price_cents = 2;
+  // 初始库存总量
+  int32 stock_total = 3;
+  // 前端读取商品模板时拿到的 updated_at，用于校验模板是否被更新
+  google.protobuf.Timestamp product_template_updated_at = 4;
+}
+
+message CreateSpotGoodsResponse {
+  SpotGoodsDetail spot_goods_detail = 1;
+}
+
+message UpdateSpotGoodsStockRequest {
+  // 现货商品 ID
+  int64 spot_goods_id = 1;
+  // 更新后的库存数量
+  int32 new_stock = 2;
+  // 前端读取现货商品时拿到的 updated_at，用于库存修改并发校验
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+message UpdateSpotGoodsStockResponse {}
+
+message UpdateSpotGoodsPriceRequest {
+  // 现货商品 ID
+  int64 spot_goods_id = 1;
+  // 更新后的售卖单价，单位为分
+  int32 new_sale_price_cents = 2;
+  // 前端读取现货商品时拿到的 updated_at，用于价格修改并发校验
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+message UpdateSpotGoodsPriceResponse {}
+
+service SpotGoodsService {
+  // 获取指定店铺下的现货商品列表
+  rpc ListSpotGoods(ListSpotGoodsRequest) returns (ListSpotGoodsResponse);
+
+  // 获取现货商品详情
+  rpc GetSpotGoods(GetSpotGoodsRequest) returns (GetSpotGoodsResponse);
+
+  // 卖家上架现货商品
+  rpc CreateSpotGoods(CreateSpotGoodsRequest) returns (CreateSpotGoodsResponse);
+
+  // 卖家调整现货商品库存
+  rpc UpdateSpotGoodsStock(UpdateSpotGoodsStockRequest) returns (UpdateSpotGoodsStockResponse);
+
+  // 卖家调整现货商品价格
+  rpc UpdateSpotGoodsPrice(UpdateSpotGoodsPriceRequest) returns (UpdateSpotGoodsPriceResponse);
+}

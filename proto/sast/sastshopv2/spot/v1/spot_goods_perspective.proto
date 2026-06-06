@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package sast.sastshopv2.spot.v1;
+
+enum SpotGoodsPerspective {
+  SPOT_GOODS_PERSPECTIVE_UNSPECIFIED = 0;
+  SPOT_GOODS_PERSPECTIVE_PURCHASER = 1;
+  SPOT_GOODS_PERSPECTIVE_SELLER = 2;
+}

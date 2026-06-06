@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package sast.sastshopv2.catalog.v1;
+
+message Store {
+  int64 id = 1;
+  string name = 2;
+  string address = 3;
+  string logo_url = 4;
+  string theme_color = 5;
+}

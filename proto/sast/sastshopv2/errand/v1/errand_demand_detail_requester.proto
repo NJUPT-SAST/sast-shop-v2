@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// 团长接单弹窗中某个商品下的购买人需求行
+message ErrandDemandDetailRequester {
+  // 购买人 ID
+  int64 requester_id = 1;
+  // 购买人名称
+  string requester_name = 2;
+  // 购买人头像
+  string requester_avatar_url = 3;
+  // 需求数量
+  int32 quantity = 4;
+  // 单件跑腿费，单位为分
+  int32 service_fee_per_unit_cents = 5;
+  // 需求行 ID，CreateTask 必须使用该 ID 定位接单对象
+  int64 errand_demand_item_id = 6;
+  // 期望送达时间
+  google.protobuf.Timestamp deadline = 7;
+  // 需求行最近更新时间，用于接单并发校验
+  google.protobuf.Timestamp updated_at = 8;
+}

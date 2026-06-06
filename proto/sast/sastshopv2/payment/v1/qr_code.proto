@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package sast.sastshopv2.payment.v1;
+
+import "sast/sastshopv2/payment/v1/channel.proto";
+
+message QrCode {
+  int64 id = 1;
+  Channel channel = 2;
+  string content = 3;
+}

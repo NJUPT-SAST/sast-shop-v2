@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package sast.sastshopv2.spot.v1;
+
+enum SpotErrorCode {
+  SPOT_ERROR_CODE_UNSPECIFIED = 0;
+  SPOT_ERROR_CODE_INTERNAL_ERROR = 5000;
+}
+
+message SpotError {
+  SpotErrorCode code = 1;
+}

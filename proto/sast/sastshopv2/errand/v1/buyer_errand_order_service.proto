@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "sast/sastshopv2/errand/v1/buyer_errand_order.proto";
+import "sast/sastshopv2/errand/v1/errand_demand_status.proto";
+
+message GetBuyerErrandOrderBriefRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  // 可选店铺过滤
+  optional int64 store_id_filter = 3;
+  // 可选买家视角状态过滤
+  optional sast.sastshopv2.errand.v1.ErrandDemandStatus status_filter = 4;
+}
+
+message GetBuyerErrandOrderBriefResponse {
+  repeated BuyerErrandOrderBrief orders = 1;
+  int32 current_page = 2;
+  int32 total_count = 3;
+}
+
+message GetBuyerErrandOrderDetailRequest {
+  // 买家视角跑腿订单 ID
+  int64 errand_demand_id = 1;
+}
+
+message GetBuyerErrandOrderDetailResponse {
+  BuyerErrandOrderDetail order = 1;
+}
+
+service BuyerErrandOrderService {
+  // 获取当前买家的跑腿订单列表
+  rpc GetBuyerErrandOrderBrief(GetBuyerErrandOrderBriefRequest) returns (GetBuyerErrandOrderBriefResponse);
+
+  // 获取当前买家的跑腿订单详情
+  rpc GetBuyerErrandOrderDetail(GetBuyerErrandOrderDetailRequest) returns (GetBuyerErrandOrderDetailResponse);
+}

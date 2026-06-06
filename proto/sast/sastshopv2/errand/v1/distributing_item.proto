@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "sast/sastshopv2/errand/v1/distributing_request_info.proto";
+
+message DistributingItem {
+  int64 errand_task_item_id = 1;
+  int64 product_template_id = 2;
+  string title_snapshot = 3;
+  string description_snapshot = 4;
+  string image_url_snapshot = 5;
+  int32 origin_unit_price_cents = 6;
+  int32 actual_unit_price_cents = 7;
+  repeated DistributingRequestInfo requesters = 8;
+}

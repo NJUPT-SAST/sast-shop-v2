@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+// 收款核对中的商品行摘要
+message CollectingPaymentRequesterItemBrief {
+  string title_snapshot = 1;
+  int32 actual_unit_price_cents = 2;
+  int32 service_fee_per_unit_cents = 3;
+  int32 distributed_quantity = 4;
+  int32 subtotal_cents = 5;
+}
+
+// 收款核对中的商品行明细，用于解释账单金额
+message CollectingPaymentRequesterItemDetail {
+  int64 errand_demand_item_id = 1;
+  string title_snapshot = 2;
+  int32 required_quantity = 3;
+  int32 purchased_quantity = 4;
+  int32 distributed_quantity = 5;
+  int32 actual_unit_price_cents = 6;
+  int32 product_amount_cents = 7;
+  int32 service_fee_per_unit_cents = 8;
+  int32 service_fee_amount_cents = 9;
+  int32 packaging_fee_share_cents = 10;
+  int32 subtotal_cents = 11;
+  optional string non_purchase_reason = 12;
+}

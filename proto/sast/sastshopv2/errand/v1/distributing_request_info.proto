@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message DistributingRequestInfo {
+  int64 purchaser_id = 1;
+  string purchaser_name = 2;
+  string purchaser_avatar_url = 3;
+  int32 quantity = 4;
+  int32 distributed_quantity = 5;
+  int64 errand_task_assignment_id = 6;
+  int64 errand_demand_item_id = 7;
+  google.protobuf.Timestamp errand_task_assignment_updated_at = 8;
+}

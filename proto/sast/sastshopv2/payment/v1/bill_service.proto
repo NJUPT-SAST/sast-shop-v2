@@ -1,0 +1,105 @@
+syntax = "proto3";
+
+package sast.sastshopv2.payment.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/payment/v1/bill.proto";
+import "sast/sastshopv2/payment/v1/channel.proto";
+
+message CreateBillRequest {
+  // 付款人 ID
+  int64 payer_id = 1;
+  // 收款人 ID
+  int64 payee_id = 2;
+  // 应付金额，单位为分
+  int32 amount_cents = 3;
+  // 可选业务来源类型
+  optional string source_type = 4;
+  // 可选业务来源 ID
+  optional int64 source_id = 5;
+}
+
+message CreateBillResponse {
+  Bill bill = 1;
+}
+
+message PayBillRequest {
+  // 账单 ID
+  int64 bill_id = 1;
+  // 付款渠道
+  Channel channel = 2;
+  // 前端读取账单时拿到的 updated_at，用于付款提交并发校验
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+message PayBillResponse {
+  Bill bill = 1;
+}
+
+message ConfirmBillRequest {
+  // 账单 ID
+  int64 bill_id = 1;
+  // 前端读取账单时拿到的 updated_at，用于确认收款并发校验
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message ConfirmBillResponse {
+  Bill bill = 1;
+}
+
+message GetBillRequest {
+  // 账单 ID
+  int64 bill_id = 1;
+}
+
+message GetBillResponse {
+  Bill bill = 1;
+}
+
+message SupplementSerialNumberRequest {
+  // 账单 ID
+  int64 bill_id = 1;
+  // 补充流水号或支付备注
+  string serial_number = 2;
+  // 前端读取账单时拿到的 updated_at，用于补充流水号并发校验
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+message SupplementSerialNumberResponse {
+  Bill bill = 1;
+}
+
+message TransitionBillRequest {
+  // 账单 ID
+  int64 bill_id = 1;
+  // 目标状态
+  BillStatus target_status = 2;
+  // 状态修正原因
+  optional string reason = 3;
+  // 管理员读取账单时拿到的 updated_at，用于状态修正并发校验
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message TransitionBillResponse {
+  Bill bill = 1;
+}
+
+service BillService {
+  // 创建支付账单
+  rpc CreateBill(CreateBillRequest) returns (CreateBillResponse);
+
+  // 付款方标记已付款
+  rpc PayBill(PayBillRequest) returns (PayBillResponse);
+
+  // 收款方确认收款
+  rpc ConfirmBill(ConfirmBillRequest) returns (ConfirmBillResponse);
+
+  // 获取账单详情
+  rpc GetBill(GetBillRequest) returns (GetBillResponse);
+
+  // 管理员修正账单状态
+  rpc TransitionBill(TransitionBillRequest) returns (TransitionBillResponse);
+
+  // 补充支付流水号
+  rpc SupplementSerialNumber(SupplementSerialNumberRequest) returns (SupplementSerialNumberResponse);
+}

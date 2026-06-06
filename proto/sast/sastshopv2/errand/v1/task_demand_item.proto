@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// 团长接单时选择的需求行
+message TaskDemandItem {
+  // 被选择的买家需求行 ID
+  int64 errand_demand_item_id = 1;
+  // 前端读取需求行时拿到的 updated_at，用于防止重复接单
+  google.protobuf.Timestamp updated_at = 2;
+}

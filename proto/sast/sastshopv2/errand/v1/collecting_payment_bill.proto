@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "sast/sastshopv2/errand/v1/collecting_payment_requester_item.proto";
+import "sast/sastshopv2/payment/v1/bill.proto";
+
+// 收款核对中的买家账单摘要
+message CollectingPaymentBillBrief {
+  int64 requester_id = 1;
+  string requester_name = 2;
+  string requester_avatar_url = 3;
+  sast.sastshopv2.payment.v1.BillStatus payment_status = 4;
+  sast.sastshopv2.payment.v1.Bill bill = 5;
+  repeated CollectingPaymentRequesterItemBrief items = 6;
+}
+
+// 收款核对中的买家账单明细
+message CollectingPaymentBillDetail {
+  int64 requester_id = 1;
+  string requester_name = 2;
+  string requester_avatar_url = 3;
+  sast.sastshopv2.payment.v1.BillStatus payment_status = 4;
+  sast.sastshopv2.payment.v1.Bill bill = 5;
+  repeated CollectingPaymentRequesterItemDetail items = 6;
+  int32 product_amount_cents = 7;
+  int32 service_fee_amount_cents = 8;
+  int32 packaging_fee_share_cents = 9;
+  int32 total_amount_cents = 10;
+}

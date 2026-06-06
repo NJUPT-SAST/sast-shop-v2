@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package sast.sastshopv2.user.v1;
+
+import "sast/sastshopv2/user/v1/address.proto";
+
+message CreateAddressRequest {
+  string recipient_name = 2;
+  string recipient_phone = 3;
+  string province = 4;
+  string city = 5;
+  string district = 6;
+  string detail_address = 7;
+  bool is_default = 8;
+}
+
+message CreateAddressResponse {
+  ShippingAddress shipping_addresses = 1;
+}
+
+message UpdateAddressRequest {
+  int64 address_id = 1;
+  string recipient_name = 2;
+  string recipient_phone = 3;
+  string province = 4;
+  string city = 5;
+  string district = 6;
+  string detail_address = 7;
+  bool is_default = 8;
+}
+
+message UpdateAddressResponse {
+  ShippingAddress shipping_addresses = 1;
+}
+
+message DeleteAddressRequest {
+  int64 address_id = 1;
+}
+
+message DeleteAddressResponse {}
+
+message GetAddressRequest {
+  // 非空则获取单个地址，空则获取全部地址
+  optional int64 address_id = 1; 
+}
+
+message GetAddressResponse {
+  repeated ShippingAddress shipping_addresses = 1;
+}
+
+service AddressService {
+  // 创建用户收货地址
+  rpc CreateAddress(CreateAddressRequest) returns (CreateAddressResponse);
+  // 更新用户收货地址
+  rpc UpdateAddress(UpdateAddressRequest) returns (UpdateAddressResponse);
+  // 获取用户收货地址
+  rpc GetAddress(GetAddressRequest) returns (GetAddressResponse);
+  // 删除用户收货地址
+  rpc DeleteAddress(DeleteAddressRequest) returns (DeleteAddressResponse);
+}

@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package sast.sastshopv2.spot.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/catalog/v1/product_template.proto";
+import "sast/sastshopv2/catalog/v1/store.proto";
+import "sast/sastshopv2/spot/v1/spot_order_status.proto";
+import "sast/sastshopv2/payment/v1/bill.proto";
+import "sast/sastshopv2/user/v1/user_info.proto";
+
+// 现货订单列表项，服务于买家/卖家订单列表
+message SpotOrderBrief {
+  // 现货订单 ID
+  int64 id = 1;
+  // 面向用户展示的订单号
+  string order_no = 2;
+  // 下单时的店铺信息
+  sast.sastshopv2.catalog.v1.Store store = 3;
+  // 下单时的商品模板快照
+  sast.sastshopv2.catalog.v1.ProductTemplate product_snapshot = 4;
+  // 购买数量
+  int32 quantity = 5;
+  // 下单单价，单位为分
+  int32 unit_price_cents = 6;
+  // 订单总金额，单位为分
+  int32 total_amount_cents = 7;
+  // 关联支付账单 ID
+  int64 bill_id = 8;
+  // 订单状态
+  SpotOrderStatus status = 9;
+  // 下单时间
+  google.protobuf.Timestamp created_at = 10;
+}
+
+// 现货订单详情，包含支付账单、卖家和状态时间线
+message SpotOrderDetail {
+  int64 id = 1;
+  string order_no = 2;
+  sast.sastshopv2.catalog.v1.Store store = 3;
+  sast.sastshopv2.catalog.v1.ProductTemplate product_snapshot = 4;
+  int32 quantity = 5;
+  int32 unit_price_cents = 6;
+  int32 total_amount_cents = 7;
+  int64 bill_id = 8;
+  SpotOrderStatus status = 9;
+  google.protobuf.Timestamp created_at = 10;
+  // 订单卖家信息
+  sast.sastshopv2.user.v1.UserInfo seller = 11;
+  // 关联支付账单详情
+  sast.sastshopv2.payment.v1.Bill bill = 12;
+  // 支付完成并由 payment 回调 group-trade 的时间
+  optional google.protobuf.Timestamp paid_at = 13;
+  // 订单完成时间
+  optional google.protobuf.Timestamp completed_at = 14;
+  // 订单取消时间
+  optional google.protobuf.Timestamp cancelled_at = 15;
+}

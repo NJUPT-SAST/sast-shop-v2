@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package sast.sastshopv2.catalog.v1;
+
+import "google/protobuf/field_mask.proto";
+import "sast/sastshopv2/catalog/v1/store.proto";
+
+message GetStoreListRequest {}
+
+message GetStoreListResponse {
+  repeated Store stores = 1;
+}
+
+message CreateStoreRequest {
+  string name = 1;
+  string address = 2;
+  string logo_url = 3;
+  string theme_color = 4;
+}
+
+message CreateStoreResponse {
+  Store store = 1;
+}
+
+message UpdateStoreRequest {
+  Store store = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateStoreResponse {
+  Store store = 1;
+}
+
+service CatalogService {
+  // 获取店铺列表
+  rpc GetStoreList(GetStoreListRequest) returns (GetStoreListResponse);
+
+  // 创建店铺
+  rpc CreateStore(CreateStoreRequest) returns (CreateStoreResponse);
+
+  // 更新店铺
+  rpc UpdateStore(UpdateStoreRequest) returns (UpdateStoreResponse);
+}

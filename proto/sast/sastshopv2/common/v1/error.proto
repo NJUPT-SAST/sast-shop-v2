@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package sast.sastshopv2.common.v1;
+
+enum CommonErrorCode {
+  COMMON_ERROR_CODE_UNSPECIFIED = 0;
+  COMMON_ERROR_CODE_INTERNAL_ERROR = 1000;
+}
+
+message CommonError {
+  CommonErrorCode code = 1;
+}

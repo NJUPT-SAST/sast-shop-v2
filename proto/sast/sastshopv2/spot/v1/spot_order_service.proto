@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package sast.sastshopv2.spot.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/spot/v1/create_spot_order.proto";
+import "sast/sastshopv2/spot/v1/spot_goods_perspective.proto";
+import "sast/sastshopv2/spot/v1/spot_order.proto";
+import "sast/sastshopv2/spot/v1/spot_order_status.proto";
+
+message ListSpotOrderRequest {
+  // 店铺 ID
+  int64 store_id = 1;
+  // 买家或卖家视角
+  SpotGoodsPerspective perspective = 2;
+  // 可选订单状态过滤
+  optional SpotOrderStatus filter_status = 3;
+  int32 page = 4;
+  int32 page_size = 5;
+}
+
+message ListSpotOrderResponse {
+  repeated SpotOrderBrief spot_orders = 1;
+  int32 current_page = 2;
+  int32 total_count = 3;
+}
+
+message CreateSpotOrdersRequest {
+  repeated CreateSpotOrder spot_orders = 1;
+}
+
+message CreateSpotOrdersResponse {
+  repeated SpotOrderDetail spot_order_details = 1;
+}
+
+message GetSpotOrderDetailRequest {
+  int64 spot_order_id = 1;
+}
+
+message GetSpotOrderDetailResponse {
+  SpotOrderDetail spot_order_detail = 1;
+}
+
+message CancelSpotOrderRequest {
+  int64 spot_order_id = 1;
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message CancelSpotOrderResponse {
+  SpotOrderDetail spot_order_detail = 1;
+}
+
+message CompleteSpotOrderRequest {
+  int64 spot_order_id = 1;
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message CompleteSpotOrderResponse {
+  SpotOrderDetail spot_order_detail = 1;
+}
+
+service SpotOrderService {
+  // 获取当前用户在指定店铺下的现货订单列表
+  rpc ListSpotOrder(ListSpotOrderRequest) returns (ListSpotOrderResponse);
+
+  // 买家从现货购物车批量创建订单
+  rpc CreateSpotOrders(CreateSpotOrdersRequest) returns (CreateSpotOrdersResponse);
+
+  // 获取现货订单详情
+  rpc GetSpotOrderDetail(GetSpotOrderDetailRequest) returns (GetSpotOrderDetailResponse);
+
+  // 取消现货订单，并释放库存、取消关联账单
+  rpc CancelSpotOrder(CancelSpotOrderRequest) returns (CancelSpotOrderResponse);
+
+  // 标记现货订单完成
+  rpc CompleteSpotOrder(CompleteSpotOrderRequest) returns (CompleteSpotOrderResponse);
+}

@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/catalog/v1/product_template.proto";
+import "sast/sastshopv2/errand/v1/errand_demand_item_status.proto";
+
+// 买家跑腿订单中的单个商品需求行，商品描述实时读取 catalog 商品模板
+message ErrandDemandItem {
+  // 需求行 ID，对应 errand_demand_item.id
+  int64 id = 1;
+  // 所属买家视角跑腿订单 ID
+  int64 errand_demand_id = 2;
+  // 发起需求的购买人 ID
+  int64 requester_id = 3;
+  // 目标店铺 ID
+  int64 store_id = 4;
+  // catalog 商品模板实时信息
+  sast.sastshopv2.catalog.v1.ProductTemplate product_template = 5;
+  // 下单时的预估单价，单位为分
+  int32 estimated_unit_price_cents = 6;
+  // 需求数量
+  int32 quantity = 7;
+  // 单件跑腿费，单位为分
+  int32 service_fee_per_unit_cents = 8;
+  // 需求行状态
+  sast.sastshopv2.errand.v1.ErrandDemandItemStatus status = 9;
+  // 期望送达时间
+  google.protobuf.Timestamp deadline = 10;
+  // 需求行最近更新时间，用于接单并发校验
+  google.protobuf.Timestamp updated_at = 11;
+}

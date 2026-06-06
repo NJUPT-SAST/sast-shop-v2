@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+message OnPaymentConfirmedRequest {
+  string source_type = 1;
+  int64 source_id = 2;
+  int64 payer_id = 3;
+}
+
+message OnPaymentConfirmedResponse {}
+
+message OnAllPaymentsConfirmedRequest {
+  string source_type = 1;
+  int64 source_id = 2;
+}
+
+message OnAllPaymentsConfirmedResponse {}
+
+service GroupTradeInternalService {
+  // 单笔账单确认收款后，由 payment 回调 group-trade 推进订单或任务付款状态
+  // 跑腿账单使用 source_type = "errand_task"、source_id = errand_task.id、payer_id = 购买人 ID
+  rpc OnPaymentConfirmed(OnPaymentConfirmedRequest) returns (OnPaymentConfirmedResponse);
+
+  // 同一业务来源下账单全部确认后，由 payment 回调 group-trade 推进整体订单或任务状态
+  rpc OnAllPaymentsConfirmed(OnAllPaymentsConfirmedRequest) returns (OnAllPaymentsConfirmedResponse);
+}

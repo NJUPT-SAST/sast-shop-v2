@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package sast.sastshopv2.catalog.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message ProductTemplate {
+  int64 id = 1;
+  string title = 2;
+  string description = 3;
+  int32 price_cents = 4;
+  int64 store_id = 5;
+  string main_image_url = 6;
+  string barcode = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}

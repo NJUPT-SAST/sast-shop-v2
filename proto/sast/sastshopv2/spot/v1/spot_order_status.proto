@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package sast.sastshopv2.spot.v1;
+
+enum SpotOrderStatus {
+  SPOT_ORDER_STATUS_UNSPECIFIED = 0;
+  SPOT_ORDER_STATUS_PENDING_PAYMENT = 1;
+  SPOT_ORDER_STATUS_PAID = 2;
+  SPOT_ORDER_STATUS_COMPLETED = 3;
+  SPOT_ORDER_STATUS_CANCELLED = 4;
+}

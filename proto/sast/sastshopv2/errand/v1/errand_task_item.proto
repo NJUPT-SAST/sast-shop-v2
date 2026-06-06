@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/catalog/v1/product_template.proto";
+
+message ErrandTaskItem {
+  int64 id = 1;
+  sast.sastshopv2.catalog.v1.ProductTemplate product_snapshot = 2;
+  int32 required_quantity = 3;
+  optional int32 purchased_quantity = 4;
+  optional string non_purchase_reason = 5;
+  int32 actual_unit_price_cents = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}

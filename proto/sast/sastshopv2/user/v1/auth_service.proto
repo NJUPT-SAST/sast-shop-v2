@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package sast.sastshopv2.user.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/user/v1/user_info.proto";
+
+message LoginRequest {
+  string code = 1;
+}
+
+message LoginResponse {
+  string session_token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  UserInfo user_info = 3;
+}
+
+message GetJSAPIAuthConfigRequest {
+  string url = 1;
+}
+
+message GetJSAPIAuthConfigResponse {
+  string app_id = 1;
+  string timestamp = 2;
+  string nonce_str = 3;
+  string signature = 4;
+}
+
+service AuthService {
+  // 用户登录
+  rpc Login(LoginRequest) returns (LoginResponse);
+  // 获取JSAPI鉴权配置
+  rpc GetJSAPIAuthConfig(GetJSAPIAuthConfigRequest) returns (GetJSAPIAuthConfigResponse);
+}

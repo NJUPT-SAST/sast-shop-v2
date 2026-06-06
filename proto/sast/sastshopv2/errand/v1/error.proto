@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package sast.sastshopv2.errand.v1;
+
+enum ErrandErrorCode {
+  ERRAND_ERROR_CODE_UNSPECIFIED = 0;
+  ERRAND_ERROR_CODE_INTERNAL_ERROR = 6000;
+}
+
+message ErrandError {
+  ErrandErrorCode code = 1;
+}

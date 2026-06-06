@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package sast.sastshopv2.payment.v1;
+
+enum PaymentErrorCode {
+  PAYMENT_ERROR_CODE_UNSPECIFIED = 0;
+  // 账单不存在
+  PAYMENT_ERROR_CODE_BILL_NOT_FOUND = 4000;
+  // 账单状态不合法
+  PAYMENT_ERROR_CODE_INVALID_BILL_STATUS = 4001;
+  // 支付渠道不合法
+  PAYMENT_ERROR_CODE_INVALID_CHANNEL = 4002;
+  // 同一来源已存在账单（source_type + source_id + payer_id 冲突）
+  PAYMENT_ERROR_CODE_DUPLICATE_BILL = 4003;
+}
+
+message PaymentError {
+  PaymentErrorCode code = 1;
+}
