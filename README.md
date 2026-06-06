@@ -1,6 +1,6 @@
 # SAST Shop v2
 
-[中文版](./README_CN.md)
+[中文版](./README_zh.md)
 
 Campus commerce backend for NJUPT (Nanjing University of Posts and Telecommunications), built with Go microservices.
 
