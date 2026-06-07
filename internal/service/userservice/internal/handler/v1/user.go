@@ -21,8 +21,7 @@ func (s *UserServer) GetUserInfo(
 ) (*connect.Response[userv1.GetUserInfoResponse], error) {
 	user, err := service.GetUserInfo(ctx, r.Msg.UserId)
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to get user info for userID: %d", r.Msg.UserId)
-		return nil, userError()
+		return nil, err
 	}
 
 	log.Debug().Msgf("GetUser called success, userID: %d, userName: %s", r.Msg.UserId, user.DisplayName)

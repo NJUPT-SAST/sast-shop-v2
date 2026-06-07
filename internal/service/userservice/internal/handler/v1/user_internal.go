@@ -19,6 +19,7 @@ func (s *UserInternalServer) GetUsers(
 	ctx context.Context,
 	r *connect.Request[userv1.GetUsersRequest],
 ) (*connect.Response[userv1.GetUsersResponse], error) {
+	log.Debug().Msgf("GetUsers called with protocol: %s, userIDs: %v", r.Peer().Protocol, r.Msg.UserIds)
 	userIDs := r.Msg.UserIds
 	if len(userIDs) == 0 {
 		return connect.NewResponse(&userv1.GetUsersResponse{}), nil

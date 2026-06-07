@@ -35,12 +35,17 @@ type Config struct {
 	// App configuration
 	AppEnv Environment `env:"APP_ENV" envDefault:"development"`
 
-	// Service ports
-	UserServicePort    int32 `env:"USER_SERVICE_PORT"    envDefault:"1323"`
-	CatalogServicePort int32 `env:"CATALOG_SERVICE_PORT" envDefault:"1324"`
-	PaymentServicePort int32 `env:"PAYMENT_SERVICE_PORT" envDefault:"1325"`
-	SpotServicePort    int32 `env:"SPOT_SERVICE_PORT"    envDefault:"1326"`
-	ErrandServicePort  int32 `env:"ERRAND_SERVICE_PORT"  envDefault:"1327"`
+	// Service ports and urls
+	UserServiceURL     string `env:"USER_SERVICE_URL"     envDefault:"http://localhost"`
+	UserServicePort    int32  `env:"USER_SERVICE_PORT"    envDefault:"1323"`
+	CatalogServiceURL  string `env:"CATALOG_SERVICE_URL"  envDefault:"http://localhost"`
+	CatalogServicePort int32  `env:"CATALOG_SERVICE_PORT" envDefault:"1324"`
+	PaymentServiceURL  string `env:"PAYMENT_SERVICE_URL"  envDefault:"http://localhost"`
+	PaymentServicePort int32  `env:"PAYMENT_SERVICE_PORT" envDefault:"1325"`
+	SpotServiceURL     string `env:"SPOT_SERVICE_URL"     envDefault:"http://localhost"`
+	SpotServicePort    int32  `env:"SPOT_SERVICE_PORT"    envDefault:"1326"`
+	ErrandServiceURL   string `env:"ERRAND_SERVICE_URL"   envDefault:"http://localhost"`
+	ErrandServicePort  int32  `env:"ERRAND_SERVICE_PORT"  envDefault:"1327"`
 }
 
 var AppConfig *Config

@@ -6,6 +6,7 @@ import (
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/payment/v1/paymentv1connect"
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
 )
@@ -39,7 +40,14 @@ func (s *BillServiceServer) GetBill(
 	ctx context.Context,
 	r *connect.Request[paymentv1.GetBillRequest],
 ) (*connect.Response[paymentv1.GetBillResponse], error) {
-	return nil, paymentError()
+	bill, err := service.GetBill(ctx, r.Msg.BillId)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&paymentv1.GetBillResponse{
+		Bill: bill,
+	}), nil
 }
 
 func (s *BillServiceServer) TransitionBill(
