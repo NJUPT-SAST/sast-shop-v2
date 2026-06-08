@@ -19,4 +19,8 @@ const (
 	// TODO: set session TTL before feishu access token expiration time
 	SessionTTL          = 30 * time.Minute
 	UnknownErrorMessage = "An unknown error occurred. Please try again later."
+
+	FeishuAppTokenKey    = "feishu:app_token"
+	FeishuTenantTokenKey = "feishu:tenant_token"
+	FeishuJSAPITicketKey = "feishu:jsapi_ticket"
 )
