@@ -7,15 +7,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/constant"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/redis"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	goredis "github.com/redis/go-redis/v9"
-)
-
-const (
-	sdkTokenCacheKeyPrefix = "feishu:sdk:"
-	jsapiTicketCacheKey    = "feishu:jsapi_ticket"
-	messageDedupeKeyPrefix = "feishu:message:dedupe:"
 )
 
 type jsapiTicketCacheEntry struct {
@@ -31,7 +26,7 @@ func newSDKTokenCache() larkcore.Cache {
 
 func (sdkTokenCache) Get(ctx context.Context, key string) (string, error) {
 	ctx = redis.WithProjectPrefixOnly(ctx)
-	value, err := redis.Client.Get(ctx, sdkTokenCacheKeyPrefix+key).Result()
+	value, err := redis.Client.Get(ctx, constant.FeishuSDKTokenKeyPrefix+key).Result()
 	if errors.Is(err, goredis.Nil) {
 		return "", nil
 	}
@@ -40,7 +35,7 @@ func (sdkTokenCache) Get(ctx context.Context, key string) (string, error) {
 
 func (sdkTokenCache) Set(ctx context.Context, key string, value string, expireTime time.Duration) error {
 	ctx = redis.WithProjectPrefixOnly(ctx)
-	return redis.Client.Set(ctx, sdkTokenCacheKeyPrefix+key, value, expireTime).Err()
+	return redis.Client.Set(ctx, constant.FeishuSDKTokenKeyPrefix+key, value, expireTime).Err()
 }
 
 func setCachedSelfBuiltTenantAccessToken(ctx context.Context, appID string, token string, expireIn int) error {
@@ -53,7 +48,7 @@ func sdkSelfBuiltTenantAccessTokenKey(appID string) string {
 
 func GetCachedJSAPITicket(ctx context.Context) (*JSAPITicket, error) {
 	ctx = redis.WithProjectPrefixOnly(ctx)
-	data, err := redis.Client.Get(ctx, jsapiTicketCacheKey).Bytes()
+	data, err := redis.Client.Get(ctx, constant.FeishuJSAPITicketKey).Bytes()
 	if errors.Is(err, goredis.Nil) {
 		return nil, nil
 	}
@@ -83,12 +78,12 @@ func SetCachedJSAPITicket(ctx context.Context, ticket *JSAPITicket) error {
 	}
 
 	ttl := cacheTTL(int(ticket.ExpireIn))
-	return redis.Client.Set(ctx, jsapiTicketCacheKey, payload, ttl).Err()
+	return redis.Client.Set(ctx, constant.FeishuJSAPITicketKey, payload, ttl).Err()
 }
 
 func AcquireMessageDedupe(ctx context.Context, bizKey string) (bool, error) {
 	ctx = redis.WithProjectPrefixOnly(ctx)
-	return redis.Client.SetNX(ctx, messageDedupeKeyPrefix+bizKey, "1", 10*time.Minute).Result()
+	return redis.Client.SetNX(ctx, constant.FeishuMessageDedupeKeyPrefix+bizKey, "1", 10*time.Minute).Result()
 }
 
 func cacheTTL(expireIn int) time.Duration {

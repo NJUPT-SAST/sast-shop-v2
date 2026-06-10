@@ -10,10 +10,12 @@ import (
 )
 
 func SendTextByOpenID(ctx context.Context, openID string, text string, bizKey string) (*SendMessageResult, error) {
-	if ok, err := AcquireMessageDedupe(ctx, bizKey); err != nil {
-		return nil, err
-	} else if !ok {
-		return &SendMessageResult{}, nil
+	if bizKey != "" {
+		if ok, err := AcquireMessageDedupe(ctx, bizKey); err != nil {
+			return nil, err
+		} else if !ok {
+			return &SendMessageResult{}, nil
+		}
 	}
 
 	client, err := getClient()

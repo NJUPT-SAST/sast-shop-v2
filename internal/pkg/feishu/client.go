@@ -8,14 +8,10 @@ import (
 	"time"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/config"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/constant"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	larkaccesstoken "github.com/larksuite/oapi-sdk-go/v3/core/accesstoken"
-)
-
-const (
-	baseOpenAPIURL = "https://open.feishu.cn"
-	baseAccountURL = "https://accounts.feishu.cn"
 )
 
 var httpClient = &http.Client{
@@ -31,8 +27,16 @@ type Client struct {
 
 var AppClient *Client
 
+func validateFeishuConfig(appID, appSecret string) {
+	if appID == "" || appSecret == "" ||
+		appID == constant.FeishuDefaultAppID || appSecret == constant.FeishuDefaultAppSecret {
+		panic("feishu: FEISHU_APP_ID / FEISHU_APP_SECRET must be configured with real credentials")
+	}
+}
+
 func Init() {
 	cfg := config.AppConfig
+	validateFeishuConfig(cfg.Feishu_AppID, cfg.Feishu_AppSecret)
 	AppClient = &Client{
 		AppID:       cfg.Feishu_AppID,
 		AppSecret:   cfg.Feishu_AppSecret,
@@ -45,8 +49,8 @@ func newSDKClient(appID string, appSecret string) *lark.Client {
 	return lark.NewClient(
 		appID,
 		appSecret,
-		lark.WithOpenBaseUrl(baseOpenAPIURL),
-		lark.WithOAuthBaseUrl(baseAccountURL),
+		lark.WithOpenBaseUrl(constant.FeishuOpenAPIBaseURL),
+		lark.WithOAuthBaseUrl(constant.FeishuAccountBaseURL),
 		lark.WithReqTimeout(10*time.Second),
 		lark.WithHttpClient(httpClient),
 		lark.WithTokenCache(newSDKTokenCache()),

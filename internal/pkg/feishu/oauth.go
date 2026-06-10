@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/constant"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	larkaccesstoken "github.com/larksuite/oapi-sdk-go/v3/core/accesstoken"
 	"github.com/larksuite/oapi-sdk-go/v3/core/accesstoken/authorizationcode"
@@ -35,7 +36,7 @@ func BuildAuthorizationURL(req acquireAuthorizationCodeRequest) (string, error) 
 		req.RedirectURI = AppClient.RedirectURL
 	}
 
-	u, err := url.Parse(fmt.Sprintf("%s/open-apis/authen/v1/authorize", baseAccountURL))
+	u, err := url.Parse(fmt.Sprintf("%s/open-apis/authen/v1/authorize", constant.FeishuAccountBaseURL))
 	if err != nil {
 		return "", err
 	}

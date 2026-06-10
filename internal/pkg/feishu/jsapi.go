@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -28,7 +29,7 @@ func GetJSAPITicket(ctx context.Context) (*JSAPITicket, error) {
 		return nil, err
 	}
 
-	rawResp, err := client.SDK.Get(ctx, "/open-apis/jssdk/ticket/get", nil, larkcore.AccessTokenTypeTenant)
+	rawResp, err := client.SDK.Post(ctx, "/open-apis/jssdk/ticket/get", map[string]any{}, larkcore.AccessTokenTypeTenant)
 	if err != nil {
 		return nil, mapFeishuError(err)
 	}
@@ -50,6 +51,14 @@ func GetJSAPITicket(ctx context.Context) (*JSAPITicket, error) {
 }
 
 func SignURL(ctx context.Context, requestURL string) (*JSAPISignature, error) {
+	client, err := getClient()
+	if err != nil {
+		return nil, err
+	}
+
+	// 飞书 H5 JSAPI 签名要求 URL 不含 # 及之后片段。
+	requestURL = strings.SplitN(requestURL, "#", 2)[0]
+
 	ticket, err := GetJSAPITicket(ctx)
 	if err != nil {
 		return nil, err
@@ -72,7 +81,7 @@ func SignURL(ctx context.Context, requestURL string) (*JSAPISignature, error) {
 	signature := hex.EncodeToString(sum[:])
 
 	return &JSAPISignature{
-		AppID:     AppClient.AppID,
+		AppID:     client.AppID,
 		NonceStr:  nonceStr,
 		Timestamp: timestamp,
 		Signature: signature,
