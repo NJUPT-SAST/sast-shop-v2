@@ -33,8 +33,13 @@ func (s *UserServer) GetUserInfo(
 		},
 	}), nil
 }
-
+//把 UserServer 注册成一个用户服务的 HTTP/RPC 接口，并挂载到 Echo Web 框架上。
 func InitUserHandler(e *echo.Echo, opts ...connect.HandlerOption) {
+	//根据
+	//apiPath:服务路径
+	//apiHandler:标准的http.Handler
 	apiPath, apiHandler := userv1connect.NewUserServiceHandler(&UserServer{}, opts...)
+	
+	
 	e.Any(apiPath+"*", echo.WrapHandler(apiHandler))
 }

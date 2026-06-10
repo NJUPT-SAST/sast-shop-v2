@@ -4,6 +4,13 @@ package sast.sastshopv2.user.v1;
 
 import "sast/sastshopv2/user/v1/user_info.proto";
 
+message InternalUserInfo{
+  int64 id = 1;
+  string name = 2;
+  string avatar_url = 3;
+  string feishu_open_id = 4;
+}
+
 message GetUsersRequest {
   repeated int64 user_ids = 1;
 }
