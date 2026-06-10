@@ -28,16 +28,17 @@ func NewClient() *Client {
 	}
 }
 
-// apiResponse 是飞书开放平台 API 的通用响应结构，code 为 0 表示成功。
+// apiResponse 是飞书开放平台 API 的通用响应外层结构，code 为 0 表示成功。
 type apiResponse struct {
-	Code int             `json:"code"`
-	Msg  string          `json:"msg"`
-	Data json.RawMessage `json:"data"`
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
 }
 
 // postJSON 向飞书发送 JSON 格式的 POST 请求，并统一处理错误。
 // headers 为额外请求头（如 Authorization），body 会被序列化为 JSON 请求体；
-// 当 out 不为 nil 时，成功响应的 data 字段会被反序列化到 out。
+// 当 out 不为 nil 时，整个成功响应体会被反序列化到 out。
+// 飞书各接口的业务字段位置不一致：部分接口（如 app_access_token）字段在响应顶层，
+// 部分接口（如 authen/v1、jssdk）字段在 data 内，因此由调用方按需定义 out 结构。
 // 若 HTTP 状态码 >= 400 或飞书返回的 code != 0，则返回错误。
 func (c *Client) postJSON(
 	ctx context.Context,
@@ -81,8 +82,8 @@ func (c *Client) postJSON(
 	if result.Code != 0 {
 		return fmt.Errorf("feishu api error %d: %s", result.Code, result.Msg)
 	}
-	if out != nil && len(result.Data) > 0 {
-		if err := json.Unmarshal(result.Data, out); err != nil {
+	if out != nil {
+		if err := json.Unmarshal(raw, out); err != nil {
 			return err
 		}
 	}

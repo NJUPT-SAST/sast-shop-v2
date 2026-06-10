@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/config"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/constant"
 	pkgredis "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -31,4 +33,36 @@ func setCachedToken(ctx context.Context, key, token string, expireInSec int) err
 	}
 	ctx = pkgredis.WithProjectPrefixOnly(ctx)
 	return pkgredis.Client.Set(ctx, key, token, ttl).Err()
+}
+
+// GetAppAccessToken 获取飞书 app_access_token，优先读取 Redis 缓存，
+// 未命中时调用 auth/v3/app_access_token/internal 接口获取并写入缓存。
+func GetAppAccessToken(ctx context.Context) (string, error) {
+	if token, ok, err := getCachedToken(ctx, constant.FeishuAppTokenKey); err != nil {
+		return "", err
+	} else if ok {
+		return token, nil
+	}
+
+	var data struct {
+		AppAccessToken string `json:"app_access_token"`
+		Expire         int    `json:"expire"`
+	}
+	err := DefaultClient.postJSON(ctx,
+		baseURL+"/auth/v3/app_access_token/internal",
+		nil,
+		map[string]string{
+			"app_id":     config.AppConfig.Feishu_AppID,
+			"app_secret": config.AppConfig.Feishu_AppSecret,
+		},
+		&data,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	if err := setCachedToken(ctx, constant.FeishuAppTokenKey, data.AppAccessToken, data.Expire); err != nil {
+		return "", err
+	}
+	return data.AppAccessToken, nil
 }
