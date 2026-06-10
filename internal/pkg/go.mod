@@ -8,6 +8,7 @@ require (
 	connectrpc.com/validate v0.6.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/joho/godotenv v1.5.1
+	github.com/larksuite/oapi-sdk-go/v3 v3.9.5
 	github.com/redis/go-redis/v9 v9.20.0
 	github.com/rs/zerolog v1.35.1
 )
@@ -18,7 +19,6 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/google/cel-go v0.28.0 // indirect
-	github.com/larksuite/oapi-sdk-go/v3 v3.9.5 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	go.opentelemetry.io/otel v1.40.0 // indirect
