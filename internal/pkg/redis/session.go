@@ -50,3 +50,14 @@ func (s *SessionStore) SaveSession(ctx context.Context, token string, user *rpci
 	ctx = WithProjectPrefixOnly(ctx)
 	return Client.Set(ctx, constant.SessionTokenPrefix+token, data, constant.SessionTTL).Err()
 }
+
+func (s *SessionStore) SaveUserCache(ctx context.Context, user *rpcinterceptor.AuthUser) error {
+	//nolint:gosec // AccessToken is part of user cache stored in Redis, not logged
+	data, err := json.Marshal(user)
+	if err != nil {
+		return err
+	}
+	ctx = WithProjectPrefixOnly(ctx)
+	key := fmt.Sprintf("%s%d", constant.UserCachePrefix, user.UserID)
+	return Client.Set(ctx, key, data, constant.SessionTTL).Err()
+}
