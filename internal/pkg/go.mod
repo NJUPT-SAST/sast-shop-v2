@@ -8,7 +8,7 @@ require (
 	connectrpc.com/validate v0.6.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/joho/godotenv v1.5.1
-	github.com/larksuite/oapi-sdk-go/v3 v3.9.5
+	github.com/larksuite/oapi-sdk-go/v3 v3.9.4
 	github.com/redis/go-redis/v9 v9.20.0
 	github.com/rs/zerolog v1.35.1
 )
@@ -34,7 +34,7 @@ require (
 )
 
 require (
-	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260606125934-b8fc1c11fd3f.1
+	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260607141353-2f726ec59732.1
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect

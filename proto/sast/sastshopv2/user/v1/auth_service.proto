@@ -7,12 +7,23 @@ import "sast/sastshopv2/user/v1/user_info.proto";
 
 message LoginRequest {
   string code = 1;
+  optional string redirect_uri = 2;
+  optional string device_id = 3;
+}
+
+message LoginMember{
+  int64 id = 1;
+  string display_name = 2;
+  string avatar_url  = 3;
+  string role  = 4;
+  string status = 5;
 }
 
 message LoginResponse {
-  string session_token = 1;
-  google.protobuf.Timestamp expires_at = 2;
-  UserInfo user_info = 3;
+  string access_token = 1;
+  string refresh_token = 2;
+  int32 expires_in = 3;
+  LoginMember member = 4;
 }
 
 message GetJSAPIAuthConfigRequest {

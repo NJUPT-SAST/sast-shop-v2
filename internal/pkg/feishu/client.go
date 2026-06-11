@@ -1,30 +1,77 @@
 package feishu
 
 import (
+	"errors"
+	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/config"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/constant"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
+	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
+	larkaccesstoken "github.com/larksuite/oapi-sdk-go/v3/core/accesstoken"
 )
 
-// Client 是包级共享的飞书 SDK 客户端单例，由 Init 在服务启动期初始化。
-// SDK 默认开启 token 自动管理（EnableTokenCache=true），
-// app_access_token / tenant_access_token 的获取与缓存全部由 SDK 处理，
-// 缓存载体通过 WithTokenCache 接入项目 Redis（见 RedisCache）。
-var Client *lark.Client
+type Client struct {
+	AppID       string
+	AppSecret   string
+	RedirectURL string
+	SDK         *lark.Client
+}
 
-// Init 初始化飞书 SDK 客户端单例。
-// 必须在 config 与 redis 初始化之后调用（依赖配置与 Redis 缓存）。
+var AppClient *Client
+
 func Init() {
 	cfg := config.AppConfig
-	if cfg.Feishu_AppID == "" || cfg.Feishu_AppSecret == "" {
-		panic("feishu: FEISHU_APP_ID / FEISHU_APP_SECRET must be configured")
+	if cfg.Feishu_AppID == "" || cfg.Feishu_AppSecret == "" ||
+		cfg.Feishu_AppID == constant.FeishuDefaultAppID || cfg.Feishu_AppSecret == constant.FeishuDefaultAppSecret {
+		panic("feishu: FEISHU_APP_ID / FEISHU_APP_SECRET must be configured with real credentials")
+	}
+	AppClient = &Client{
+		AppID:       cfg.Feishu_AppID,
+		AppSecret:   cfg.Feishu_AppSecret,
+		RedirectURL: cfg.Feishu_REDIRECT_URL,
+		SDK: lark.NewClient(
+			cfg.Feishu_AppID,
+			cfg.Feishu_AppSecret,
+			lark.WithOpenBaseUrl(constant.FeishuOpenAPIBaseURL),
+			lark.WithOAuthBaseUrl(constant.FeishuAccountBaseURL),
+			lark.WithReqTimeout(10*time.Second),
+			lark.WithHttpClient(http.DefaultClient),
+			lark.WithTokenCache(newSDKTokenCache()),
+		),
+	}
+}
+
+func getClient() (*Client, error) {
+	if AppClient == nil || AppClient.SDK == nil {
+		return nil, fmt.Errorf("feishu client is not initialized")
+	}
+	return AppClient, nil
+}
+
+func mapFeishuError(err error) error {
+	if err == nil {
+		return nil
 	}
 
-	Client = lark.NewClient(
-		cfg.Feishu_AppID,
-		cfg.Feishu_AppSecret,
-		lark.WithTokenCache(RedisCache{}),
-		lark.WithReqTimeout(10*time.Second),
-	)
+	var tokenErr *larkaccesstoken.AccessTokenError
+	if errors.As(err, &tokenErr) {
+		return &OAuthError{
+			Code:             tokenErr.Code,
+			ErrorCode:        tokenErr.ErrorType,
+			ErrorDescription: tokenErr.ErrorDescription,
+		}
+	}
+
+	var codeErr larkcore.CodeError
+	if errors.As(err, &codeErr) {
+		return &APIError{
+			Code:    codeErr.Code,
+			Message: codeErr.Msg,
+		}
+	}
+
+	return err
 }

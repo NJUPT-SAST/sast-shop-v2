@@ -32,6 +32,7 @@ type Config struct {
 	Feishu_AppID     string `env:"FEISHU_APP_ID"     envDefault:"your_feishu_app_id"`
 	Feishu_AppSecret string `env:"FEISHU_APP_SECRET" envDefault:"your_feishu_app_secret"`
 
+	Feishu_REDIRECT_URL string `env:"FEISHU_REDIRECT_URL" envDefault:"http://127.0.0.1:8080/api/v1/auth/feishu/callback"`
 	// App configuration
 	AppEnv Environment `env:"APP_ENV" envDefault:"development"`
 
