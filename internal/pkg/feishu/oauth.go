@@ -61,15 +61,19 @@ func BuildAuthorizationURL(req acquireAuthorizationCodeRequest) (string, error) 
 	return u.String(), nil
 }
 
-func ExchangeCode(ctx context.Context, code string, codeVerifier string) (*OAuthToken, error) {
+func ExchangeCode(ctx context.Context, code string, codeVerifier string, redirectURI string) (*OAuthToken, error) {
 	client, err := getClient()
 	if err != nil {
 		return nil, err
 	}
 
 	reqBuilder := authorizationcode.NewTokenRequestBuilder().Code(code)
-	if client.RedirectURL != "" {
-		reqBuilder.RedirectUri(client.RedirectURL)
+	redirect := redirectURI
+	if redirect == "" {
+		redirect = client.RedirectURL
+	}
+	if redirect != "" {
+		reqBuilder.RedirectUri(redirect)
 	}
 	if codeVerifier != "" {
 		reqBuilder.CodeVerifier(codeVerifier)
@@ -83,7 +87,11 @@ func ExchangeCode(ctx context.Context, code string, codeVerifier string) (*OAuth
 		return nil, fmt.Errorf("feishu access token response is empty")
 	}
 
-	return oauthTokenFromSDK(resp.Data), nil
+	token := oauthTokenFromSDK(resp.Data)
+	if token.AccessToken == "" {
+		return nil, fmt.Errorf("feishu access token is empty")
+	}
+	return token, nil
 }
 
 func RefreshUserToken(ctx context.Context, refreshToken string) (*OAuthToken, error) {

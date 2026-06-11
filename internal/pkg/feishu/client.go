@@ -1,7 +1,6 @@
 package feishu
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,10 +13,6 @@ import (
 	larkaccesstoken "github.com/larksuite/oapi-sdk-go/v3/core/accesstoken"
 )
 
-var httpClient = &http.Client{
-	Timeout: 10 * time.Second,
-}
-
 type Client struct {
 	AppID       string
 	AppSecret   string
@@ -27,34 +22,26 @@ type Client struct {
 
 var AppClient *Client
 
-func validateFeishuConfig(appID, appSecret string) {
-	if appID == "" || appSecret == "" ||
-		appID == constant.FeishuDefaultAppID || appSecret == constant.FeishuDefaultAppSecret {
-		panic("feishu: FEISHU_APP_ID / FEISHU_APP_SECRET must be configured with real credentials")
-	}
-}
-
 func Init() {
 	cfg := config.AppConfig
-	validateFeishuConfig(cfg.Feishu_AppID, cfg.Feishu_AppSecret)
+	if cfg.Feishu_AppID == "" || cfg.Feishu_AppSecret == "" ||
+		cfg.Feishu_AppID == constant.FeishuDefaultAppID || cfg.Feishu_AppSecret == constant.FeishuDefaultAppSecret {
+		panic("feishu: FEISHU_APP_ID / FEISHU_APP_SECRET must be configured with real credentials")
+	}
 	AppClient = &Client{
 		AppID:       cfg.Feishu_AppID,
 		AppSecret:   cfg.Feishu_AppSecret,
 		RedirectURL: cfg.Feishu_REDIRECT_URL,
-		SDK:         newSDKClient(cfg.Feishu_AppID, cfg.Feishu_AppSecret),
+		SDK: lark.NewClient(
+			cfg.Feishu_AppID,
+			cfg.Feishu_AppSecret,
+			lark.WithOpenBaseUrl(constant.FeishuOpenAPIBaseURL),
+			lark.WithOAuthBaseUrl(constant.FeishuAccountBaseURL),
+			lark.WithReqTimeout(10*time.Second),
+			lark.WithHttpClient(http.DefaultClient),
+			lark.WithTokenCache(newSDKTokenCache()),
+		),
 	}
-}
-
-func newSDKClient(appID string, appSecret string) *lark.Client {
-	return lark.NewClient(
-		appID,
-		appSecret,
-		lark.WithOpenBaseUrl(constant.FeishuOpenAPIBaseURL),
-		lark.WithOAuthBaseUrl(constant.FeishuAccountBaseURL),
-		lark.WithReqTimeout(10*time.Second),
-		lark.WithHttpClient(httpClient),
-		lark.WithTokenCache(newSDKTokenCache()),
-	)
 }
 
 func getClient() (*Client, error) {
@@ -62,33 +49,6 @@ func getClient() (*Client, error) {
 		return nil, fmt.Errorf("feishu client is not initialized")
 	}
 	return AppClient, nil
-}
-
-func GetTenantAccessToken(ctx context.Context) (string, error) {
-	client, err := getClient()
-	if err != nil {
-		return "", err
-	}
-
-	resp, err := client.SDK.GetTenantAccessTokenBySelfBuiltApp(ctx, &larkcore.SelfBuiltTenantAccessTokenReq{
-		AppID:     client.AppID,
-		AppSecret: client.AppSecret,
-	})
-	if err != nil {
-		return "", mapFeishuError(err)
-	}
-	if resp == nil {
-		return "", fmt.Errorf("feishu tenant access token response is empty")
-	}
-	if !resp.Success() {
-		return "", &APIError{
-			Code:    resp.Code,
-			Message: resp.Msg,
-		}
-	}
-
-	_ = setCachedSelfBuiltTenantAccessToken(ctx, client.AppID, resp.TenantAccessToken, resp.Expire)
-	return resp.TenantAccessToken, nil
 }
 
 func mapFeishuError(err error) error {

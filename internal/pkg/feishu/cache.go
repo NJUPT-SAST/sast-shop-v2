@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/constant"
@@ -36,14 +35,6 @@ func (sdkTokenCache) Get(ctx context.Context, key string) (string, error) {
 func (sdkTokenCache) Set(ctx context.Context, key string, value string, expireTime time.Duration) error {
 	ctx = redis.WithProjectPrefixOnly(ctx)
 	return redis.Client.Set(ctx, constant.FeishuSDKTokenKeyPrefix+key, value, expireTime).Err()
-}
-
-func setCachedSelfBuiltTenantAccessToken(ctx context.Context, appID string, token string, expireIn int) error {
-	return newSDKTokenCache().Set(ctx, sdkSelfBuiltTenantAccessTokenKey(appID), token, cacheTTL(expireIn))
-}
-
-func sdkSelfBuiltTenantAccessTokenKey(appID string) string {
-	return fmt.Sprintf("tenant_access_token-%s-", appID)
 }
 
 func GetCachedJSAPITicket(ctx context.Context) (*JSAPITicket, error) {

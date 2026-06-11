@@ -12,6 +12,7 @@ import (
 	"time"
 
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
+	"github.com/rs/zerolog/log"
 )
 
 type jsapiTicketResponseData struct {
@@ -46,7 +47,9 @@ func GetJSAPITicket(ctx context.Context) (*JSAPITicket, error) {
 		Ticket:   resp.Data.Ticket,
 		ExpireIn: resp.Data.ExpireIn,
 	}
-	_ = SetCachedJSAPITicket(ctx, ticket)
+	if err := SetCachedJSAPITicket(ctx, ticket); err != nil {
+		log.Warn().Err(err).Msg("feishu: failed to cache jsapi ticket")
+	}
 	return ticket, nil
 }
 
@@ -64,10 +67,12 @@ func SignURL(ctx context.Context, requestURL string) (*JSAPISignature, error) {
 		return nil, err
 	}
 
-	nonceStr, err := randomNonce()
-	if err != nil {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
 		return nil, err
 	}
+	nonceStr := hex.EncodeToString(buf)
+
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 	raw := fmt.Sprintf(
 		"jsapi_ticket=%s&noncestr=%s&timestamp=%s&url=%s",
@@ -87,12 +92,4 @@ func SignURL(ctx context.Context, requestURL string) (*JSAPISignature, error) {
 		Signature: signature,
 		URL:       requestURL,
 	}, nil
-}
-
-func randomNonce() (string, error) {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(buf), nil
 }
