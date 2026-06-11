@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
@@ -12,6 +13,8 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/repository"
 	"github.com/rs/zerolog/log"
 )
+
+var ErrConcurrencyConflict = errors.New("concurrency conflict:bill was modified by another request")
 
 func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 	paymentBill, err := repository.GetBillByID(ctx, billId)

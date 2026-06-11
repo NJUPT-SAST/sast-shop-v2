@@ -1,8 +1,11 @@
 package model
 
 import (
+	"math/rand"
+	"strconv"
 	"time"
 
+	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	"github.com/uptrace/bun"
 )
 
@@ -64,3 +67,61 @@ const (
 	PaymentBillStatusCompleted PaymentBillStatus = "completed"
 	PaymentBillStatusClosed    PaymentBillStatus = "closed"
 )
+
+func GenerateBillNo() string {
+	return "PAY" + time.Now().Format("20060102150405") + strconv.Itoa(rand.Intn(9000)+1000)
+}
+
+func GenerateVerifyCode() string {
+	return strconv.Itoa(rand.Intn(9000) + 1000)
+}
+
+func IsValidPaymentChannel(ch PaymentChannel) bool {
+	switch ch {
+	case PaymentChannelWechat, PaymentChannelAlipay:
+		return true
+	default:
+		return false
+	}
+}
+
+func ProtoStatusToModel(proto paymentv1.BillStatus) PaymentBillStatus {
+	switch proto {
+	case paymentv1.BillStatus_BILL_STATUS_UNPAID:
+		return PaymentBillStatusUnpaid
+	case paymentv1.BillStatus_BILL_STATUS_SUBMITTED:
+		return PaymentBillStatusSubmitted
+	case paymentv1.BillStatus_BILL_STATUS_COMPLETED:
+		return PaymentBillStatusCompleted
+	case paymentv1.BillStatus_BILL_STATUS_CLOSED:
+		return PaymentBillStatusClosed
+	default:
+		return ""
+	}
+}
+
+func ModelStatusToProto(model PaymentBillStatus) paymentv1.BillStatus {
+	switch model {
+	case PaymentBillStatusUnpaid:
+		return paymentv1.BillStatus_BILL_STATUS_UNPAID
+	case PaymentBillStatusSubmitted:
+		return paymentv1.BillStatus_BILL_STATUS_SUBMITTED
+	case PaymentBillStatusCompleted:
+		return paymentv1.BillStatus_BILL_STATUS_COMPLETED
+	case PaymentBillStatusClosed:
+		return paymentv1.BillStatus_BILL_STATUS_CLOSED
+	default:
+		return 0
+	}
+}
+
+func ProtoChannelToModel(proto paymentv1.Channel) PaymentChannel {
+	switch proto {
+	case paymentv1.Channel_CHANNEL_WECHAT:
+		return PaymentChannelWechat
+	case paymentv1.Channel_CHANNEL_ALIPAY:
+		return PaymentChannelAlipay
+	default:
+		return ""
+	}
+}
