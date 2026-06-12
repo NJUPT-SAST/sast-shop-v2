@@ -38,11 +38,10 @@ func (s *PaymentInternalServer) CancelBillBySource(
 	ctx context.Context,
 	r *connect.Request[paymentv1.CancelBillBySourceRequest],
 ) (*connect.Response[paymentv1.CancelBillBySourceResponse], error) {
-	payerID := r.Msg.GetPayerId()
 	err := service.CancelBillBySource(ctx,
 		r.Msg.GetSourceType(),
 		r.Msg.GetSourceId(),
-		&payerID,
+		r.Msg.PayerId,
 	)
 	if err != nil {
 		return nil, err

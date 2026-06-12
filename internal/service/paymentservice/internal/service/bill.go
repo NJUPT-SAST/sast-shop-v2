@@ -105,7 +105,10 @@ func CreateBillForOrder(
 	if err != nil {
 		existing, lookupErr := repository.GetBillBySource(ctx, sourceType, sourceID, payerID)
 		if lookupErr != nil || existing == nil {
-			log.Error().Err(err).Msg("CreateBillForOrder: CreateBill failed and fallback lookup also failed")
+			log.Error().
+				Err(err).
+				AnErr("lookupErr", lookupErr).
+				Msg("CreateBillForOrder: CreateBill failed and fallback lookup also failed")
 			return nil, rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
 				PaymentError: &paymentv1.PaymentError{
 					Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_UNSPECIFIED,
