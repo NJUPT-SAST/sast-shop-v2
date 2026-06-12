@@ -20,9 +20,17 @@ func CreateBill(ctx context.Context, bill *model.PaymentBill) error {
 	return err
 }
 
-func GetBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID int64) (*model.PaymentBill, error) {
+func GetBillBySource(
+	ctx context.Context,
+	sourceType string,
+	sourceID int64,
+	payerID int64,
+) (*model.PaymentBill, error) {
 	var bill model.PaymentBill
-	err := postgres.DB.NewSelect().Model(&bill).Where("source_type = ? AND source_id = ? AND payer_id = ? AND status != ?", sourceType, sourceID, payerID, model.PaymentBillStatusClosed).Scan(ctx)
+	err := postgres.DB.NewSelect().
+		Model(&bill).
+		Where("source_type = ? AND source_id = ? AND payer_id = ? AND status != ?", sourceType, sourceID, payerID, model.PaymentBillStatusClosed).
+		Scan(ctx)
 	return &bill, err
 }
 
@@ -30,14 +38,23 @@ func UpdateBillStatus(ctx context.Context,
 	billID int64,
 	expectedUpdatedAt time.Time,
 	newStatus model.PaymentBillStatus,
-	extraUpdates map[string]any) (int64, error) {
-	res, err := postgres.DB.NewUpdate().Model(extraUpdates).TableExpr("payment.payment_bill").Set("status = ?", newStatus).
-		Set("updated_at = ?", time.Now()).Where("id = ? AND updated_at = ?", billID, expectedUpdatedAt).Exec(ctx)
+	extraUpdates map[string]any,
+) (int64, error) {
+	res, err := postgres.DB.NewUpdate().
+		Model(extraUpdates).
+		TableExpr("payment.payment_bill").
+		Set("status = ?", newStatus).
+		Set("updated_at = ?", time.Now()).
+		Where("id = ? AND updated_at = ?", billID, expectedUpdatedAt).
+		Exec(ctx)
 	if err != nil {
 		return 0, err
 	}
-	affected, _ := res.RowsAffected()
-	return affected, err
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return affected, nil
 }
 
 func CancelBillsBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) (int64, error) {
@@ -61,7 +78,10 @@ func CancelBillsBySource(ctx context.Context, sourceType string, sourceID int64,
 	if err != nil {
 		return 0, err
 	}
-	affected, _ := res.RowsAffected()
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 	return affected, nil
 }
 
