@@ -62,3 +62,22 @@ func UpsertUser(ctx context.Context, openID, displayName, avatarURL string) (*mo
 	}
 	return user, nil
 }
+
+func CreateAuthSession(
+	ctx context.Context,
+	userID int64,
+	refreshTokenHash string,
+	expiresAt time.Time,
+) (*model.AuthSession, error) {
+	session := &model.AuthSession{
+		UserID:           userID,
+		RefreshTokenHash: refreshTokenHash,
+		Status:           model.AuthSessionStatusActive,
+		ExpiresAt:        expiresAt,
+	}
+	_, err := postgres.DB.NewInsert().Model(session).Returning("*").Exec(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return session, nil
+}

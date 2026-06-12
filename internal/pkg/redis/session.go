@@ -42,7 +42,7 @@ func (s *SessionStore) GetUserByID(ctx context.Context, userID int64) (*rpcinter
 }
 
 func (s *SessionStore) SaveSession(ctx context.Context, token string, user *rpcinterceptor.AuthUser) error {
-	//nolint:gosec // AccessToken is part of session stored in Redis, not logged
+	//nolint:gosec // AccessToken 存入 Redis 会话，不会打到日志
 	data, err := json.Marshal(user)
 	if err != nil {
 		return err
@@ -52,7 +52,7 @@ func (s *SessionStore) SaveSession(ctx context.Context, token string, user *rpci
 }
 
 func (s *SessionStore) SaveUserCache(ctx context.Context, user *rpcinterceptor.AuthUser) error {
-	//nolint:gosec // AccessToken is part of user cache stored in Redis, not logged
+	//nolint:gosec // AccessToken 存入 Redis 用户缓存，不会打到日志
 	data, err := json.Marshal(user)
 	if err != nil {
 		return err
