@@ -59,8 +59,10 @@ func mapServiceError(err error) *connect.Error {
 		return invalidBillStatusError()
 	case errors.Is(err, service.ErrInvalidChannel):
 		return invalidChannelError()
-	case errors.Is(err, service.ErrConcurrencyConflict):
+	case errors.Is(err, service.ErrDuplicateBill):
 		return duplicateBillError()
+	case errors.Is(err, service.ErrConcurrencyConflict):
+		return paymentError()
 	default:
 		return paymentError()
 	}

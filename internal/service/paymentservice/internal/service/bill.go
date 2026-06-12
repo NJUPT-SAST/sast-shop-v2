@@ -21,6 +21,7 @@ var (
 	ErrBillNotFound        = errors.New("bill not found")
 	ErrInvalidBillStatus   = errors.New("invalid bill status")
 	ErrInvalidChannel      = errors.New("invalid channel")
+	ErrDuplicateBill       = errors.New("duplicate bill")
 )
 
 func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
@@ -73,11 +74,7 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv1.Bill, error) {
 	status, ok := model.ModelStatusToProto(bill.Status)
 	if !ok {
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
-			PaymentError: &paymentv1.PaymentError{
-				Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_BILL_STATUS,
-			},
-		}, "")
+		return nil, ErrInvalidBillStatus
 	}
 
 	pb := &paymentv1.Bill{
@@ -102,11 +99,7 @@ func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv
 	if bill.Channel != nil {
 		ch, ok := model.ModelChannelToProto(*bill.Channel)
 		if !ok {
-			return nil, rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
-				PaymentError: &paymentv1.PaymentError{
-					Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_CHANNEL,
-				},
-			}, "")
+			return nil, ErrInvalidChannel
 		}
 		pb.Channel = ch
 	}
