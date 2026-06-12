@@ -39,38 +39,38 @@ jobs:
       - name: Lint pkg
         uses: golangci/golangci-lint-action@v6
         with:
+          version: v2.1.6
           working-directory: internal/pkg
-          annotate-unformatted-result: true
 
       - name: Lint userservice
         uses: golangci/golangci-lint-action@v6
         with:
+          version: v2.1.6
           working-directory: internal/service/userservice
-          annotate-unformatted-result: true
 
       - name: Lint catalogservice
         uses: golangci/golangci-lint-action@v6
         with:
+          version: v2.1.6
           working-directory: internal/service/catalogservice
-          annotate-unformatted-result: true
 
       - name: Lint paymentservice
         uses: golangci/golangci-lint-action@v6
         with:
+          version: v2.1.6
           working-directory: internal/service/paymentservice
-          annotate-unformatted-result: true
 
       - name: Lint spotservice
         uses: golangci/golangci-lint-action@v6
         with:
+          version: v2.1.6
           working-directory: internal/service/spotservice
-          annotate-unformatted-result: true
 
       - name: Lint errandservice
         uses: golangci/golangci-lint-action@v6
         with:
+          version: v2.1.6
           working-directory: internal/service/errandservice
-          annotate-unformatted-result: true
 
   build:
     name: Build (${{ matrix.module }})
