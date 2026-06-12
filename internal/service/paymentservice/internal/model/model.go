@@ -1,8 +1,9 @@
 package model
 
 import (
-	"math/rand"
-	"strconv"
+	"crypto/rand"
+	"fmt"
+	"math/big"
 	"time"
 
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
@@ -69,11 +70,20 @@ const (
 )
 
 func GenerateBillNo() string {
-	return "PAY" + time.Now().Format("20060102150405") + strconv.Itoa(rand.Intn(9000)+1000)
+	ts := time.Now().Format("20060102150405")
+	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
+	if err != nil {
+		return "PAY" + ts + fmt.Sprintf("%06d", time.Now().UnixNano()%1_000_000)
+	}
+	return "PAY" + ts + fmt.Sprintf("%06d", n.Int64())
 }
 
 func GenerateVerifyCode() string {
-	return strconv.Itoa(rand.Intn(9000) + 1000)
+	n, err := rand.Int(rand.Reader, big.NewInt(9000))
+	if err != nil {
+		return fmt.Sprintf("%04d", time.Now().UnixNano()%9000+1000)
+	}
+	return fmt.Sprintf("%04d", n.Int64()+1000)
 }
 
 func IsValidPaymentChannel(ch PaymentChannel) bool {
@@ -85,18 +95,18 @@ func IsValidPaymentChannel(ch PaymentChannel) bool {
 	}
 }
 
-func ProtoStatusToModel(proto paymentv1.BillStatus) PaymentBillStatus {
+func ProtoStatusToModel(proto paymentv1.BillStatus) (PaymentBillStatus, bool) {
 	switch proto {
 	case paymentv1.BillStatus_BILL_STATUS_UNPAID:
-		return PaymentBillStatusUnpaid
+		return PaymentBillStatusUnpaid, true
 	case paymentv1.BillStatus_BILL_STATUS_SUBMITTED:
-		return PaymentBillStatusSubmitted
+		return PaymentBillStatusSubmitted, true
 	case paymentv1.BillStatus_BILL_STATUS_COMPLETED:
-		return PaymentBillStatusCompleted
+		return PaymentBillStatusCompleted, true
 	case paymentv1.BillStatus_BILL_STATUS_CLOSED:
-		return PaymentBillStatusClosed
+		return PaymentBillStatusClosed, true
 	default:
-		return ""
+		return "", false
 	}
 }
 
@@ -115,13 +125,13 @@ func ModelStatusToProto(model PaymentBillStatus) paymentv1.BillStatus {
 	}
 }
 
-func ProtoChannelToModel(proto paymentv1.Channel) PaymentChannel {
+func ProtoChannelToModel(proto paymentv1.Channel) (PaymentChannel, bool) {
 	switch proto {
 	case paymentv1.Channel_CHANNEL_WECHAT:
-		return PaymentChannelWechat
+		return PaymentChannelWechat, true
 	case paymentv1.Channel_CHANNEL_ALIPAY:
-		return PaymentChannelAlipay
+		return PaymentChannelAlipay, true
 	default:
-		return ""
+		return "", false
 	}
 }

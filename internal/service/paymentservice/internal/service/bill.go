@@ -14,7 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var ErrConcurrencyConflict = errors.New("concurrency conflict:bill was modified by another request")
+var ErrConcurrencyConflict = errors.New("concurrency conflict: bill was modified by another request")
 
 func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 	paymentBill, err := repository.GetBillByID(ctx, billId)

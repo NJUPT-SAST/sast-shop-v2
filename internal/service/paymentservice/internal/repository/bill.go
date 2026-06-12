@@ -45,6 +45,7 @@ func CancelBillsBySource(ctx context.Context, sourceType string, sourceID int64,
 		Model((*model.PaymentBill)(nil)).
 		Set("status = ?", model.PaymentBillStatusClosed).
 		Set("closed_at = ?", time.Now()).
+		Set("updated_at = ?", time.Now()).
 		Where("source_type = ?", sourceType).
 		Where("source_id = ?", sourceID).
 		Where("status IN (?)", bun.List([]model.PaymentBillStatus{
