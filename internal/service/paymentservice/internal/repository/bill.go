@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
@@ -31,7 +33,13 @@ func GetBillBySource(
 		Model(&bill).
 		Where("source_type = ? AND source_id = ? AND payer_id = ? AND status != ?", sourceType, sourceID, payerID, model.PaymentBillStatusClosed).
 		Scan(ctx)
-	return &bill, err
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &bill, nil
 }
 
 func UpdateBillStatus(ctx context.Context,
