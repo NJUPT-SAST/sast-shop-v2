@@ -42,37 +42,37 @@ jobs:
           go work use ./internal/pkg ./internal/service/userservice ./internal/service/catalogservice ./internal/service/paymentservice ./internal/service/spotservice ./internal/service/errandservice
 
       - name: Lint pkg
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.1.6
           working-directory: internal/pkg
 
       - name: Lint userservice
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.1.6
           working-directory: internal/service/userservice
 
       - name: Lint catalogservice
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.1.6
           working-directory: internal/service/catalogservice
 
       - name: Lint paymentservice
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.1.6
           working-directory: internal/service/paymentservice
 
       - name: Lint spotservice
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.1.6
           working-directory: internal/service/spotservice
 
       - name: Lint errandservice
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.1.6
           working-directory: internal/service/errandservice
