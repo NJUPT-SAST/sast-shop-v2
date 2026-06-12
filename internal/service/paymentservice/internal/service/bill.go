@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
@@ -81,11 +82,7 @@ func CreateBillForOrder(
 	bill, err := repository.GetBillBySource(ctx, sourceType, sourceID, payerID)
 	if err != nil {
 		log.Error().Err(err).Msg("CreateBillForOrder: GetBillBySource failed")
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
-			PaymentError: &paymentv1.PaymentError{
-				Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_UNSPECIFIED,
-			},
-		}, "")
+		return nil, fmt.Errorf("create bill for order: get bill by source: %w", err)
 	}
 	if bill != nil {
 		return PaymentBillToProto(ctx, bill)
@@ -109,11 +106,7 @@ func CreateBillForOrder(
 				Err(err).
 				AnErr("lookupErr", lookupErr).
 				Msg("CreateBillForOrder: CreateBill failed and fallback lookup also failed")
-			return nil, rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
-				PaymentError: &paymentv1.PaymentError{
-					Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_UNSPECIFIED,
-				},
-			}, "")
+			return nil, fmt.Errorf("create bill for order: %w", err)
 		}
 		return PaymentBillToProto(ctx, existing)
 	}
@@ -124,11 +117,7 @@ func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, 
 	_, err := repository.CancelBillBySource(ctx, sourceType, sourceID, payerID)
 	if err != nil {
 		log.Error().Err(err).Msg("CancelBillBySource: CancelBillsBySource failed")
-		return rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
-			PaymentError: &paymentv1.PaymentError{
-				Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_UNSPECIFIED,
-			},
-		}, "")
+		return fmt.Errorf("cancel bill by source: %w", err)
 	}
 	return nil
 }

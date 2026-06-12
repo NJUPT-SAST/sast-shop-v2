@@ -27,7 +27,7 @@ func (s *PaymentInternalServer) CreateBillForOrder(
 		r.Msg.GetAmountCents(),
 	)
 	if err != nil {
-		return nil, err
+		return nil, mapServiceError(err)
 	}
 	return connect.NewResponse(&paymentv1.CreateBillForOrderResponse{
 		Bill: bill,
@@ -44,7 +44,7 @@ func (s *PaymentInternalServer) CancelBillBySource(
 		r.Msg.PayerId,
 	)
 	if err != nil {
-		return nil, err
+		return nil, mapServiceError(err)
 	}
 	return connect.NewResponse(&paymentv1.CancelBillBySourceResponse{}), nil
 }
