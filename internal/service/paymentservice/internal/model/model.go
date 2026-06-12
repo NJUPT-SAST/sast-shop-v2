@@ -110,18 +110,18 @@ func ProtoStatusToModel(proto paymentv1.BillStatus) (PaymentBillStatus, bool) {
 	}
 }
 
-func ModelStatusToProto(model PaymentBillStatus) paymentv1.BillStatus {
+func ModelStatusToProto(model PaymentBillStatus) (paymentv1.BillStatus, bool) {
 	switch model {
 	case PaymentBillStatusUnpaid:
-		return paymentv1.BillStatus_BILL_STATUS_UNPAID
+		return paymentv1.BillStatus_BILL_STATUS_UNPAID, true
 	case PaymentBillStatusSubmitted:
-		return paymentv1.BillStatus_BILL_STATUS_SUBMITTED
+		return paymentv1.BillStatus_BILL_STATUS_SUBMITTED, true
 	case PaymentBillStatusCompleted:
-		return paymentv1.BillStatus_BILL_STATUS_COMPLETED
+		return paymentv1.BillStatus_BILL_STATUS_COMPLETED, true
 	case PaymentBillStatusClosed:
-		return paymentv1.BillStatus_BILL_STATUS_CLOSED
+		return paymentv1.BillStatus_BILL_STATUS_CLOSED, true
 	default:
-		return 0
+		return 0, false
 	}
 }
 
@@ -133,5 +133,16 @@ func ProtoChannelToModel(proto paymentv1.Channel) (PaymentChannel, bool) {
 		return PaymentChannelAlipay, true
 	default:
 		return "", false
+	}
+}
+
+func ModelChannelToProto(ch PaymentChannel) (paymentv1.Channel, bool) {
+	switch ch {
+	case PaymentChannelWechat:
+		return paymentv1.Channel_CHANNEL_WECHAT, true
+	case PaymentChannelAlipay:
+		return paymentv1.Channel_CHANNEL_ALIPAY, true
+	default:
+		return 0, false
 	}
 }
