@@ -8,13 +8,32 @@ import (
 	"github.com/uptrace/bun"
 )
 
-func ListSpotGoods(ctx context.Context, offset, limit int) ([]*model.SpotGoods, error) {
+func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*model.SpotGoods, error) {
 	var goodsList []*model.SpotGoods
-	err := postgres.DB.NewSelect().Model(&goodsList).Offset(offset).Limit(limit).Scan(ctx)
+	err := postgres.DB.NewSelect().
+		Model(&goodsList).
+		Where("store_id = ?", storeID).
+		Where("closed_at IS NULL").
+		Offset(offset).
+		Limit(limit).
+		Scan(ctx)
 	return goodsList, err
 }
 
-func GetSpotGoodByID(ctx context.Context, goodsID int64) (*model.SpotGoods, error) {
+func GetSpotGoodsLength(ctx context.Context, storeID int64) (int32, error) {
+	count, err := postgres.DB.NewSelect().
+		Model((*model.SpotGoods)(nil)).
+		Where("store_id = ?", storeID).
+		Where("closed_at IS NULL").
+		Count(ctx)
+
+	if count > 1<<31-1 {
+		return -1, err
+	}
+	return int32(count), err
+}
+
+func GetSpotGoodsByID(ctx context.Context, goodsID int64) (*model.SpotGoods, error) {
 	var goods model.SpotGoods
 	err := postgres.DB.NewSelect().Model(&goods).Where("id = ?", goodsID).Scan(ctx)
 	return &goods, err
@@ -30,33 +49,27 @@ func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGood
 }
 
 func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) error {
-	_, err := postgres.DB.NewInsert().Model(goods).Exec(ctx)
+	if goods == nil {
+		return nil
+	}
+	err := postgres.DB.NewInsert().Model(goods).Scan(ctx)
 	return err
 }
 
-func UpdateSpotGoodsStockTotal(ctx context.Context, goodsID int64, newStockTotal int32) error {
-	_, err := postgres.DB.NewUpdate().
+func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int32) error {
+	err := postgres.DB.NewUpdate().
 		Model((*model.SpotGoods)(nil)).
-		Set("stock = ?", newStockTotal).
+		Set("stock_total = ?", newStockTotal).
 		Where("id = ?", goodsID).
-		Exec(ctx)
+		Scan(ctx)
 	return err
 }
 
-func UpdateSpotGoodsSalePriceCents(ctx context.Context, goodsID int64, newSalePriceCents int32) error {
-	_, err := postgres.DB.NewUpdate().
+func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents int32) error {
+	err := postgres.DB.NewUpdate().
 		Model((*model.SpotGoods)(nil)).
-		Set("price = ?", newSalePriceCents).
+		Set("sale_price_cents = ?", newSalePriceCents).
 		Where("id = ?", goodsID).
-		Exec(ctx)
-	return err
-}
-
-func DeleteSpotGoods(ctx context.Context, goodsID int64) error {
-	_, err := postgres.DB.NewUpdate().
-		Model((*model.SpotGoods)(nil)).
-		Set("closed_at = now()").
-		Where("id = ?", goodsID).
-		Exec(ctx)
+		Scan(ctx)
 	return err
 }

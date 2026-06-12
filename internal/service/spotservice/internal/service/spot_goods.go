@@ -11,8 +11,39 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func GetSpotGoodInfo(ctx context.Context, goodsID int64) (*model.SpotGoods, error) {
-	goods, err := repository.GetSpotGoodByID(ctx, goodsID)
+func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*model.SpotGoods, error) {
+	spotGoodsList, err := repository.ListSpotGoods(ctx, storeID, offset, limit)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to list spot goods for storeID: %d", storeID)
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	return spotGoodsList, nil
+}
+
+func GetSpotGoodLength(ctx context.Context, storeID int64) (int32, error) {
+	count, err := repository.GetSpotGoodsLength(ctx, storeID)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to get spot goods length for storeID: %d", storeID)
+		return 0, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	if count < 0 {
+		log.Warn().
+			Msgf("Spot goods count exceeds int32 limit for storeID: %d, returning -1 to indicate overflow", storeID)
+		return -1, nil
+	}
+	return count, nil
+}
+
+func GetSpotGoods(ctx context.Context, goodsID int64) (*model.SpotGoods, error) {
+	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d", goodsID)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -25,25 +56,104 @@ func GetSpotGoodInfo(ctx context.Context, goodsID int64) (*model.SpotGoods, erro
 }
 
 func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGoods, error) {
-	return repository.GetSpotGoodsByIDs(ctx, goodsIDs)
-}
-
-func ListSpotGoods(ctx context.Context, offset, limit int) ([]*model.SpotGoods, error) {
-	return repository.ListSpotGoods(ctx, offset, limit)
+	spotGoodsList, err := repository.GetSpotGoodsByIDs(ctx, goodsIDs)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to get spot goods by IDs: %v", goodsIDs)
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	return spotGoodsList, nil
 }
 
 func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) error {
-	return repository.CreateSpotGoods(ctx, goods)
+	spotGoods, err := repository.GetSpotGoodsByID(ctx, goods.ID)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to check existing spot good for goodsID: %d", goods.ID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	if spotGoods != nil && spotGoods.ClosedAt == nil {
+		log.Warn().Msgf("Spot good already exists and not closed for goodsID: %d, cannot create duplicate", goods.ID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	err = repository.CreateSpotGoods(ctx, goods)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to create spot good: %v", goods)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	return nil
 }
 
-func UpdateSpotGoodsStockTotal(ctx context.Context, goodsID int64, newStockTotal int32) error {
-	return repository.UpdateSpotGoodsStockTotal(ctx, goodsID, newStockTotal)
+func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int32) error {
+	spotGoods, err := repository.GetSpotGoodsByID(ctx, goodsID)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to check existing spot good for goodsID: %d", goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	if spotGoods.ClosedAt != nil {
+		log.Warn().Msgf("Spot good not found or closed for goodsID: %d, cannot update stock", goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	err = repository.UpdateSpotGoodsStock(ctx, goodsID, newStockTotal)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to update spot good stock total for goodsID: %d", goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	return nil
 }
 
-func UpdateSpotGoodsSalePriceCents(ctx context.Context, goodsID int64, newSalePriceCents int32) error {
-	return repository.UpdateSpotGoodsSalePriceCents(ctx, goodsID, newSalePriceCents)
-}
-
-func DeleteSpotGoods(ctx context.Context, goodsID int64) error {
-	return repository.DeleteSpotGoods(ctx, goodsID)
+func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents int32) error {
+	spotGoods, err := repository.GetSpotGoodsByID(ctx, goodsID)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to check existing spot good for goodsID: %d", goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	if spotGoods.ClosedAt != nil {
+		log.Warn().Msgf("Spot good not found or closed for goodsID: %d, cannot update price", goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	err = repository.UpdateSpotGoodsPrice(ctx, goodsID, newSalePriceCents)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to update spot good sale price for goodsID: %d", goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	return nil
 }
