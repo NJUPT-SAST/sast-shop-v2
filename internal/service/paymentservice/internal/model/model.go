@@ -110,8 +110,8 @@ func ProtoStatusToModel(proto paymentv1.BillStatus) (PaymentBillStatus, bool) {
 	}
 }
 
-func ModelStatusToProto(model PaymentBillStatus) (paymentv1.BillStatus, bool) {
-	switch model {
+func ModelStatusToProto(status PaymentBillStatus) (paymentv1.BillStatus, bool) {
+	switch status {
 	case PaymentBillStatusUnpaid:
 		return paymentv1.BillStatus_BILL_STATUS_UNPAID, true
 	case PaymentBillStatusSubmitted:

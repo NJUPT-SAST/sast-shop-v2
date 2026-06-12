@@ -57,12 +57,13 @@ func UpdateBillStatus(ctx context.Context,
 	return affected, nil
 }
 
-func CancelBillsBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) (int64, error) {
+func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) (int64, error) {
+	now := time.Now()
 	q := postgres.DB.NewUpdate().
 		Model((*model.PaymentBill)(nil)).
 		Set("status = ?", model.PaymentBillStatusClosed).
-		Set("closed_at = ?", time.Now()).
-		Set("updated_at = ?", time.Now()).
+		Set("closed_at = ?", now).
+		Set("updated_at = ?", now).
 		Where("source_type = ?", sourceType).
 		Where("source_id = ?", sourceID).
 		Where("status IN (?)", bun.List([]model.PaymentBillStatus{
