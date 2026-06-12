@@ -69,7 +69,7 @@ func GetCurrentUser(ctx context.Context, userAccessToken string) (*UserInfo, err
 		return nil, err
 	}
 
-	resp, err := client.SDK.Authen.V1.UserInfo.Get(ctx, larkcore.WithUserAccessToken(userAccessToken))
+	resp, err := client.SDK.Authen.UserInfo.Get(ctx, larkcore.WithUserAccessToken(userAccessToken))
 	if err != nil {
 		return nil, mapFeishuError(err)
 	}
@@ -106,9 +106,9 @@ func oauthTokenFromSDK(data *larkaccesstoken.AccessTokenRespData) *OAuthToken {
 
 	return &OAuthToken{
 		AccessToken:           larkcore.StringValue(data.AccessToken),
-		ExpiresIn:             int32(larkcore.IntValue(data.ExpiresIn)),
+		ExpiresIn:             int32(larkcore.IntValue(data.ExpiresIn)), //nolint:gosec
 		RefreshToken:          larkcore.StringValue(data.RefreshToken),
-		RefreshTokenExpiresIn: int32(larkcore.IntValue(data.RefreshTokenExpiresIn)),
+		RefreshTokenExpiresIn: int32(larkcore.IntValue(data.RefreshTokenExpiresIn)), //nolint:gosec
 		TokenType:             larkcore.StringValue(data.TokenType),
 		Scope:                 larkcore.StringValue(data.Scope),
 	}
