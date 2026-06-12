@@ -2,10 +2,13 @@
 package v1
 
 import (
+	"errors"
+
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/service"
 )
 
 func paymentError() *connect.Error {
@@ -46,4 +49,19 @@ func duplicateBillError() *connect.Error {
 			Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_DUPLICATE_BILL,
 		},
 	}, "")
+}
+
+func mapServiceError(err error) *connect.Error {
+	switch {
+	case errors.Is(err, service.ErrBillNotFound):
+		return billNotFoundError()
+	case errors.Is(err, service.ErrInvalidBillStatus):
+		return invalidBillStatusError()
+	case errors.Is(err, service.ErrInvalidChannel):
+		return invalidChannelError()
+	case errors.Is(err, service.ErrConcurrencyConflict):
+		return duplicateBillError()
+	default:
+		return paymentError()
+	}
 }

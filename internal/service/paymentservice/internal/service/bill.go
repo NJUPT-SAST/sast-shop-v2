@@ -16,7 +16,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-var ErrConcurrencyConflict = errors.New("concurrency conflict: bill was modified by another request")
+var (
+	ErrConcurrencyConflict = errors.New("concurrency conflict: bill was modified by another request")
+	ErrBillNotFound        = errors.New("bill not found")
+	ErrInvalidBillStatus   = errors.New("invalid bill status")
+	ErrInvalidChannel      = errors.New("invalid channel")
+)
 
 func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 	paymentBill, err := repository.GetBillByID(ctx, billId)

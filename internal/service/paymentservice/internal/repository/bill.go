@@ -48,6 +48,9 @@ func UpdateBillStatus(ctx context.Context,
 	newStatus model.PaymentBillStatus,
 	extraUpdates map[string]any,
 ) (int64, error) {
+	if extraUpdates == nil {
+		extraUpdates = make(map[string]any)
+	}
 	res, err := postgres.DB.NewUpdate().
 		Model(extraUpdates).
 		TableExpr("payment.payment_bill").
