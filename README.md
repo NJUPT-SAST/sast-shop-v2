@@ -107,6 +107,8 @@ All models use `uptrace/bun` ORM with schema-qualified table names.
 - PostgreSQL
 - Redis
 - [Buf CLI](https://buf.build/docs/cli/)
+- [golangci-lint](https://golangci-lint.run/welcome/install/)
+- [pre-commit](https://pre-commit.com/#install)
 
 ### Setup
 
@@ -117,28 +119,33 @@ git clone git@github.com:NJUPT-SAST/sast-shop-v2.git && cd sast-shop-v2
 # Copy environment template and fill in your values
 cp .env.example .env
 
-# Generate Go code from proto definitions
-buf generate
+# Install git hooks
+make setup
 
-# Ensure PostgreSQL and Redis are running, then start any service
-cd internal/service/userservice && go run ./cmd/app
+# Apply database migrations
+export DATABASE_URL=postgres://postgres:postgres@localhost:5432/sast_shop_v2?sslmode=disable
+make migrate
+
+# Start a service
+make run-userservice
 ```
 
-Each service loads `.env` by searching upward from its working directory, so you can run services from their respective `cmd/app` directories.
+Each service loads `.env` by searching upward from its working directory.
 
-### Development
+### Make Commands
 
-```bash
-# Regenerate proto after changing .proto files
-buf generate
-
-# Lint all workspace modules
-make lint
-make lint-fix       # with auto-fix
-
-# Run a single service (from repo root)
-go -C internal/service/userservice run ./cmd/app
-```
+| Command | Description |
+|---|---|
+| `make run-<service>` | Start a service (`userservice`, `catalogservice`, `paymentservice`, `spotservice`, `errandservice`) |
+| `make build` | Compile all services to `bin/` |
+| `make proto` | Regenerate Go code from proto and push to BSR |
+| `make proto-lint` | Lint proto files |
+| `make proto-format` | Format proto files in place |
+| `make migrate` | Apply `migrations/001_init.sql` (requires `DATABASE_URL`) |
+| `make lint` | Run golangci-lint across all modules |
+| `make lint-fix` | Run golangci-lint with auto-fix |
+| `make tidy` | Run `go mod tidy` across all modules |
+| `make setup` | Install pre-commit hooks (run once after cloning) |
 
 ### Dev Auth Bypass
 
