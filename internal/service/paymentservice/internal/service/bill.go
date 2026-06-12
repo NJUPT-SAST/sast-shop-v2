@@ -10,8 +10,10 @@ import (
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/client"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/repository"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var ErrConcurrencyConflict = errors.New("concurrency conflict: bill was modified by another request")
@@ -61,4 +63,63 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 	}
 
 	return bill, nil
+}
+
+func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv1.Bill, error) {
+	status, ok := model.ModelStatusToProto(bill.Status)
+	if !ok {
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
+			PaymentError: &paymentv1.PaymentError{
+				Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_BILL_STATUS,
+			},
+		}, "")
+	}
+
+	pb := &paymentv1.Bill{
+		Id:          bill.ID,
+		BillNo:      bill.BillNo,
+		Status:      status,
+		AmountCents: bill.AmountCents,
+		VerifyCode:  bill.VerifyCode,
+		CreatedAt:   timestamppb.New(bill.CreatedAt),
+		UpdatedAt:   timestamppb.New(bill.UpdatedAt),
+	}
+
+	if bill.SerialNumber != "" {
+		pb.SerialNumber = &bill.SerialNumber
+	}
+	if bill.SourceType != nil {
+		pb.SourceType = bill.SourceType
+	}
+	if bill.SourceID != nil {
+		pb.SourceId = bill.SourceID
+	}
+	if bill.Channel != nil {
+		if ch, ok := model.ModelChannelToProto(*bill.Channel); ok {
+			pb.Channel = ch
+		}
+	}
+	if bill.SubmittedAt != nil {
+		pb.SubmittedAt = timestamppb.New(*bill.SubmittedAt)
+	}
+	if bill.CompletedAt != nil {
+		pb.CompletedAt = timestamppb.New(*bill.CompletedAt)
+	}
+	if bill.ClosedAt != nil {
+		pb.ClosedAt = timestamppb.New(*bill.ClosedAt)
+	}
+
+	getUsersResp, err := client.UserInternalServiceClient.GetUsers(ctx, connect.NewRequest(
+		&userv1.GetUsersRequest{
+			UserIds: []int64{bill.PayerID, bill.PayeeID},
+		}),
+	)
+	if err != nil || len(getUsersResp.Msg.Users) < 2 {
+		log.Error().Err(err).Msgf("Failed to get user info for billId: %d", bill.ID)
+		return pb, nil
+	}
+	pb.Payer = getUsersResp.Msg.Users[0]
+	pb.Payee = getUsersResp.Msg.Users[1]
+
+	return pb, nil
 }
