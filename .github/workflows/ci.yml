@@ -36,6 +36,11 @@ jobs:
             internal/service/spotservice/go.sum
             internal/service/errandservice/go.sum
 
+      - name: Create go.work
+        run: |
+          go work init
+          go work use ./internal/pkg ./internal/service/userservice ./internal/service/catalogservice ./internal/service/paymentservice ./internal/service/spotservice ./internal/service/errandservice
+
       - name: Lint pkg
         uses: golangci/golangci-lint-action@v6
         with:
@@ -93,6 +98,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: Create go.work
+        run: |
+          go work init
+          go work use ./internal/pkg ./internal/service/userservice ./internal/service/catalogservice ./internal/service/paymentservice ./internal/service/spotservice ./internal/service/errandservice
 
       - name: Build
         working-directory: ${{ matrix.module }}
