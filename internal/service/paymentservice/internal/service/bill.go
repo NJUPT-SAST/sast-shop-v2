@@ -95,9 +95,15 @@ func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv
 		pb.SourceId = bill.SourceID
 	}
 	if bill.Channel != nil {
-		if ch, ok := model.ModelChannelToProto(*bill.Channel); ok {
-			pb.Channel = ch
+		ch, ok := model.ModelChannelToProto(*bill.Channel)
+		if !ok {
+			return nil, rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
+				PaymentError: &paymentv1.PaymentError{
+					Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_CHANNEL,
+				},
+			}, "")
 		}
+		pb.Channel = ch
 	}
 	if bill.SubmittedAt != nil {
 		pb.SubmittedAt = timestamppb.New(*bill.SubmittedAt)
@@ -114,12 +120,19 @@ func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv
 			UserIds: []int64{bill.PayerID, bill.PayeeID},
 		}),
 	)
-	if err != nil || len(getUsersResp.Msg.Users) < 2 {
+	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get user info for billId: %d", bill.ID)
 		return pb, nil
 	}
-	pb.Payer = getUsersResp.Msg.Users[0]
-	pb.Payee = getUsersResp.Msg.Users[1]
+	userByID := make(map[int64]*userv1.UserInfo, len(getUsersResp.Msg.Users))
+	for _, u := range getUsersResp.Msg.Users {
+		userByID[u.Id] = u
+	}
+	pb.Payer = userByID[bill.PayerID]
+	pb.Payee = userByID[bill.PayeeID]
+	if pb.Payer == nil || pb.Payee == nil {
+		log.Error().Msgf("Failed to map user info for billId: %d", bill.ID)
+	}
 
 	return pb, nil
 }
