@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            internal/pkg/go.sum
+            internal/service/userservice/go.sum
+            internal/service/catalogservice/go.sum
+            internal/service/paymentservice/go.sum
+            internal/service/spotservice/go.sum
+            internal/service/errandservice/go.sum
+
+      - name: Lint pkg
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: internal/pkg
+          annotate-unformatted-result: true
+
+      - name: Lint userservice
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: internal/service/userservice
+          annotate-unformatted-result: true
+
+      - name: Lint catalogservice
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: internal/service/catalogservice
+          annotate-unformatted-result: true
+
+      - name: Lint paymentservice
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: internal/service/paymentservice
+          annotate-unformatted-result: true
+
+      - name: Lint spotservice
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: internal/service/spotservice
+          annotate-unformatted-result: true
+
+      - name: Lint errandservice
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: internal/service/errandservice
+          annotate-unformatted-result: true
+
+  build:
+    name: Build (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - internal/pkg
+          - internal/service/userservice
+          - internal/service/catalogservice
+          - internal/service/paymentservice
+          - internal/service/spotservice
+          - internal/service/errandservice
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: Build
+        working-directory: ${{ matrix.module }}
+        run: go build ./...
+
+      # TODO: uncomment after tests are added
+      # - name: Test
+      #   working-directory: ${{ matrix.module }}
+      #   run: go test -race -count=1 ./...
+      # For integration tests (PostgreSQL/Redis), consider testcontainers-go

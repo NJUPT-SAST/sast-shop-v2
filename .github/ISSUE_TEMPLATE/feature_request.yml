@@ -1,0 +1,27 @@
+name: Feature Request
+description: Propose a new feature or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+    validations:
+      required: true
+  - type: textarea
+    id: background
+    attributes:
+      label: Background
+      description: What problem does this feature solve?
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: Requires proto changes (API change)
+        - label: Requires new migration (database change)
+        - label: Affects multiple services
