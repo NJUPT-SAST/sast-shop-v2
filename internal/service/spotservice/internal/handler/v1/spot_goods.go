@@ -57,6 +57,7 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 	}
 	return connect.NewResponse(&spotv1.ListSpotGoodsResponse{
 		SpotGoodsList: spotGoodsBrief,
+		CurrentPage:   r.Msg.Page,
 		TotalCount:    totalCount,
 	}), nil
 }
@@ -90,8 +91,11 @@ func (s *SpotGoodsServiceServer) CreateSpotGoods(
 	r *connect.Request[spotv1.CreateSpotGoodsRequest],
 ) (*connect.Response[spotv1.CreateSpotGoodsResponse], error) {
 	goods := &model.SpotGoods{
-		SalePriceCents: r.Msg.SalePriceCents,
-		StockTotal:     r.Msg.StockTotal,
+		// SellerID:          r.Msg.SellerId,
+		// StoreID:           r.Msg.StoreId,
+		ProductTemplateID: r.Msg.ProductTemplateId,
+		SalePriceCents:    r.Msg.SalePriceCents,
+		StockTotal:        r.Msg.StockTotal,
 	}
 	err := service.CreateSpotGoods(ctx, goods)
 	if err != nil {
@@ -117,7 +121,15 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsStock(
 	ctx context.Context,
 	r *connect.Request[spotv1.UpdateSpotGoodsStockRequest],
 ) (*connect.Response[spotv1.UpdateSpotGoodsStockResponse], error) {
-	err := service.UpdateSpotGoodsStock(ctx, r.Msg.SpotGoodsId, r.Msg.NewStock)
+	if r.Msg.UpdatedAt == nil {
+		log.Warn().Msgf("UpdatedAt is nil in UpdateSpotGoodsStockRequest for goodsID: %d", r.Msg.SpotGoodsId)
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	err := service.UpdateSpotGoodsStock(ctx, r.Msg.SpotGoodsId, r.Msg.NewStock, r.Msg.UpdatedAt.AsTime())
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good stock total for goodsID: %d", r.Msg.SpotGoodsId)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -133,7 +145,15 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsPrice(
 	ctx context.Context,
 	r *connect.Request[spotv1.UpdateSpotGoodsPriceRequest],
 ) (*connect.Response[spotv1.UpdateSpotGoodsPriceResponse], error) {
-	err := service.UpdateSpotGoodsPrice(ctx, r.Msg.SpotGoodsId, r.Msg.NewSalePriceCents)
+	if r.Msg.UpdatedAt == nil {
+		log.Warn().Msgf("UpdatedAt is nil in UpdateSpotGoodsPriceRequest for goodsID: %d", r.Msg.SpotGoodsId)
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	err := service.UpdateSpotGoodsPrice(ctx, r.Msg.SpotGoodsId, r.Msg.NewSalePriceCents, r.Msg.UpdatedAt.AsTime())
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good sale price for goodsID: %d", r.Msg.SpotGoodsId)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{

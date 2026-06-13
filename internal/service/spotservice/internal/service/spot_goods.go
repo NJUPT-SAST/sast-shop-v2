@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	spotv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/spot/v1"
@@ -69,24 +70,7 @@ func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGood
 }
 
 func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) error {
-	spotGoods, err := repository.GetSpotGoodsByID(ctx, goods.ID)
-	if err != nil {
-		log.Error().Err(err).Msgf("Failed to check existing spot good for goodsID: %d", goods.ID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-	if spotGoods != nil && spotGoods.ClosedAt == nil {
-		log.Warn().Msgf("Spot good already exists and not closed for goodsID: %d, cannot create duplicate", goods.ID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-	err = repository.CreateSpotGoods(ctx, goods)
+	err := repository.CreateSpotGoods(ctx, goods)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to create spot good: %v", goods)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -98,25 +82,25 @@ func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) error {
 	return nil
 }
 
-func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int32) error {
-	spotGoods, err := repository.GetSpotGoodsByID(ctx, goodsID)
+func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int32, updatedAt time.Time) error {
+	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to check existing spot good for goodsID: %d", goodsID)
+		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d before updating stock", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
 		}, "")
 	}
-	if spotGoods.ClosedAt != nil {
-		log.Warn().Msgf("Spot good not found or closed for goodsID: %d, cannot update stock", goodsID)
+	if goods == nil || goods.ClosedAt != nil {
+		log.Warn().Msgf("Spot good not found for goodsID: %d when updating stock", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
 		}, "")
 	}
-	err = repository.UpdateSpotGoodsStock(ctx, goodsID, newStockTotal)
+	err = repository.UpdateSpotGoodsStock(ctx, goodsID, newStockTotal, updatedAt)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good stock total for goodsID: %d", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -128,25 +112,25 @@ func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int3
 	return nil
 }
 
-func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents int32) error {
-	spotGoods, err := repository.GetSpotGoodsByID(ctx, goodsID)
+func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents int32, updatedAt time.Time) error {
+	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to check existing spot good for goodsID: %d", goodsID)
+		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d before updating price", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
 		}, "")
 	}
-	if spotGoods.ClosedAt != nil {
-		log.Warn().Msgf("Spot good not found or closed for goodsID: %d, cannot update price", goodsID)
+	if goods == nil || goods.ClosedAt != nil {
+		log.Warn().Msgf("Spot good not found for goodsID: %d when updating price", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
 		}, "")
 	}
-	err = repository.UpdateSpotGoodsPrice(ctx, goodsID, newSalePriceCents)
+	err = repository.UpdateSpotGoodsPrice(ctx, goodsID, newSalePriceCents, updatedAt)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good sale price for goodsID: %d", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{

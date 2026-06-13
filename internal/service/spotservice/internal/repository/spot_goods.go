@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"math"
+	"time"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
@@ -27,7 +29,7 @@ func GetSpotGoodsLength(ctx context.Context, storeID int64) (int32, error) {
 		Where("closed_at IS NULL").
 		Count(ctx)
 
-	if count > 1<<31-1 {
+	if count > math.MaxInt32 {
 		return -1, err
 	}
 	return int32(count), err
@@ -56,20 +58,24 @@ func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) error {
 	return err
 }
 
-func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int32) error {
-	err := postgres.DB.NewUpdate().
+func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int32, updatedAt time.Time) error {
+	_, err := postgres.DB.NewUpdate().
 		Model((*model.SpotGoods)(nil)).
 		Set("stock_total = ?", newStockTotal).
+		Set("updated_at = ?", time.Now()).
 		Where("id = ?", goodsID).
-		Scan(ctx)
+		Where("updated_at = ?", updatedAt).
+		Exec(ctx)
 	return err
 }
 
-func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents int32) error {
-	err := postgres.DB.NewUpdate().
+func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents int32, updatedAt time.Time) error {
+	_, err := postgres.DB.NewUpdate().
 		Model((*model.SpotGoods)(nil)).
 		Set("sale_price_cents = ?", newSalePriceCents).
+		Set("updated_at = ?", time.Now()).
 		Where("id = ?", goodsID).
-		Scan(ctx)
+		Where("updated_at = ?", updatedAt).
+		Exec(ctx)
 	return err
 }
