@@ -20,7 +20,14 @@ func (s *BillServiceServer) CreateBill(
 	ctx context.Context,
 	r *connect.Request[paymentv1.CreateBillRequest],
 ) (*connect.Response[paymentv1.CreateBillResponse], error) {
-	bill, err := service.CreateBill(ctx, r.Msg.PayerId, r.Msg.PayeeId, r.Msg.AmountCents, r.Msg.SourceType, r.Msg.SourceId)
+	bill, err := service.CreateBill(
+		ctx,
+		r.Msg.PayerId,
+		r.Msg.PayeeId,
+		r.Msg.AmountCents,
+		r.Msg.SourceType,
+		r.Msg.SourceId,
+	)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}

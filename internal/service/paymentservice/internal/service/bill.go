@@ -25,7 +25,13 @@ var (
 	ErrDuplicateBill       = errors.New("duplicate bill")
 )
 
-func CreateBill(ctx context.Context, payerId, payeeId int64, amountCents int32, sourceType *string, sourceId *int64) (*paymentv1.Bill, error) {
+func CreateBill(
+	ctx context.Context,
+	payerId, payeeId int64,
+	amountCents int32,
+	sourceType *string,
+	sourceId *int64,
+) (*paymentv1.Bill, error) {
 	if payerId == payeeId {
 		return nil, fmt.Errorf("create bill: payer and payee cannot be the same user")
 	}
@@ -60,7 +66,12 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 	return PaymentBillToProto(ctx, paymentBill)
 }
 
-func PayBill(ctx context.Context, billId int64, channel paymentv1.Channel, expectedUpdatedAt time.Time) (*paymentv1.Bill, error) {
+func PayBill(
+	ctx context.Context,
+	billId int64,
+	channel paymentv1.Channel,
+	expectedUpdatedAt time.Time,
+) (*paymentv1.Bill, error) {
 	bill, err := repository.GetBillByID(ctx, billId)
 	if err != nil {
 		log.Error().Err(err).Msgf("PayBill: GetBillByID failed for billId: %d", billId)
@@ -80,10 +91,16 @@ func PayBill(ctx context.Context, billId int64, channel paymentv1.Channel, expec
 	}
 
 	now := time.Now()
-	affected, err := repository.UpdateBillStatus(ctx, billId, expectedUpdatedAt, model.PaymentBillStatusSubmitted, map[string]any{
-		"channel":      ch,
-		"submitted_at": now,
-	})
+	affected, err := repository.UpdateBillStatus(
+		ctx,
+		billId,
+		expectedUpdatedAt,
+		model.PaymentBillStatusSubmitted,
+		map[string]any{
+			"channel":      ch,
+			"submitted_at": now,
+		},
+	)
 	if err != nil {
 		log.Error().Err(err).Msgf("PayBill: UpdateBillStatus failed for billId: %d", billId)
 		return nil, fmt.Errorf("pay bill: %w", err)
@@ -115,9 +132,15 @@ func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time)
 	}
 
 	now := time.Now()
-	affected, err := repository.UpdateBillStatus(ctx, billId, expectedUpdatedAt, model.PaymentBillStatusCompleted, map[string]any{
-		"completed_at": now,
-	})
+	affected, err := repository.UpdateBillStatus(
+		ctx,
+		billId,
+		expectedUpdatedAt,
+		model.PaymentBillStatusCompleted,
+		map[string]any{
+			"completed_at": now,
+		},
+	)
 	if err != nil {
 		log.Error().Err(err).Msgf("ConfirmBill: UpdateBillStatus failed for billId: %d", billId)
 		return nil, fmt.Errorf("confirm bill: %w", err)
@@ -133,7 +156,13 @@ func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time)
 	return PaymentBillToProto(ctx, bill)
 }
 
-func TransitionBill(ctx context.Context, billId int64, targetStatus paymentv1.BillStatus, expectedUpdatedAt time.Time, operatorID int64) (*paymentv1.Bill, error) {
+func TransitionBill(
+	ctx context.Context,
+	billId int64,
+	targetStatus paymentv1.BillStatus,
+	expectedUpdatedAt time.Time,
+	operatorID int64,
+) (*paymentv1.Bill, error) {
 	bill, err := repository.GetBillByID(ctx, billId)
 	if err != nil {
 		log.Error().Err(err).Msgf("TransitionBill: GetBillByID failed for billId: %d", billId)
@@ -190,7 +219,12 @@ func TransitionBill(ctx context.Context, billId int64, targetStatus paymentv1.Bi
 	return PaymentBillToProto(ctx, bill)
 }
 
-func SupplementSerialNumber(ctx context.Context, billId int64, serialNumber string, expectedUpdatedAt time.Time) (*paymentv1.Bill, error) {
+func SupplementSerialNumber(
+	ctx context.Context,
+	billId int64,
+	serialNumber string,
+	expectedUpdatedAt time.Time,
+) (*paymentv1.Bill, error) {
 	bill, err := repository.GetBillByID(ctx, billId)
 	if err != nil {
 		log.Error().Err(err).Msgf("SupplementSerialNumber: GetBillByID failed for billId: %d", billId)
