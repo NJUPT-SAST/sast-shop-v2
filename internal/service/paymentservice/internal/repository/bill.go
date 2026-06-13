@@ -51,11 +51,16 @@ func UpdateBillStatus(ctx context.Context,
 	if extraUpdates == nil {
 		extraUpdates = make(map[string]any)
 	}
+	// 防止调用方误传保留字段导致 SQL 中重复 SET
+	delete(extraUpdates, "status")
+	delete(extraUpdates, "updated_at")
+
+	now := time.Now()
 	res, err := postgres.DB.NewUpdate().
-		Model(extraUpdates).
+		Model(&extraUpdates).
 		TableExpr("payment.payment_bill").
 		Set("status = ?", newStatus).
-		Set("updated_at = ?", time.Now()).
+		Set("updated_at = ?", now).
 		Where("id = ? AND updated_at = ?", billID, expectedUpdatedAt).
 		Exec(ctx)
 	if err != nil {
