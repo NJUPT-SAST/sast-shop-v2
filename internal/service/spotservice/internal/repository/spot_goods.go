@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"math"
 	"time"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
@@ -22,17 +21,13 @@ func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*mo
 	return goodsList, err
 }
 
-func GetSpotGoodsLength(ctx context.Context, storeID int64) (int32, error) {
+func GetSpotGoodsLength(ctx context.Context, storeID int64) (int, error) {
 	count, err := postgres.DB.NewSelect().
 		Model((*model.SpotGoods)(nil)).
 		Where("store_id = ?", storeID).
 		Where("closed_at IS NULL").
 		Count(ctx)
-
-	if count > math.MaxInt32 {
-		return -1, err
-	}
-	return int32(count), err
+	return count, err
 }
 
 func GetSpotGoodsByID(ctx context.Context, goodsID int64) (*model.SpotGoods, error) {

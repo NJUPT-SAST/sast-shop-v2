@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"time"
 
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
@@ -22,6 +23,7 @@ func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*mo
 			},
 		}, "")
 	}
+
 	return spotGoodsList, nil
 }
 
@@ -35,12 +37,12 @@ func GetSpotGoodLength(ctx context.Context, storeID int64) (int32, error) {
 			},
 		}, "")
 	}
-	if count < 0 {
+	if count > math.MaxInt32 {
 		log.Warn().
 			Msgf("Spot goods count exceeds int32 limit for storeID: %d, returning -1 to indicate overflow", storeID)
 		return -1, nil
 	}
-	return count, nil
+	return int32(count), nil
 }
 
 func GetSpotGoods(ctx context.Context, goodsID int64) (*model.SpotGoods, error) {
