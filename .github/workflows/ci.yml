@@ -112,6 +112,12 @@ jobs:
       - name: Generate proto
         run: buf generate
 
+      - name: Init gen module
+        run: |
+          cd gen
+          go mod init buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go
+          go mod tidy
+
       - name: Create go.work
         run: |
           go work init
@@ -145,6 +151,12 @@ jobs:
 
       - name: Generate proto
         run: buf generate
+
+      - name: Init gen module
+        run: |
+          cd gen
+          go mod init buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go
+          go mod tidy
 
       - name: Create go.work
         run: |
