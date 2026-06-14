@@ -3,9 +3,12 @@ package service
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 
+	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/userservice/internal/model"
 )
 
@@ -26,6 +29,18 @@ func buildAuthUser(u *model.UserAccount, feishuAccessToken string) *rpcintercept
 		Status:      string(u.Status),
 		AccessToken: feishuAccessToken,
 	}
+}
+
+//账号状态门禁，restricted/banned/deleted 拒绝登录
+func checkUserCanLogin(u *model.UserAccount) error {
+	if u.Status == model.MemberStatusRestricted || u.Status == model.MemberStatusBanned || u.Status == model.MemberStatusDeleted {
+		return rpcerror.NewInternalError(&commonv1.BusinessError_UserError{
+			UserError: &userv1.UserError{
+				Code: userv1.UserErrorCode_USER_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, fmt.Sprintf("user account is %s", u.Status))
+	}
+	return nil
 }
 
 //UserAccount → proto LoginMember 映射
