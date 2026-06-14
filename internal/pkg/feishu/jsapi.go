@@ -3,7 +3,7 @@ package feishu
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -30,7 +30,9 @@ func GetJSAPITicket(ctx context.Context) (*JSAPITicket, error) {
 		return nil, err
 	}
 
-	rawResp, err := client.SDK.Post(ctx, "/open-apis/jssdk/ticket/get", map[string]any{}, larkcore.AccessTokenTypeTenant)
+	rawResp, err := client.SDK.Post(
+		ctx, "/open-apis/jssdk/ticket/get", map[string]any{}, larkcore.AccessTokenTypeTenant,
+	)
 	if err != nil {
 		return nil, mapFeishuError(err)
 	}
@@ -82,7 +84,7 @@ func SignURL(ctx context.Context, requestURL string) (*JSAPISignature, error) {
 		requestURL,
 	)
 
-	sum := sha1.Sum([]byte(raw))
+	sum := sha1.Sum([]byte(raw)) //nolint:gosec
 	signature := hex.EncodeToString(sum[:])
 
 	return &JSAPISignature{

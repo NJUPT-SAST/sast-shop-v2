@@ -1,0 +1,35 @@
+name: Buf
+
+on:
+  pull_request:
+    paths:
+      - "proto/**"
+      - "buf.yaml"
+      - "buf.lock"
+  push:
+    branches: [main]
+    paths:
+      - "proto/**"
+      - "buf.yaml"
+      - "buf.lock"
+  delete:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  buf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: bufbuild/buf-action@v1
+        with:
+          token: ${{ secrets.BUF_TOKEN }}
+          breaking_against_registry: true
+          pr_comment: true
+          # Skip breaking change check by adding "buf skip breaking" to the commit message
+          breaking: ${{ !contains(github.event.head_commit.message, 'buf skip breaking') }}

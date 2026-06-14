@@ -1,0 +1,55 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "ci"]
+
+  - package-ecosystem: "gomod"
+    directory: "/internal/pkg"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "go"]
+    groups:
+      bun:
+        patterns: ["github.com/uptrace/bun*"]
+      connectrpc:
+        patterns: ["connectrpc.com/*", "buf.build/*"]
+
+  - package-ecosystem: "gomod"
+    directory: "/internal/service/userservice"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: "gomod"
+    directory: "/internal/service/catalogservice"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: "gomod"
+    directory: "/internal/service/paymentservice"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: "gomod"
+    directory: "/internal/service/spotservice"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: "gomod"
+    directory: "/internal/service/errandservice"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "go"]
