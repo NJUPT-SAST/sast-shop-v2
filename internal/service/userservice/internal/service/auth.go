@@ -108,3 +108,21 @@ func Login(ctx context.Context, req *userv1.LoginRequest) (*userv1.LoginResponse
 		Member:      toLoginMember(user),
 	}, nil
 }
+
+// 前端 h5sdk.config 鉴权：SignURL → 四元组
+func GetJSAPIAuthConfig(ctx context.Context, url string) (*userv1.GetJSAPIAuthConfigResponse, error) {
+	sig, err := feishu.SignURL(ctx, url)
+	if err != nil {
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_UserError{
+			UserError: &userv1.UserError{
+				Code: userv1.UserErrorCode_USER_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, fmt.Sprintf("feishu sign url: %v", err))
+	}
+	return &userv1.GetJSAPIAuthConfigResponse{
+		AppId:     sig.AppID,
+		Timestamp: sig.Timestamp,
+		NonceStr:  sig.NonceStr,
+		Signature: sig.Signature,
+	}, nil
+}
