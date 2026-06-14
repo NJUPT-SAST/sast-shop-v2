@@ -38,7 +38,10 @@ func buildAuthUser(u *model.UserAccount, feishuAccessToken string) *rpcintercept
 
 // 账号状态门禁，restricted/banned/deleted 拒绝登录
 func checkUserCanLogin(u *model.UserAccount) error {
-	if u.Status == model.MemberStatusRestricted || u.Status == model.MemberStatusBanned || u.Status == model.MemberStatusDeleted {
+	switch u.Status {
+	case model.MemberStatusRestricted,
+		model.MemberStatusBanned,
+		model.MemberStatusDeleted:
 		return rpcerror.NewInternalError(&commonv1.BusinessError_UserError{
 			UserError: &userv1.UserError{
 				Code: userv1.UserErrorCode_USER_ERROR_CODE_INTERNAL_ERROR,
