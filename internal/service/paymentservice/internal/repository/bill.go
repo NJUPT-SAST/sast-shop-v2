@@ -51,7 +51,8 @@ func UpdateBillStatus(ctx context.Context,
 	if extraUpdates == nil {
 		extraUpdates = make(map[string]any)
 	}
-	// 防止调用方误传保留字段导致 SQL 中重复 SET
+	// 防止调用方误传保留字段导致 SQL 中重复 SET / 或意外更新主键
+	delete(extraUpdates, "id")
 	delete(extraUpdates, "status")
 	delete(extraUpdates, "updated_at")
 
