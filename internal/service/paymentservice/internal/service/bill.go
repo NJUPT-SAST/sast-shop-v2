@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
@@ -69,6 +70,56 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 	}
 
 	return bill, nil
+}
+
+func CreateBillForOrder(
+	ctx context.Context,
+	sourceType string,
+	sourceID int64,
+	payerID, payeeID int64,
+	amountCents int32,
+) (*paymentv1.Bill, error) {
+	bill, err := repository.GetBillBySource(ctx, sourceType, sourceID, payerID)
+	if err != nil {
+		log.Error().Err(err).Msg("CreateBillForOrder: GetBillBySource failed")
+		return nil, fmt.Errorf("create bill for order: get bill by source: %w", err)
+	}
+	if bill != nil {
+		return PaymentBillToProto(ctx, bill)
+	}
+
+	bill = &model.PaymentBill{
+		BillNo:      model.GenerateBillNo(),
+		PayerID:     payerID,
+		PayeeID:     payeeID,
+		SourceType:  &sourceType,
+		SourceID:    &sourceID,
+		AmountCents: amountCents,
+		VerifyCode:  model.GenerateVerifyCode(),
+		Status:      model.PaymentBillStatusUnpaid,
+	}
+	err = repository.CreateBill(ctx, bill)
+	if err != nil {
+		existing, lookupErr := repository.GetBillBySource(ctx, sourceType, sourceID, payerID)
+		if lookupErr != nil || existing == nil {
+			log.Error().
+				Err(err).
+				AnErr("lookupErr", lookupErr).
+				Msg("CreateBillForOrder: CreateBill failed and fallback lookup also failed")
+			return nil, fmt.Errorf("create bill for order: %w", err)
+		}
+		return PaymentBillToProto(ctx, existing)
+	}
+	return PaymentBillToProto(ctx, bill)
+}
+
+func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) error {
+	_, err := repository.CancelBillBySource(ctx, sourceType, sourceID, payerID)
+	if err != nil {
+		log.Error().Err(err).Msg("CancelBillBySource: CancelBillsBySource failed")
+		return fmt.Errorf("cancel bill by source: %w", err)
+	}
+	return nil
 }
 
 func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv1.Bill, error) {
