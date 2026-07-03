@@ -1,8 +1,12 @@
 package model
 
 import (
+	"crypto/rand"
+	"fmt"
+	"math/big"
 	"time"
 
+	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	"github.com/uptrace/bun"
 )
 
@@ -64,3 +68,81 @@ const (
 	PaymentBillStatusCompleted PaymentBillStatus = "completed"
 	PaymentBillStatusClosed    PaymentBillStatus = "closed"
 )
+
+func GenerateBillNo() string {
+	ts := time.Now().Format("20060102150405")
+	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
+	if err != nil {
+		return "PAY" + ts + fmt.Sprintf("%06d", time.Now().UnixNano()%1_000_000)
+	}
+	return "PAY" + ts + fmt.Sprintf("%06d", n.Int64())
+}
+
+func GenerateVerifyCode() string {
+	n, err := rand.Int(rand.Reader, big.NewInt(9000))
+	if err != nil {
+		return fmt.Sprintf("%04d", time.Now().UnixNano()%9000+1000)
+	}
+	return fmt.Sprintf("%04d", n.Int64()+1000)
+}
+
+func IsValidPaymentChannel(ch PaymentChannel) bool {
+	switch ch {
+	case PaymentChannelWechat, PaymentChannelAlipay:
+		return true
+	default:
+		return false
+	}
+}
+
+func ProtoStatusToModel(proto paymentv1.BillStatus) (PaymentBillStatus, bool) {
+	switch proto {
+	case paymentv1.BillStatus_BILL_STATUS_UNPAID:
+		return PaymentBillStatusUnpaid, true
+	case paymentv1.BillStatus_BILL_STATUS_SUBMITTED:
+		return PaymentBillStatusSubmitted, true
+	case paymentv1.BillStatus_BILL_STATUS_COMPLETED:
+		return PaymentBillStatusCompleted, true
+	case paymentv1.BillStatus_BILL_STATUS_CLOSED:
+		return PaymentBillStatusClosed, true
+	default:
+		return "", false
+	}
+}
+
+func ModelStatusToProto(status PaymentBillStatus) (paymentv1.BillStatus, bool) {
+	switch status {
+	case PaymentBillStatusUnpaid:
+		return paymentv1.BillStatus_BILL_STATUS_UNPAID, true
+	case PaymentBillStatusSubmitted:
+		return paymentv1.BillStatus_BILL_STATUS_SUBMITTED, true
+	case PaymentBillStatusCompleted:
+		return paymentv1.BillStatus_BILL_STATUS_COMPLETED, true
+	case PaymentBillStatusClosed:
+		return paymentv1.BillStatus_BILL_STATUS_CLOSED, true
+	default:
+		return 0, false
+	}
+}
+
+func ProtoChannelToModel(proto paymentv1.Channel) (PaymentChannel, bool) {
+	switch proto {
+	case paymentv1.Channel_CHANNEL_WECHAT:
+		return PaymentChannelWechat, true
+	case paymentv1.Channel_CHANNEL_ALIPAY:
+		return PaymentChannelAlipay, true
+	default:
+		return "", false
+	}
+}
+
+func ModelChannelToProto(ch PaymentChannel) (paymentv1.Channel, bool) {
+	switch ch {
+	case PaymentChannelWechat:
+		return paymentv1.Channel_CHANNEL_WECHAT, true
+	case PaymentChannelAlipay:
+		return paymentv1.Channel_CHANNEL_ALIPAY, true
+	default:
+		return 0, false
+	}
+}
