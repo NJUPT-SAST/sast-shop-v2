@@ -6,6 +6,7 @@ import (
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/catalog/v1/catalogv1connect"
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
 )
@@ -18,14 +19,26 @@ func (s *CatalogInternalServer) GetProductTemplate(
 	ctx context.Context,
 	r *connect.Request[catalogv1.GetProductTemplateRequest],
 ) (*connect.Response[catalogv1.GetProductTemplateResponse], error) {
-	return nil, catalogError()
+	pt, err := service.GetProductTemplate(ctx, r.Msg.ProductTemplateId)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&catalogv1.GetProductTemplateResponse{
+		ProductTemplate: pt,
+	}), nil
 }
 
 func (s *CatalogInternalServer) GetStore(
 	ctx context.Context,
 	r *connect.Request[catalogv1.GetStoreRequest],
 ) (*connect.Response[catalogv1.GetStoreResponse], error) {
-	return nil, catalogError()
+	store, err := service.GetStore(ctx, r.Msg.StoreId)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&catalogv1.GetStoreResponse{
+		Store: store,
+	}), nil
 }
 
 func InitCatalogInternalServiceHandler(e *echo.Echo, opts ...connect.HandlerOption) {
