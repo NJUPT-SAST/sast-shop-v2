@@ -1,5 +1,4 @@
 version: v2
-clean: true
 plugins:
   - remote: buf.build/protocolbuffers/go:v1.36.11
     out: gen
@@ -13,4 +12,6 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: buf.build/gen/go/sast/sast-shop-v2/protocolbuffers
+      value: buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go
+  disable:
+    - module: buf.build/bufbuild/protovalidate

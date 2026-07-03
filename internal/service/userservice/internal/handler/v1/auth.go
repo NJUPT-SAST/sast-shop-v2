@@ -4,10 +4,9 @@ import (
 	"context"
 
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/user/v1/userv1connect"
-	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
-	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/userservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
 )
@@ -20,22 +19,22 @@ func (s *AuthServer) Login(
 	ctx context.Context,
 	r *connect.Request[userv1.LoginRequest],
 ) (*connect.Response[userv1.LoginResponse], error) {
-	return nil, rpcerror.NewInternalError(&commonv1.BusinessError_UserError{
-		UserError: &userv1.UserError{
-			Code: userv1.UserErrorCode_USER_ERROR_CODE_INTERNAL_ERROR,
-		},
-	}, "To be implemented")
+	resp, err := service.Login(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
 }
 
 func (s *AuthServer) GetJSAPIAuthConfig(
 	ctx context.Context,
 	r *connect.Request[userv1.GetJSAPIAuthConfigRequest],
 ) (*connect.Response[userv1.GetJSAPIAuthConfigResponse], error) {
-	return nil, rpcerror.NewInternalError(&commonv1.BusinessError_UserError{
-		UserError: &userv1.UserError{
-			Code: userv1.UserErrorCode_USER_ERROR_CODE_INTERNAL_ERROR,
-		},
-	}, "To be implemented")
+	resp, err := service.GetJSAPIAuthConfig(ctx, r.Msg.GetUrl())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
 }
 
 func InitAuthHandler(e *echo.Echo, opts ...connect.HandlerOption) {
