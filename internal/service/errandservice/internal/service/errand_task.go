@@ -6,35 +6,23 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"crypto/rand"
+	"math/big"
 
 	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/repository"
+
+	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
+"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
+
+"github.com/uptrace/bun"
+
+"github.com/rs/zerolog/log"
 )
 
-//联合查询子项和主单，承载单条子项 + 所属主单全量数据库字段，用于所有校验、分组逻辑
-type selectedDemandItemRow struct{
-	DemandItemID int64 `bun:"demand_item_id"`
-	DemandItemUpdateAt time.Time `bun:"demand_item_updated_at"` //乐观锁
-	DemandItemStatus model.ErrandDemandItemStatus `bun:"demand_item_status"` //校验open状态
-	DemandID int64 `bun:demand_id`
-	DemandStatus model.ErrandDemandStatus `bun:"demand_status"`
-	RequesterID int64 `bun:"request_id"`
-	StoreID int64 `bun:"store_id"`
-	ProductTemplateID int64 `bun:"product_template_id"` //聚合task_item
-	Quantity int32 `bun:"quantity"`
-	ServiveFeePerUnitCents int32 `bun:"service_fee_per_unit_cents"`
-	Deadline time.Time `bun:"deadline"`
-}
-//创建任务时把商品详情存进任务明细，防止后续商品修改导致历史任务展示错乱
-type productSnapshotRow struct{
-	ID int64 `bun:"id"`
-	Tittle string `bun:"tittle"`
-	Description string `bun:"description"`
-	StoreID int64 `bun:"store_id"`
-	MainImageURL string `bun:"main_image_url"` 
-}
 //同商品+同截止时间合并为一个任务
 type taskItemGroupKey struct{
 	ProductTemplateID int64
@@ -42,9 +30,9 @@ type taskItemGroupKey struct{
 }
 
 type taskItemGroup struct{
-	Snapshot productSnapshotRow
+	Snapshot repository.ProductSnapshotRow
 	RequiredQuantity int32 //本组商品总采购量
-	Rows []selectedDemandItemRow  //本组所有商品原始需求列表
+	Rows []repository.SelectedDemandItemRow  //本组所有商品原始需求列表
 }
 
 var(
@@ -72,13 +60,13 @@ func CreateTask(ctx context.Context,captainID int64,req *errandv1.CreateTaskRequ
 	//开启事务，调用查询参数
 	var taskID int64
 	err := postgres.DB.RunInTx(ctx,&sql.TxOptions{},func(ctx context.Context, tx bun.Tx) error{
-		rows,err  := loadSelectedDemandItemsForUpdate(ctx,tx,selectIDs)
+		rows,_ := repository.LoadSelectedDemandItemsForUpdate(ctx,tx,selectIDs)
 		now := time.Now().UTC()
-		demandRows := make(map[int64][]selectedDemandItemRow)
+		demandRows := make(map[int64][]repository.SelectedDemandItemRow)
 		productIDsSet := make(map[int64]struct{},len(rows))
 		
 		for _, row := range rows {
-			reqUpdatedAt := selectedUpdatedAt[row.DemandItemID]
+			//reqUpdatedAt := selectedUpdatedAt[row.DemandItemID]
 
 			demandRows[row.DemandID] = append(demandRows[row.DemandID], row)
 			productIDsSet[row.ProductTemplateID] = struct{}{}
@@ -89,7 +77,7 @@ func CreateTask(ctx context.Context,captainID int64,req *errandv1.CreateTaskRequ
 			productIDs = append(productIDs,id)
 		}
 
-		snapshots,err := loadProductSnapshots(ctx,tx,productIDs)
+		snapshots,_ := repository.LoadProductSnapshots(ctx,tx,productIDs)
 		for _,snap := range snapshots{
 			if snap.StoreID != req.StoreId{
 				return newErrandInternalError("product/store mismatch")
@@ -97,7 +85,7 @@ func CreateTask(ctx context.Context,captainID int64,req *errandv1.CreateTaskRequ
 		}
 
 		task := &model.ErrandTask{
-			TaskNo: generateTaskNO(),
+			TaskNo: generateTaskNo(),
 			CaptainID: captainID,
 			StoreID: req.StoreId,
 			Status: model.ErrandTaskStatusShopping,
@@ -127,7 +115,7 @@ func CreateTask(ctx context.Context,captainID int64,req *errandv1.CreateTaskRequ
 			taskItem := &model.ErrandTaskItem{
 				TaskID: task.ID,
 				ProductTemplateID: key.ProductTemplateID,
-				TitleSnapshot: group.Snapshot.Tittle,
+				TitleSnapshot: group.Snapshot.Title,
 				DescriptionSnapshot: group.Snapshot.Description,
 				ImageURLSnapshot: group.Snapshot.MainImageURL,
 				RequiredQuantity: group.RequiredQuantity,
@@ -139,10 +127,103 @@ func CreateTask(ctx context.Context,captainID int64,req *errandv1.CreateTaskRequ
 			}
 		}
 
+		assignments := make([]*model.ErrandTaskAssignment, 0, len(rows))
+		for _, row := range rows {
+			assignments = append(assignments, &model.ErrandTaskAssignment{
+				TaskID:                 task.ID,
+				TaskItemID:             taskItemByDemandItemID[row.DemandItemID],
+				DemandItemID:           row.DemandItemID,
+				PurchaserID:            row.RequesterID,
+				ServiceFeePerUnitCents: row.ServiceFeePerUnitCents,
+			})
+		}
+
+		demandIDs := make([]int64, 0, len(demandRows))
+		for demandID := range demandRows {
+			demandIDs = append(demandIDs, demandID)
+		}
+		itemCountByDemandID, _ := repository.LoadDemandItemCounts(ctx, tx, demandIDs)
+
+		for demandID, selectedRows := range demandRows {
+			totalCount, ok := itemCountByDemandID[demandID]
+			if !ok || totalCount == 0 {
+				return newErrandInternalError("demand item count missing")
+			}
+
+			selectedItemIDs := demandItemIDs(selectedRows)
+
+			if totalCount == len(selectedRows) {
+				if err := repository.UpdateDemandToShopping(ctx, tx, demandID, task.ID, now); err != nil {
+					log.Error().Err(err).Msg("failed to update full-selected demand")
+					return newErrandInternalError("")
+				}
+				if err := repository.UpdateDemandItemsToShopping(ctx, tx, selectedItemIDs, now); err != nil {
+					log.Error().Err(err).Msg("failed to update full-selected demand items")
+					return newErrandInternalError("")
+				}
+				continue
+			}
+
+		base := selectedRows[0]
+			taskIDCopy := task.ID
+			demandIDCopy := demandID
+			splitDemand := &model.ErrandDemand{
+				RequesterID:       base.RequesterID,
+				StoreID:           base.StoreID,
+				Status:            model.ErrandDemandStatusShopping,
+				Deadline:          base.Deadline,
+				TaskID:            &taskIDCopy,
+				SplitFromDemandID: &demandIDCopy,
+				ShoppingStartAt:   &now,
+			}
+			if err := repository.CreateDemand(ctx, tx, splitDemand); err != nil {
+				log.Error().Err(err).Msg("failed to create split demand")
+				return newErrandInternalError("")
+			}
+			
+		}
+		
+
+	return nil	
 
 	})
+
+	if err != nil {
+    return 0, err
+}
+
+	return taskID,nil
 }
 
 
 func GetShoppingTaskDetail(ctx context.Context,)
 
+func demandItemIDs(rows []repository.SelectedDemandItemRow) []int64 {
+	ids := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.DemandItemID)
+	}
+	return ids
+}
+
+func generateTaskNo() string {
+	ts := time.Now().Format("20060102150405")
+	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
+	if err != nil {
+		return "ET" + ts + fmt.Sprintf("%06d", time.Now().UnixNano()%1_000_000)
+	}
+	return "ET" + ts + fmt.Sprintf("%06d", n.Int64())
+}
+
+
+
+
+
+
+func newErrandInternalError(msg string) error {
+	return rpcerror.NewInternalError(&commonv1.BusinessError_ErrandError{
+		ErrandError: &errandv1.ErrandError{
+			Code: errandv1.ErrandErrorCode_ERRAND_ERROR_CODE_INTERNAL_ERROR,
+		},
+	}, msg)
+}

@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/service"
 )
 
 type ErrandTaskServiceServer struct {
@@ -18,9 +19,18 @@ func (s *ErrandTaskServiceServer) CreateTask(
 	ctx context.Context,
 	r *connect.Request[errandv1.CreateTaskRequest],
 ) (*connect.Response[errandv1.CreateTaskResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	taskID, err := service.CreateTask(ctx, captainID, r.Msg)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&errandv1.CreateTaskResponse{
+		ErrandTaskId: taskID,
+	}), nil
 }
-
 func (s *ErrandTaskServiceServer) GetShoppingTaskDetail(
 	ctx context.Context,
 	r *connect.Request[errandv1.GetShoppingTaskDetailRequest],
