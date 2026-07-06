@@ -19,6 +19,7 @@ func errandError() *connect.Error {
 		},
 	}, "")
 }
+
 func captainIDFromContext(ctx context.Context) (int64, error) {
 	user, ok := rpcinterceptor.UserFromContext(ctx)
 	if !ok || user == nil || user.UserID <= 0 {
@@ -39,16 +40,13 @@ func mapServiceError(err error) error {
 
 	switch {
 	case errors.Is(err, service.ErrInvalidDemandItem),
-		//errors.Is(err, service.ErrInvalidQuantity),
 		errors.Is(err, service.ErrStoreMismatch):
 		return connect.NewError(connect.CodeInvalidArgument, err)
-
-	
+	case errors.Is(err, service.ErrDemandItemNotOpen):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 
 	case errors.Is(err, service.ErrConcurrencyConflict):
 		return connect.NewError(connect.CodeAborted, err)
-
-	
 
 	default:
 		return errandError()

@@ -10,36 +10,33 @@ import (
 	"github.com/uptrace/bun"
 )
 
-//联合查询子项和主单，承载单条子项 + 所属主单全量数据库字段，用于所有校验、分组逻辑
-type SelectedDemandItemRow struct{
-	DemandItemID int64 `bun:"demand_item_id"`
-	DemandItemUpdatedAt time.Time `bun:"demand_item_updated_at"` //乐观锁
-	DemandItemStatus model.ErrandDemandItemStatus `bun:"demand_item_status"` //校验open状态
-	DemandID int64 `bun:"demand_id"`
-	DemandStatus model.ErrandDemandStatus `bun:"demand_status"`
-	RequesterID int64 `bun:"requester_id"`
-	StoreID int64 `bun:"store_id"`
-	ProductTemplateID int64 `bun:"product_template_id"` //聚合task_item
-	Quantity int32 `bun:"quantity"`
-	ServiceFeePerUnitCents int32 `bun:"service_fee_per_unit_cents"`
-	Deadline time.Time `bun:"deadline"`
-}
-//创建任务时把商品详情存进任务明细，防止后续商品修改导致历史任务展示错乱
-type ProductSnapshotRow struct{
-	ID int64 `bun:"id"`
-	Title string `bun:"title"`
-	Description string `bun:"description"`
-	StoreID int64 `bun:"store_id"`
-	MainImageURL string `bun:"main_image_url"` 
+type SelectedDemandItemRow struct {
+	DemandItemID           int64                        `bun:"demand_item_id"`
+	DemandItemUpdatedAt    time.Time                    `bun:"demand_item_updated_at"`
+	DemandItemStatus       model.ErrandDemandItemStatus `bun:"demand_item_status"`
+	DemandID               int64                        `bun:"demand_id"`
+	DemandStatus           model.ErrandDemandStatus     `bun:"demand_status"`
+	RequesterID            int64                        `bun:"requester_id"`
+	StoreID                int64                        `bun:"store_id"`
+	ProductTemplateID      int64                        `bun:"product_template_id"`
+	Quantity               int32                        `bun:"quantity"`
+	ServiceFeePerUnitCents int32                        `bun:"service_fee_per_unit_cents"`
+	Deadline               time.Time                    `bun:"deadline"`
 }
 
-
-func RunInTx(ctx context.Context,fn func(ctx context.Context,tx bun.Tx)error) error{
-	return postgres.DB.RunInTx(ctx,&sql.TxOptions{},fn)
-
+type ProductSnapshotRow struct {
+	ID           int64  `bun:"id"`
+	Title        string `bun:"title"`
+	Description  string `bun:"description"`
+	StoreID      int64  `bun:"store_id"`
+	MainImageURL string `bun:"main_image_url"`
 }
 
-func LoadSelectedDemandItemsForUpdate(ctx context.Context,db bun.IDB,ids []int64)([]SelectedDemandItemRow,error){
+func RunInTx(ctx context.Context, fn func(ctx context.Context, tx bun.Tx) error) error {
+	return postgres.DB.RunInTx(ctx, &sql.TxOptions{}, fn)
+}
+
+func LoadSelectedDemandItemsForUpdate(ctx context.Context, db bun.IDB, ids []int64) ([]SelectedDemandItemRow, error) {
 	rows := make([]SelectedDemandItemRow, 0, len(ids))
 	err := db.NewSelect().
 		TableExpr("errand.errand_demand_item AS edi").
@@ -54,7 +51,6 @@ func LoadSelectedDemandItemsForUpdate(ctx context.Context,db bun.IDB,ids []int64
 		ColumnExpr("edi.product_template_id AS product_template_id").
 		ColumnExpr("edi.quantity AS quantity").
 		ColumnExpr("edi.service_fee_per_unit_cents AS service_fee_per_unit_cents").
-		ColumnExpr("edi.estimated_unit_price_cents AS estimated_unit_price_cents").
 		ColumnExpr("ed.deadline AS deadline").
 		Where("edi.id IN (?)", bun.List(ids)).
 		OrderExpr("edi.id ASC").
@@ -87,13 +83,13 @@ func LoadProductSnapshots(ctx context.Context, db bun.IDB, ids []int64) (map[int
 	if err != nil {
 		return nil, err
 	}
+
 	result := make(map[int64]ProductSnapshotRow, len(rows))
 	for _, row := range rows {
 		result[row.ID] = row
 	}
 	return result, nil
 }
-
 
 func LoadDemandItemCounts(ctx context.Context, db bun.IDB, demandIDs []int64) (map[int64]int, error) {
 	if len(demandIDs) == 0 {
@@ -129,6 +125,19 @@ func CreateTask(ctx context.Context, db bun.IDB, task *model.ErrandTask) error {
 	return err
 }
 
+func CreateTaskItem(ctx context.Context, db bun.IDB, taskItem *model.ErrandTaskItem) error {
+	_, err := db.NewInsert().Model(taskItem).Returning("id").Exec(ctx)
+	return err
+}
+
+func CreateTaskAssignments(ctx context.Context, db bun.IDB, assignments []*model.ErrandTaskAssignment) error {
+	if len(assignments) == 0 {
+		return nil
+	}
+	_, err := db.NewInsert().Model(&assignments).Exec(ctx)
+	return err
+}
+
 func CreateDemand(ctx context.Context, db bun.IDB, demand *model.ErrandDemand) error {
 	_, err := db.NewInsert().Model(demand).Returning("id").Exec(ctx)
 	return err
@@ -155,6 +164,35 @@ func UpdateDemandItemsToShopping(ctx context.Context, db bun.IDB, itemIDs []int6
 		Set("status = ?", model.ErrandDemandItemStatusShopping).
 		Set("updated_at = ?", now).
 		Where("id IN (?)", bun.List(itemIDs)).
+		Exec(ctx)
+	return err
+}
+
+func MoveDemandItemsToDemandAndShopping(
+	ctx context.Context,
+	db bun.IDB,
+	itemIDs []int64,
+	demandID int64,
+	now time.Time,
+) error {
+	if len(itemIDs) == 0 {
+		return nil
+	}
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("errand_demand_id = ?", demandID).
+		Set("status = ?", model.ErrandDemandItemStatusShopping).
+		Set("updated_at = ?", now).
+		Where("id IN (?)", bun.List(itemIDs)).
+		Exec(ctx)
+	return err
+}
+
+func TouchDemandUpdatedAt(ctx context.Context, db bun.IDB, demandID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemand)(nil)).
+		Set("updated_at = ?", now).
+		Where("id = ?", demandID).
 		Exec(ctx)
 	return err
 }

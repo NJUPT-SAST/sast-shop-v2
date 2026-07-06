@@ -6,9 +6,9 @@ import (
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/errand/v1/errandv1connect"
 	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
-	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/service"
 )
 
 type ErrandTaskServiceServer struct {
@@ -31,6 +31,7 @@ func (s *ErrandTaskServiceServer) CreateTask(
 		ErrandTaskId: taskID,
 	}), nil
 }
+
 func (s *ErrandTaskServiceServer) GetShoppingTaskDetail(
 	ctx context.Context,
 	r *connect.Request[errandv1.GetShoppingTaskDetailRequest],
