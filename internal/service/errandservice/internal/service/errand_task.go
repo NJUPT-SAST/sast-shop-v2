@@ -90,7 +90,7 @@ func CreateTask(ctx context.Context,captainID int64,req *errandv1.CreateTaskRequ
 			StoreID: req.StoreId,
 			Status: model.ErrandTaskStatusShopping,
 		}
-		taskID = task.ID
+		//taskID = task.ID
 
 		grouped := make(map[taskItemGroupKey]*taskItemGroup)
 		for _,row := range rows {
@@ -196,7 +196,7 @@ func CreateTask(ctx context.Context,captainID int64,req *errandv1.CreateTaskRequ
 }
 
 
-func GetShoppingTaskDetail(ctx context.Context,)
+
 
 func demandItemIDs(rows []repository.SelectedDemandItemRow) []int64 {
 	ids := make([]int64, 0, len(rows))

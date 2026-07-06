@@ -27,7 +27,7 @@ type SelectedDemandItemRow struct{
 //创建任务时把商品详情存进任务明细，防止后续商品修改导致历史任务展示错乱
 type ProductSnapshotRow struct{
 	ID int64 `bun:"id"`
-	Title string `bun:"tittle"`
+	Title string `bun:"title"`
 	Description string `bun:"description"`
 	StoreID int64 `bun:"store_id"`
 	MainImageURL string `bun:"main_image_url"` 

@@ -39,8 +39,9 @@ func TestInit(t *testing.T){
 
 func TestGetClient(t *testing.T){
 	expectedClient := &Client{
-		AppID:"cli_a9706ac566b9dcc7",
-		AppSecret:"WXEbhEbYBEum6vj9b8HYChAnlQd4QtIU",
+		AppID: "test-app-id",
+		AppSecret: "test-app-secret",
+
 		RedirectURL:"111",
 		 SDK:        lark.NewClient(cfl),
 		
