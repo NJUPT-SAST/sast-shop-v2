@@ -52,16 +52,8 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 	// TODO: get the rest of the bill info.
 	bill := &paymentv1.Bill{
 		Id: billId,
-		Payee: &userv1.UserInfo{
-			Id:        getUsersResponse.Msg.Users[0].Id,
-			Name:      getUsersResponse.Msg.Users[0].Name,
-			AvatarUrl: getUsersResponse.Msg.Users[0].AvatarUrl,
-		},
-		Payer: &userv1.UserInfo{
-			Id:        getUsersResponse.Msg.Users[1].Id,
-			Name:      getUsersResponse.Msg.Users[1].Name,
-			AvatarUrl: getUsersResponse.Msg.Users[1].AvatarUrl,
-		},
+		Payee: internalUserInfoToUserInfo(getUsersResponse.Msg.Users[0]),
+		Payer: internalUserInfoToUserInfo(getUsersResponse.Msg.Users[1]),
 	}
 
 	if err != nil {
@@ -124,7 +116,7 @@ func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv
 	}
 	userByID := make(map[int64]*userv1.UserInfo, len(getUsersResp.Msg.Users))
 	for _, u := range getUsersResp.Msg.Users {
-		userByID[u.Id] = u
+		userByID[u.Id] = internalUserInfoToUserInfo(u)
 	}
 	pb.Payer = userByID[bill.PayerID]
 	pb.Payee = userByID[bill.PayeeID]
@@ -133,4 +125,17 @@ func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv
 	}
 
 	return pb, nil
+}
+
+// internalUserInfoToUserInfo converts InternalUserInfo to the public UserInfo type
+// used by consumers that only need basic user fields.
+func internalUserInfoToUserInfo(u *userv1.InternalUserInfo) *userv1.UserInfo {
+	if u == nil {
+		return nil
+	}
+	return &userv1.UserInfo{
+		Id:        u.Id,
+		Name:      u.Name,
+		AvatarUrl: u.AvatarUrl,
+	}
 }

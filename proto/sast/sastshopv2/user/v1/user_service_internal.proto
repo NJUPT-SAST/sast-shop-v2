@@ -16,7 +16,7 @@ message GetUsersRequest {
 }
 
 message GetUsersResponse {
-  repeated UserInfo users = 1;
+  repeated InternalUserInfo users = 1;
 }
 
 service UserInternalService {
