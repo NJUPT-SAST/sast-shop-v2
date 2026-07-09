@@ -18,6 +18,7 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// 按截止时间和相同商品类型聚合
 type taskItemGroupKey struct {
 	ProductTemplateID int64
 	Deadline          time.Time
@@ -29,212 +30,64 @@ type taskItemGroup struct {
 	Rows             []repository.SelectedDemandItemRow
 }
 
+type createTaskSelection struct {
+	SelectedUpdatedAt map[int64]time.Time
+	SelectedIDs       []int64
+}
+
+type createTaskLoadResult struct {
+	Now        time.Time
+	Rows       []repository.SelectedDemandItemRow
+	DemandRows map[int64][]repository.SelectedDemandItemRow
+	Snapshots  map[int64]repository.ProductSnapshotRow
+}
+
 var (
-	ErrInvalidDemandItem   = errors.New("invalid demand item")
+	ErrInvalidDemandItem = errors.New("invalid demand item")
+
 	ErrConcurrencyConflict = errors.New("concurrency conflict")
 	ErrStoreMismatch       = errors.New("store mismatch")
 	ErrDemandItemNotOpen   = errors.New("demand item not open")
 )
 
-//nolint:gocyclo
 func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRequest) (int64, error) {
 	if captainID <= 0 {
 		return 0, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}
+
 	if req == nil || req.StoreId <= 0 || len(req.DemandItems) == 0 {
 		return 0, ErrInvalidDemandItem
 	}
 
-	selectedUpdatedAt := make(map[int64]time.Time, len(req.DemandItems))
-	selectedIDs := make([]int64, 0, len(req.DemandItems))
-	for i, item := range req.DemandItems {
-		if item == nil || item.ErrandDemandItemId <= 0 || item.UpdatedAt == nil || !item.UpdatedAt.IsValid() {
-			return 0, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("demand_items[%d] is invalid", i))
-		}
-		if _, dup := selectedUpdatedAt[item.ErrandDemandItemId]; dup {
-			return 0, ErrInvalidDemandItem
-		}
-		selectedUpdatedAt[item.ErrandDemandItemId] = item.UpdatedAt.AsTime().UTC()
-		selectedIDs = append(selectedIDs, item.ErrandDemandItemId)
+	selection, err := buildCreateTaskSelection(req)
+	if err != nil {
+		return 0, err
 	}
 
 	var taskID int64
-	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		rows, err := repository.LoadSelectedDemandItemsForUpdate(ctx, tx, selectedIDs)
+	err = repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		loaded, err := loadCreateTaskData(ctx, tx, req.StoreId, selection)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to load selected demand items")
-			return newErrandInternalError("")
-		}
-		if len(rows) != len(selectedIDs) {
-			return ErrInvalidDemandItem
+			return err
 		}
 
-		now := time.Now().UTC()
-		demandRows := make(map[int64][]repository.SelectedDemandItemRow)
-		productIDsSet := make(map[int64]struct{}, len(rows))
-
-		for _, row := range rows {
-			if row.StoreID != req.StoreId {
-				return ErrStoreMismatch
-			}
-			if row.DemandStatus != model.ErrandDemandStatusOpen ||
-				row.DemandItemStatus != model.ErrandDemandItemStatusOpen {
-				return ErrDemandItemNotOpen
-			}
-			if !row.DemandItemUpdatedAt.UTC().Equal(selectedUpdatedAt[row.DemandItemID]) {
-				return ErrConcurrencyConflict
-			}
-			if !row.Deadline.After(now) {
-				return ErrInvalidDemandItem
-			}
-
-			demandRows[row.DemandID] = append(demandRows[row.DemandID], row)
-			productIDsSet[row.ProductTemplateID] = struct{}{}
-		}
-
-		productIDs := make([]int64, 0, len(productIDsSet))
-		for id := range productIDsSet {
-			productIDs = append(productIDs, id)
-		}
-
-		snapshots, err := repository.LoadProductSnapshots(ctx, tx, productIDs)
+		task, err := createShoppingTask(ctx, tx, captainID, req.StoreId)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to load product snapshots")
-			return newErrandInternalError("")
-		}
-		if len(snapshots) != len(productIDs) {
-			return newErrandInternalError("product snapshot missing")
-		}
-		for _, snap := range snapshots {
-			if snap.StoreID != req.StoreId {
-				return ErrStoreMismatch
-			}
-		}
-
-		task := &model.ErrandTask{
-			TaskNo:    generateTaskNo(),
-			CaptainID: captainID,
-			StoreID:   req.StoreId,
-			Status:    model.ErrandTaskStatusShopping,
-		}
-		if err := repository.CreateTask(ctx, tx, task); err != nil {
-			log.Error().Err(err).Msg("failed to create task")
-			return newErrandInternalError("")
+			return err
 		}
 		taskID = task.ID
 
-		grouped := make(map[taskItemGroupKey]*taskItemGroup)
-		for _, row := range rows {
-			key := taskItemGroupKey{
-				ProductTemplateID: row.ProductTemplateID,
-				Deadline:          row.Deadline.UTC(),
-			}
-			group, ok := grouped[key]
-			if !ok {
-				group = &taskItemGroup{
-					Snapshot: snapshots[row.ProductTemplateID],
-				}
-				grouped[key] = group
-			}
-			group.RequiredQuantity += row.Quantity
-			group.Rows = append(group.Rows, row)
-		}
-
-		taskItemIDByDemandItemID := make(map[int64]int64, len(rows))
-		for key, group := range grouped {
-			taskItem := &model.ErrandTaskItem{
-				TaskID:              task.ID,
-				ProductTemplateID:   key.ProductTemplateID,
-				TitleSnapshot:       group.Snapshot.Title,
-				DescriptionSnapshot: group.Snapshot.Description,
-				ImageURLSnapshot:    group.Snapshot.MainImageURL,
-				RequiredQuantity:    group.RequiredQuantity,
-				Deadline:            key.Deadline,
-			}
-			if err := repository.CreateTaskItem(ctx, tx, taskItem); err != nil {
-				log.Error().Err(err).Msg("failed to create task item")
-				return newErrandInternalError("")
-			}
-			for _, row := range group.Rows {
-				taskItemIDByDemandItemID[row.DemandItemID] = taskItem.ID
-			}
-		}
-
-		assignments := make([]*model.ErrandTaskAssignment, 0, len(rows))
-		for _, row := range rows {
-			assignments = append(assignments, &model.ErrandTaskAssignment{
-				TaskID:                 task.ID,
-				TaskItemID:             taskItemIDByDemandItemID[row.DemandItemID],
-				DemandItemID:           row.DemandItemID,
-				PurchaserID:            row.RequesterID,
-				ServiceFeePerUnitCents: row.ServiceFeePerUnitCents,
-			})
-		}
-		if err := repository.CreateTaskAssignments(ctx, tx, assignments); err != nil {
-			log.Error().Err(err).Msg("failed to create task assignments")
-			return newErrandInternalError("")
-		}
-
-		demandIDs := make([]int64, 0, len(demandRows))
-		for demandID := range demandRows {
-			demandIDs = append(demandIDs, demandID)
-		}
-
-		itemCountByDemandID, err := repository.LoadDemandItemCounts(ctx, tx, demandIDs)
+		taskItemIDByDemandItemID, err := createGroupedTaskItems(ctx, tx, task.ID, loaded.Rows, loaded.Snapshots)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to count demand items")
-			return newErrandInternalError("")
+			return err
 		}
 
-		for demandID, selectedRows := range demandRows {
-			totalCount, ok := itemCountByDemandID[demandID]
-			if !ok || totalCount == 0 {
-				return newErrandInternalError("demand item count missing")
-			}
+		if err := createTaskAssignments(ctx, tx, task.ID, loaded.Rows, taskItemIDByDemandItemID); err != nil {
+			return err
+		}
 
-			selectedItemIDs := demandItemIDs(selectedRows)
-			if totalCount == len(selectedRows) {
-				if err := repository.UpdateDemandToShopping(ctx, tx, demandID, task.ID, now); err != nil {
-					log.Error().Err(err).Msg("failed to update full-selected demand")
-					return newErrandInternalError("")
-				}
-				if err := repository.UpdateDemandItemsToShopping(ctx, tx, selectedItemIDs, now); err != nil {
-					log.Error().Err(err).Msg("failed to update full-selected demand items")
-					return newErrandInternalError("")
-				}
-				continue
-			}
-
-			base := selectedRows[0]
-			taskIDCopy := task.ID
-			demandIDCopy := demandID
-			splitDemand := &model.ErrandDemand{
-				RequesterID:       base.RequesterID,
-				StoreID:           base.StoreID,
-				Status:            model.ErrandDemandStatusShopping,
-				Deadline:          base.Deadline,
-				TaskID:            &taskIDCopy,
-				SplitFromDemandID: &demandIDCopy,
-				ShoppingStartAt:   &now,
-			}
-			if err := repository.CreateDemand(ctx, tx, splitDemand); err != nil {
-				log.Error().Err(err).Msg("failed to create split demand")
-				return newErrandInternalError("")
-			}
-			if err := repository.MoveDemandItemsToDemandAndShopping(
-				ctx,
-				tx,
-				selectedItemIDs,
-				splitDemand.ID,
-				now,
-			); err != nil {
-				log.Error().Err(err).Msg("failed to move selected items to split demand")
-				return newErrandInternalError("")
-			}
-			if err := repository.TouchDemandUpdatedAt(ctx, tx, demandID, now); err != nil {
-				log.Error().Err(err).Msg("failed to touch original demand")
-				return newErrandInternalError("")
-			}
+		if err := syncSelectedDemandStatus(ctx, tx, task.ID, loaded.Now, loaded.DemandRows); err != nil {
+			return err
 		}
 
 		return nil
@@ -246,16 +99,319 @@ func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRe
 	return taskID, nil
 }
 
+func buildCreateTaskSelection(req *errandv1.CreateTaskRequest) (*createTaskSelection, error) {
+	selectedUpdatedAt := make(map[int64]time.Time, len(req.DemandItems))
+	selectedIDs := make([]int64, 0, len(req.DemandItems))
+
+	for i, item := range req.DemandItems {
+		if item == nil || item.ErrandDemandItemId <= 0 || item.UpdatedAt == nil || !item.UpdatedAt.IsValid() {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("demand_items[%d] is invalid", i))
+		}
+
+		if _, dup := selectedUpdatedAt[item.ErrandDemandItemId]; dup {
+			return nil, ErrInvalidDemandItem
+		}
+
+		selectedUpdatedAt[item.ErrandDemandItemId] = item.UpdatedAt.AsTime().UTC()
+		selectedIDs = append(selectedIDs, item.ErrandDemandItemId)
+	}
+
+	return &createTaskSelection{
+		SelectedUpdatedAt: selectedUpdatedAt,
+		SelectedIDs:       selectedIDs,
+	}, nil
+}
+
+func loadCreateTaskData(
+	ctx context.Context,
+	tx bun.Tx,
+	storeID int64,
+	selection *createTaskSelection,
+) (*createTaskLoadResult, error) {
+	rows, err := repository.LoadSelectedDemandItemsForUpdate(ctx, tx, selection.SelectedIDs)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to load selected demand items")
+		return nil, newErrandInternalError("")
+	}
+	if len(rows) != len(selection.SelectedIDs) {
+		return nil, ErrInvalidDemandItem
+	}
+
+	now := time.Now().UTC()
+	demandRows := make(map[int64][]repository.SelectedDemandItemRow)
+	productIDsSet := make(map[int64]struct{}, len(rows))
+
+	for _, row := range rows {
+		if err := validateSelectedDemandItemRow(row, storeID, selection.SelectedUpdatedAt, now); err != nil {
+			return nil, err
+		}
+
+		demandRows[row.DemandID] = append(demandRows[row.DemandID], row)
+		productIDsSet[row.ProductTemplateID] = struct{}{}
+	}
+
+	snapshots, err := loadValidatedSnapshots(ctx, tx, storeID, productIDsSet)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createTaskLoadResult{
+		Now:        now,
+		Rows:       rows,
+		DemandRows: demandRows,
+		Snapshots:  snapshots,
+	}, nil
+}
+
+func validateSelectedDemandItemRow(
+	row repository.SelectedDemandItemRow,
+	storeID int64,
+	selectedUpdatedAt map[int64]time.Time,
+	now time.Time,
+) error {
+	if row.StoreID != storeID {
+		return ErrStoreMismatch
+	}
+	if row.DemandStatus != model.ErrandDemandStatusOpen || row.DemandItemStatus != model.ErrandDemandItemStatusOpen {
+		return ErrDemandItemNotOpen
+	}
+	if !row.DemandItemUpdatedAt.UTC().Equal(selectedUpdatedAt[row.DemandItemID]) {
+		return ErrConcurrencyConflict
+	}
+	if !row.Deadline.After(now) {
+		return ErrInvalidDemandItem
+	}
+
+	return nil
+}
+
+func loadValidatedSnapshots(
+	ctx context.Context,
+	tx bun.Tx,
+	storeID int64,
+	productIDsSet map[int64]struct{},
+) (map[int64]repository.ProductSnapshotRow, error) {
+	productIDs := make([]int64, 0, len(productIDsSet))
+	for id := range productIDsSet {
+		productIDs = append(productIDs, id)
+	}
+
+	snapshots, err := repository.LoadProductSnapshots(ctx, tx, productIDs)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to load product snapshots")
+		return nil, newErrandInternalError("")
+	}
+
+	if len(snapshots) != len(productIDs) {
+		return nil, newErrandInternalError("")
+	}
+
+	for _, snap := range snapshots {
+		if snap.StoreID != storeID {
+			return nil, ErrStoreMismatch
+		}
+	}
+
+	return snapshots, nil
+}
+
+func createShoppingTask(ctx context.Context, tx bun.Tx, captainID, storeID int64) (*model.ErrandTask, error) {
+	task := &model.ErrandTask{
+		TaskNo:    generateTaskNo(),
+		CaptainID: captainID,
+		StoreID:   storeID,
+		Status:    model.ErrandTaskStatusShopping,
+	}
+	if err := repository.CreateTask(ctx, tx, task); err != nil {
+		log.Error().Err(err).Msg("failed to create task")
+		return nil, newErrandInternalError("")
+	}
+
+	return task, nil
+}
+
+func buildTaskItemGroups(
+	rows []repository.SelectedDemandItemRow,
+	snapshots map[int64]repository.ProductSnapshotRow,
+) map[taskItemGroupKey]*taskItemGroup {
+	grouped := make(map[taskItemGroupKey]*taskItemGroup)
+
+	for _, row := range rows {
+		key := taskItemGroupKey{
+			ProductTemplateID: row.ProductTemplateID,
+			Deadline:          row.Deadline,
+		}
+		group, ok := grouped[key]
+		if !ok {
+			group = &taskItemGroup{
+				Snapshot: snapshots[row.ProductTemplateID],
+			}
+			grouped[key] = group
+		}
+		group.RequiredQuantity += row.RequiredQuantity
+		group.Rows = append(group.Rows, row)
+	}
+
+	return grouped
+}
+
+func createGroupedTaskItems(
+	ctx context.Context,
+	tx bun.Tx,
+	taskID int64,
+	rows []repository.SelectedDemandItemRow,
+	snapshots map[int64]repository.ProductSnapshotRow,
+) (map[int64]int64, error) {
+	grouped := buildTaskItemGroups(rows, snapshots)
+	taskItemIDByDemandItemID := make(map[int64]int64, len(rows))
+
+	for key, group := range grouped {
+		taskItem := &model.ErrandTaskItem{
+			TaskID:              taskID,
+			ProductTemplateID:   key.ProductTemplateID,
+			TitleSnapshot:       group.Snapshot.Title,
+			DescriptionSnapshot: group.Snapshot.Description,
+			ImageURLSnapshot:    group.Snapshot.MainImageURL,
+			RequiredQuantity:    group.RequiredQuantity,
+			Deadline:            key.Deadline,
+		}
+		if err := repository.CreateTaskItem(ctx, tx, taskItem); err != nil {
+			log.Error().Err(err).Msg("failed to create task item")
+			return nil, newErrandInternalError("")
+		}
+
+		for _, row := range group.Rows {
+			taskItemIDByDemandItemID[row.DemandItemID] = taskItem.ID
+		}
+	}
+
+	return taskItemIDByDemandItemID, nil
+}
+
+func createTaskAssignments(
+	ctx context.Context,
+	tx bun.Tx,
+	taskID int64,
+	rows []repository.SelectedDemandItemRow,
+	taskItemIDByDemandItemID map[int64]int64,
+) error {
+	assigniments := make([]*model.ErrandTaskAssignment, 0, len(rows))
+	for _, row := range rows {
+		assigniments = append(assigniments, &model.ErrandTaskAssignment{
+			TaskID:                 taskID,
+			TaskItemID:             taskItemIDByDemandItemID[row.DemandItemID],
+			DemandItemID:           row.DemandItemID,
+			PurchaserID:            row.RequesterID,
+			ServiceFeePerUnitCents: row.ServiceFeePerUnitCents,
+		})
+	}
+
+	if err := repository.CreateTaskAssigniments(ctx, tx, assigniments); err != nil {
+		log.Error().Err(err).Msg("failed to create task assigniments")
+		return newErrandInternalError("")
+	}
+
+	return nil
+}
+
+func syncSelectedDemandStatus(
+	ctx context.Context,
+	tx bun.Tx,
+	taskID int64,
+	now time.Time,
+	demandRows map[int64][]repository.SelectedDemandItemRow,
+) error {
+	demandIDs := make([]int64, 0, len(demandRows))
+	for demandID := range demandRows {
+		demandIDs = append(demandIDs, demandID)
+	}
+
+	itemCountByDemandID, err := repository.LoadDemandItemCounts(ctx, tx, demandIDs)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to count demand items")
+		return newErrandInternalError("")
+	}
+
+	for demandID, selectedRows := range demandRows {
+		if err := syncSingleDemand(ctx, tx, taskID, demandID, selectedRows, itemCountByDemandID, now); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func syncSingleDemand(
+	ctx context.Context,
+	tx bun.Tx,
+	taskID int64,
+	demandID int64,
+	selectedRows []repository.SelectedDemandItemRow,
+	itemCountByDemandID map[int64]int,
+	now time.Time,
+) error {
+	totalCount, ok := itemCountByDemandID[demandID]
+	if !ok || totalCount == 0 {
+		return newErrandInternalError("demand item count missing")
+	}
+
+	selectedItemIDs := demandItemIDs(selectedRows)
+
+	if totalCount == len(selectedRows) {
+		if err := repository.UpdateDemandToShopping(ctx, tx, demandID, taskID, now); err != nil {
+			log.Error().Err(err).Msg("failed to update full-selected demand")
+			return newErrandInternalError("")
+		}
+		if err := repository.UpdateDemandItemsToShopping(ctx, tx, selectedItemIDs, now); err != nil {
+			log.Error().Err(err).Msg("failed to update full-selected demand")
+			return newErrandInternalError("")
+		}
+
+		return nil
+	}
+
+	base := selectedRows[0]
+	taskIDCopy := taskID
+	demandIDCopy := demandID
+	splitDemand := &model.ErrandDemand{
+		RequesterID:       base.RequesterID,
+		StoreID:           base.StoreID,
+		Status:            model.ErrandDemandStatusShopping,
+		Deadline:          base.Deadline,
+		TaskID:            &taskIDCopy,
+		SplitFromDemandID: &demandIDCopy,
+		ShoppingStartAt:   &now,
+	}
+
+	if err := repository.CreateDemand(ctx, tx, splitDemand); err != nil {
+		log.Error().Err(err).Msg("failed to create split demand")
+		return newErrandInternalError("")
+	}
+
+	if err := repository.MoveDemandItemsToDemandAndShopping(ctx, tx, selectedItemIDs, splitDemand.ID, now); err != nil {
+		log.Error().Err(err).Msg("failed to move selected items to split demand")
+		return newErrandInternalError("")
+	}
+
+	if err := repository.TouchDemandUpdatedAt(ctx, tx, demandID, now); err != nil {
+		log.Error().Err(err).Msg("failed to touch original demand")
+		return newErrandInternalError("")
+	}
+
+	return nil
+}
+
 func demandItemIDs(rows []repository.SelectedDemandItemRow) []int64 {
 	ids := make([]int64, 0, len(rows))
 	for _, row := range rows {
 		ids = append(ids, row.DemandItemID)
 	}
+
 	return ids
 }
 
 func generateTaskNo() string {
-	ts := time.Now().Format("20060102150405")
+	ts := time.Now().Format("111")
 	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
 	if err != nil {
 		return "ET" + ts + fmt.Sprintf("%06d", time.Now().UnixNano()%1_000_000)

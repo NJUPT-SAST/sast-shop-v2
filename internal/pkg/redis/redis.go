@@ -28,7 +28,6 @@ func Init(serviceName string) {
 		panic(fmt.Sprintf("failed to connect to redis: %v", err))
 	}
 
-	
 }
 
 // prefixHook is a Redis hook that adds a prefix to all keys in commands and pipelines.
