@@ -26,8 +26,7 @@ func GetUserInfo(ctx context.Context, userID int64) (*model.UserAccount, error) 
 }
 
 // GetInternalUsers returns users by IDs for internal service-to-service calls.
-// Returns InternalUserInfo (with feishu_open_id) rather than public UserInfo.
-func GetInternalUsers(ctx context.Context, userIDs []int64) ([]*userv1.InternalUserInfo, error) {
+func GetInternalUsers(ctx context.Context, userIDs []int64) ([]*userv1.UserInfo, error) {
 	users, err := repository.GetUsersByIDs(ctx, userIDs)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get users for userIDs: %v", userIDs)
@@ -38,16 +37,16 @@ func GetInternalUsers(ctx context.Context, userIDs []int64) ([]*userv1.InternalU
 		}, "")
 	}
 
-	result := make([]*userv1.InternalUserInfo, len(users))
+	result := make([]*userv1.UserInfo, len(users))
 	for i, u := range users {
-		result[i] = userAccountToInternalUserInfo(u)
+		result[i] = userAccountToUserInfo(u)
 	}
 	return result, nil
 }
 
-// userAccountToInternalUserInfo converts a DB model to an InternalUserInfo proto.
-func userAccountToInternalUserInfo(u *model.UserAccount) *userv1.InternalUserInfo {
-	return &userv1.InternalUserInfo{
+// userAccountToUserInfo converts a DB model to a UserInfo proto.
+func userAccountToUserInfo(u *model.UserAccount) *userv1.UserInfo {
+	return &userv1.UserInfo{
 		Id:           u.ID,
 		Name:         u.DisplayName,
 		AvatarUrl:    u.AvatarURL,
