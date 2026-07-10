@@ -32,6 +32,27 @@ type ProductSnapshotRow struct {
 	MainImageURL string `bun:"main_image_url"`
 }
 
+type ShoppingTaskHeaderRow struct {
+	TaskID    int64                  `bun:"task_id"`
+	StoreID   int64                  `bun:"store_id"`
+	StoreName string                 `bun:"store_name"`
+	Status    model.ErrandTaskStatus `bun:"status"`
+}
+
+type ShoppingTaskItemRow struct {
+	TaskItemID           int64     `bun:"task_item_id"`
+	ProductTemplateID    int64     `bun:"product_templated_id"`
+	TitleSnapshot        string    `bun:"title_snapshot"`
+	DescriptionSnapshot  string    `bun:"description_snapshot"`
+	ImageURLSnapshot     string    `bun:"image_url_snapshot"`
+	ProductPriceCents    int32     `bun:"product_price_cents"`
+	RequiredQuantity     int32     `bun:"required_quantity"`
+	PurchasedQuantity    *int32    `bun:"purchased_quantity"`
+	NonPurchaseReason    string    `bun:"non_purchase_reason"`
+	ActualUnitPriceCents *int32    `bun:"actual_unit_price_cents"`
+	UpdatedAt            time.Time `bun:"updated_at"`
+}
+
 func RunInTx(ctx context.Context, fn func(ctx context.Context, tx bun.Tx) error) error {
 	return postgres.DB.RunInTx(ctx, &sql.TxOptions{}, fn) // 开启事务->执行fn->无错自动commit->fn返回error自动rollback
 }
@@ -214,4 +235,38 @@ func TouchDemandUpdatedAt(ctx context.Context, db bun.IDB, demandID int64, now t
 		Where("id = ?", demandID).
 		Exec(ctx)
 	return err
+}
+
+func GetShoppingTaskHeader(ctx context.Context, db bun.IDB, taskID, captainID int64) (*ShoppingTaskHeaderRow, error) {
+	var row ShoppingTaskHeaderRow
+	err := db.NewSelect().TableExpr("errand.errand_task as et").
+		Join("left join catalog.catalog_store as cs").
+		ColumnExpr("et.id as task_id,").
+		ColumnExpr("et.id as task_id,").
+		ColumnExpr("coalesce(cs.name, '') as store_name").
+		Where("et.id = ?", taskID).Where("et.captain_id = ? ", captainID).Limit(1).Scan(ctx, &row)
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+func ListShoppingTaskItems(ctx context.Context, db bun.IDB, taskID int64) ([]ShoppingTaskItemRow, error) {
+	rows := make([]ShoppingTaskItemRow, 0)
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_item as eti").
+		Join("left join catalog.catalog_product_template as cpt").
+		ColumnExpr("eti.id as task_item_id").
+		ColumnExpr("eti.product_template_id as product_template_id").
+		ColumnExpr("eti.title_snapshot as title_snapshot").
+		ColumnExpr("eti.description_snapshot as description_snapshot").
+		ColumnExpr("eti.image_url_snapshot as image_url_snapshot").
+		ColumnExpr("eti.product_price_cents as product_price_cents").
+		ColumnExpr("eti.required_quantity as required_quantity").
+		ColumnExpr("eti.non_purchase_reason as non_purchase_reason").
+		ColumnExpr("eti.actual_unit_price_cents as actual_unit_price_cents").
+		ColumnExpr("eti.updated_at as updated_at").
+		Where("eti.task_id = ?", taskID).OrderExpr("eti.deadline asc, eit.id asc").Scan(ctx, &rows)
+
+	return rows, err
 }

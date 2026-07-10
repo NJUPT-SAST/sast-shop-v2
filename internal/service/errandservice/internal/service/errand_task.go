@@ -3,19 +3,23 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math/big"
 	"time"
 
+	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/repository"
 	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // 按截止时间和相同商品类型聚合
@@ -425,4 +429,78 @@ func newErrandInternalError(msg string) error {
 			Code: errandv1.ErrandErrorCode_ERRAND_ERROR_CODE_INTERNAL_ERROR,
 		},
 	}, msg)
+}
+
+func GetShoppingTaskDetail(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.GetShoppingTaskDetailRequest,
+) (*errandv1.GetShoppingTaskDetailResponse, error) {
+	if captainID <= 0 {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+	}
+
+	if req == nil || req.ErrandTaskId <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
+	}
+
+	header, err := repository.GetShoppingTaskHeader(ctx, postgres.DB, req.ErrandTaskId, captainID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("shopping task not found"))
+		}
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", req.ErrandTaskId).
+			Int64("captain_id", captainID).
+			Msg("failde to load shopping task header")
+		return nil, newErrandInternalError("")
+	}
+
+	if header.Status != model.ErrandTaskStatusShopping {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
+	}
+
+	itemRows, err := repository.ListShoppingTaskItems(ctx, postgres.DB, header.TaskID)
+	if err != nil {
+		log.Error().Err(err).Int64("errand_task_id", header.TaskID).Msg("failed to load shopping task items")
+		return nil, newErrandInternalError("")
+	}
+	taskItems := make([]*errandv1.ErrandTaskItem, 0, len(itemRows))
+	for _, row := range itemRows {
+		taskItems = append(taskItems, shoppingTaskItemRowToProto(row, header.StoreID))
+	}
+
+	return &errandv1.GetShoppingTaskDetailResponse{
+		ErrandTaskId: header.TaskID,
+		StoreId:      header.StoreID,
+		StoreName:    header.StoreName,
+		TaskItems:    taskItems,
+	}, nil
+}
+
+func shoppingTaskItemRowToProto(row repository.ShoppingTaskItemRow, storeID int64) *errandv1.ErrandTaskItem {
+	taskItem := &errandv1.ErrandTaskItem{
+		Id: row.TaskItemID,
+		ProductSnapshot: &catalogv1.ProductTemplate{
+			Id:           row.ProductTemplateID,
+			Title:        row.TitleSnapshot,
+			Description:  row.DescriptionSnapshot,
+			PriceCents:   row.ProductPriceCents,
+			StoreId:      storeID,
+			MainImageUrl: row.ImageURLSnapshot,
+		},
+		RequiredQuantity:     row.RequiredQuantity,
+		ActualUnitPriceCents: *row.ActualUnitPriceCents,
+		UpdatedAt:            timestamppb.New(row.UpdatedAt),
+	}
+	if row.PurchasedQuantity != nil {
+		purchasedQuantity := *row.PurchasedQuantity
+		taskItem.PurchasedQuantity = &purchasedQuantity
+	}
+	if row.NonPurchaseReason != "" {
+		nonPurchaseReason := row.NonPurchaseReason
+		taskItem.NonPurchaseReason = &nonPurchaseReason
+	}
+	return taskItem
 }
