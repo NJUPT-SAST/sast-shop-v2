@@ -40,11 +40,11 @@ func (s *ErrandTaskServiceServer) GetShoppingTaskDetail(
 	if err != nil {
 		return nil, err
 	}
-	resp, err := service.GetShoppingTaskDetail(ctx, captainID,r.Msg)
+	resp, err := service.GetShoppingTaskDetail(ctx, captainID, r.Msg)
 	if err != nil {
-		return nil,mapServiceError(err)
+		return nil, mapServiceError(err)
 	}
-	return connect.NewResponse(resp),nil
+	return connect.NewResponse(resp), nil
 }
 
 func (s *ErrandTaskServiceServer) SaveShoppingTaskItem(
