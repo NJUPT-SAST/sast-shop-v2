@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// GetUserInfo returns a single user by ID (used by public-facing UserService).
 func GetUserInfo(ctx context.Context, userID int64) (*model.UserAccount, error) {
 	user, err := repository.GetUserByID(ctx, userID)
 	if err != nil {
@@ -24,6 +25,30 @@ func GetUserInfo(ctx context.Context, userID int64) (*model.UserAccount, error) 
 	return user, nil
 }
 
-func GetByUserIDs(ctx context.Context, userIDs []int64) ([]*model.UserAccount, error) {
-	return repository.GetUsersByIDs(ctx, userIDs)
+// GetInternalUsers returns users by IDs for internal service-to-service calls.
+func GetInternalUsers(ctx context.Context, userIDs []int64) ([]*userv1.UserInfo, error) {
+	users, err := repository.GetUsersByIDs(ctx, userIDs)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to get users for userIDs: %v", userIDs)
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_UserError{
+			UserError: &userv1.UserError{
+				Code: userv1.UserErrorCode_USER_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+
+	result := make([]*userv1.UserInfo, len(users))
+	for i, u := range users {
+		result[i] = userAccountToUserInfo(u)
+	}
+	return result, nil
+}
+
+// userAccountToUserInfo converts a DB model to a UserInfo proto.
+func userAccountToUserInfo(u *model.UserAccount) *userv1.UserInfo {
+	return &userv1.UserInfo{
+		Id:        u.ID,
+		Name:      u.DisplayName,
+		AvatarUrl: u.AvatarURL,
+	}
 }

@@ -34,10 +34,12 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 			},
 		}, "")
 	}
-	getUsersResponse, err := client.UserInternalServiceClient.GetUsers(ctx, connect.NewRequest(
-		&userv1.GetUsersRequest{
-			UserIds: []int64{paymentBill.PayeeID, paymentBill.PayerID},
-		}),
+	getUsersResponse, err := client.UserInternalServiceClient.GetUsers(
+		ctx, connect.NewRequest(
+			&userv1.GetUsersRequest{
+				UserIds: []int64{paymentBill.PayeeID, paymentBill.PayerID},
+			},
+		),
 	)
 	if err != nil || len(getUsersResponse.Msg.Users) < 2 {
 		log.Error().Err(err).Msgf("Failed to get user info for billId: %d", billId)
@@ -50,25 +52,16 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 	}
 
 	// TODO: get the rest of the bill info.
-	bill := &paymentv1.Bill{
-		Id: billId,
-		Payee: &userv1.UserInfo{
-			Id:        getUsersResponse.Msg.Users[0].Id,
-			Name:      getUsersResponse.Msg.Users[0].Name,
-			AvatarUrl: getUsersResponse.Msg.Users[0].AvatarUrl,
-		},
-		Payer: &userv1.UserInfo{
-			Id:        getUsersResponse.Msg.Users[1].Id,
-			Name:      getUsersResponse.Msg.Users[1].Name,
-			AvatarUrl: getUsersResponse.Msg.Users[1].AvatarUrl,
-		},
+	userByID := make(map[int64]*userv1.UserInfo, len(getUsersResponse.Msg.Users))
+	for _, u := range getUsersResponse.Msg.Users {
+		userByID[u.Id] = u
 	}
 
-	if err != nil {
-		return nil, err
-	}
-
-	return bill, nil
+	return &paymentv1.Bill{
+		Id:    billId,
+		Payee: userByID[paymentBill.PayeeID],
+		Payer: userByID[paymentBill.PayerID],
+	}, nil
 }
 
 func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv1.Bill, error) {
@@ -113,10 +106,12 @@ func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv
 		pb.ClosedAt = timestamppb.New(*bill.ClosedAt)
 	}
 
-	getUsersResp, err := client.UserInternalServiceClient.GetUsers(ctx, connect.NewRequest(
-		&userv1.GetUsersRequest{
-			UserIds: []int64{bill.PayerID, bill.PayeeID},
-		}),
+	getUsersResp, err := client.UserInternalServiceClient.GetUsers(
+		ctx, connect.NewRequest(
+			&userv1.GetUsersRequest{
+				UserIds: []int64{bill.PayerID, bill.PayeeID},
+			},
+		),
 	)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get user info for billId: %d", bill.ID)

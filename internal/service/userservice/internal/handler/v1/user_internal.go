@@ -19,29 +19,20 @@ func (s *UserInternalServer) GetUsers(
 	ctx context.Context,
 	r *connect.Request[userv1.GetUsersRequest],
 ) (*connect.Response[userv1.GetUsersResponse], error) {
-	log.Debug().Msgf("GetUsers called with protocol: %s, userIDs: %v", r.Peer().Protocol, r.Msg.UserIds)
 	userIDs := r.Msg.UserIds
+	log.Debug().Msgf("GetUsers called with protocol: %s, userIDs: %v", r.Peer().Protocol, userIDs)
+
 	if len(userIDs) == 0 {
 		return connect.NewResponse(&userv1.GetUsersResponse{}), nil
 	}
 
-	users, err := service.GetByUserIDs(ctx, userIDs)
+	users, err := service.GetInternalUsers(ctx, userIDs)
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to get users for userIDs: %v", userIDs)
-		return nil, userError()
-	}
-
-	result := make([]*userv1.UserInfo, len(users))
-	for i, u := range users {
-		result[i] = &userv1.UserInfo{
-			Id:        u.ID,
-			Name:      u.DisplayName,
-			AvatarUrl: u.AvatarURL,
-		}
+		return nil, err
 	}
 
 	return connect.NewResponse(&userv1.GetUsersResponse{
-		Users: result,
+		Users: users,
 	}), nil
 }
 
