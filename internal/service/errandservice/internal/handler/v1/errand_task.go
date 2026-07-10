@@ -36,7 +36,15 @@ func (s *ErrandTaskServiceServer) GetShoppingTaskDetail(
 	ctx context.Context,
 	r *connect.Request[errandv1.GetShoppingTaskDetailRequest],
 ) (*connect.Response[errandv1.GetShoppingTaskDetailResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := service.GetShoppingTaskDetail(ctx, captainID,r.Msg)
+	if err != nil {
+		return nil,mapServiceError(err)
+	}
+	return connect.NewResponse(resp),nil
 }
 
 func (s *ErrandTaskServiceServer) SaveShoppingTaskItem(
