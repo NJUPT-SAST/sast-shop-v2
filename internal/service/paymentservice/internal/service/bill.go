@@ -50,17 +50,16 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 	}
 
 	// TODO: get the rest of the bill info.
-	bill := &paymentv1.Bill{
-		Id: billId,
-		Payee: internalUserInfoToUserInfo(getUsersResponse.Msg.Users[0]),
-		Payer: internalUserInfoToUserInfo(getUsersResponse.Msg.Users[1]),
+	userByID := make(map[int64]*userv1.UserInfo, len(getUsersResponse.Msg.Users))
+	for _, u := range getUsersResponse.Msg.Users {
+		userByID[u.Id] = internalUserInfoToUserInfo(u)
 	}
 
-	if err != nil {
-		return nil, err
-	}
-
-	return bill, nil
+	return &paymentv1.Bill{
+		Id:    billId,
+		Payee: userByID[paymentBill.PayeeID],
+		Payer: userByID[paymentBill.PayerID],
+	}, nil
 }
 
 func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv1.Bill, error) {
