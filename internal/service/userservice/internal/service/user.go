@@ -47,9 +47,8 @@ func GetInternalUsers(ctx context.Context, userIDs []int64) ([]*userv1.UserInfo,
 // userAccountToUserInfo converts a DB model to a UserInfo proto.
 func userAccountToUserInfo(u *model.UserAccount) *userv1.UserInfo {
 	return &userv1.UserInfo{
-		Id:           u.ID,
-		Name:         u.DisplayName,
-		AvatarUrl:    u.AvatarURL,
-		FeishuOpenId: u.FeishuOpenID,
+		Id:        u.ID,
+		Name:      u.DisplayName,
+		AvatarUrl: u.AvatarURL,
 	}
 }
