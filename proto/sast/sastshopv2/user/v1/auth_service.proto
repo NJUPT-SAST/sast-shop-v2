@@ -20,9 +20,10 @@ message LoginMember{
 }
 
 message LoginResponse {
-  string session_token = 1;
-  int32 expires_in = 2;
-  LoginMember member = 3;
+  string access_token = 1;
+  string refresh_token = 2;
+  int32 expires_in = 3;
+  LoginMember member = 4;
 }
 
 message GetJSAPIAuthConfigRequest {
