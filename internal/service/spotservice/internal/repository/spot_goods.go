@@ -64,7 +64,10 @@ func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int3
 	if err != nil {
 		return 0, err
 	}
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 	return rows, nil
 }
 
@@ -79,6 +82,9 @@ func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents 
 	if err != nil {
 		return 0, err
 	}
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 	return rows, nil
 }
