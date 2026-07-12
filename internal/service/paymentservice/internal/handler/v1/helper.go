@@ -1,3 +1,4 @@
+//nolint:unused // Functions will be used in Phase 2 (BillService/PaymentInternalService handlers)
 package v1
 
 import (
