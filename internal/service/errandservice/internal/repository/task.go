@@ -1,95 +1,99 @@
-package v1
+package repository
 
 import (
 	"context"
-	"errors"
+	"time"
 
-	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/errand/v1/errandv1connect"
-	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
-	"connectrpc.com/connect"
-	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/service"
-	"github.com/labstack/echo/v5"
-	"github.com/rs/zerolog/log"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
+	"github.com/uptrace/bun"
 )
 
-// 跑腿账单约定：source_type = "errand_task"、source_id = errand_task.id
-const SourceTypeErrandTask = "errand_task"
-
-type GroupTradeInternalServer struct {
-	errandv1connect.GroupTradeInternalServiceHandler
+// 根据任务和支付者获取付款对应的assignment，即分配记录
+func GetAssignmentsByTaskAndPurchaser(ctx context.Context, taskID, purchaserID int64) ([]*model.ErrandTaskAssignment, error) {
+	var assignments []*model.ErrandTaskAssignment
+	err := postgres.DB.NewSelect().
+		Model(&assignments).
+		Where("task_id = ?", taskID).
+		Where("purchaser_id = ?", purchaserID).
+		Scan(ctx)
+	return assignments, err
 }
 
-// 确认单笔账单完成
-func (s *GroupTradeInternalServer) OnPaymentConfirmed(
-	ctx context.Context,
-	r *connect.Request[errandv1.OnPaymentConfirmedRequest],
-) (*connect.Response[errandv1.OnPaymentConfirmedResponse], error) {
-	msg := r.Msg
-	log.Debug().
-		Str("source_type", msg.SourceType).
-		Int64("source_id", msg.SourceId).
-		Int64("payer_id", msg.PayerId).
-		Msg("OnPaymentConfirmed called")
-
-	// 入参校验(大于0)
-	if msg.SourceId <= 0 || msg.PayerId <= 0 {
-		log.Warn().Msg("OnPaymentConfirmed: invalid source_id or payer_id")
-		return nil, errandError()
-	}
-
-	// source_type 路由
-	switch msg.SourceType {
-	case SourceTypeErrandTask:
-		err := service.OnErrandTaskPaymentConfirmed(ctx, msg.SourceId, msg.PayerId)
-		if err != nil {
-			// service 层已经记过日志了，这里只把它翻译成 connect.Error
-			if errors.Is(err, service.ErrAssignmentNotFound) {
-				log.Warn().
-					Int64("task_id", msg.SourceId).
-					Int64("payer_id", msg.PayerId).
-					Msg("assignment not found for payment")
-			}
-			return nil, errandError()
-		}
-		return connect.NewResponse(&errandv1.OnPaymentConfirmedResponse{}), nil
-
-	default:
-		log.Warn().Str("source_type", msg.SourceType).Msg("unsupported source_type")
-		return nil, errandError()
-	}
+// 获取跑腿任务
+func GetTaskByID(ctx context.Context, taskID int64) (*model.ErrandTask, error) {
+	var task model.ErrandTask
+	err := postgres.DB.NewSelect().Model(&task).Where("id = ?", taskID).Scan(ctx)
+	return &task, err
 }
 
-// 所有账单完成，把 errand_task 推到 completed 。
-func (s *GroupTradeInternalServer) OnAllPaymentsConfirmed(
-	ctx context.Context,
-	r *connect.Request[errandv1.OnAllPaymentsConfirmedRequest],
-) (*connect.Response[errandv1.OnAllPaymentsConfirmedResponse], error) {
-	msg := r.Msg
-	log.Debug().
-		Str("source_type", msg.SourceType).
-		Int64("source_id", msg.SourceId).
-		Msg("OnAllPaymentsConfirmed called")
-
-	if msg.SourceId <= 0 {
-		log.Warn().Msg("OnAllPaymentsConfirmed: invalid source_id")
-		return nil, errandError()
+// 获取对应客户订单
+func GetDemandItemsByIDs(ctx context.Context, ids []int64) ([]*model.ErrandDemandItem, error) {
+	if len(ids) == 0 {
+		return nil, nil
 	}
-
-	switch msg.SourceType {
-	case SourceTypeErrandTask:
-		if err := service.OnErrandTaskAllPaymentsConfirmed(ctx, msg.SourceId); err != nil {
-			return nil, errandError()
-		}
-		return connect.NewResponse(&errandv1.OnAllPaymentsConfirmedResponse{}), nil
-
-	default:
-		log.Warn().Str("source_type", msg.SourceType).Msg("unsupported source_type")
-		return nil, errandError()
-	}
+	var items []*model.ErrandDemandItem
+	err := postgres.DB.NewSelect().
+		Model(&items).
+		Where("id IN (?)", bun.In(ids)).
+		Scan(ctx)
+	return items, err
 }
 
-func InitGroupTradeInternalServiceHandler(e *echo.Echo, opts ...connect.HandlerOption) {
-	apiPath, apiHandler := errandv1connect.NewGroupTradeInternalServiceHandler(&GroupTradeInternalServer{}, opts...)
-	log.Debug().Msgf("GroupTradeInternalService API registered at path: %s", apiPath)
-	e.Any(apiPath+"*", echo.WrapHandler(apiHandler))
+// 单个买家购买的所有商品状态流转到完成
+func MarkDemandItemsCompletedByIDs(ctx context.Context, ids []int64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	now := time.Now()
+	res, err := postgres.DB.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandDemandItemStatusCompleted).
+		Set("updated_at = ?", now).
+		Where("id IN (?)", bun.In(ids)).
+		Where("status = ?", model.ErrandDemandItemStatusPendingPayment).
+		Exec(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
+
+// 如果买家任务下的所有商品已流转至完成，则完成买家在任务中的订单的状态流转
+func MarkDemandCompletedIfAllItemsDone(ctx context.Context, demandID int64) (int64, error) {
+	now := time.Now()
+	res, err := postgres.DB.NewUpdate().
+		Model((*model.ErrandDemand)(nil)).
+		Set("status = ?", model.ErrandDemandStatusCompleted).
+		Set("payment_completed_at = ?", now).
+		Set("updated_at = ?", now).
+		Where("id = ?", demandID).
+		Where("status = ?", model.ErrandDemandStatusPendingPayment).
+		Where(`NOT EXISTS (
+            SELECT 1 FROM errand.errand_demand_item edi
+            WHERE edi.errand_demand_id = ? AND edi.status <> ?
+        )`, demandID, model.ErrandDemandItemStatusCompleted).
+		Exec(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// 完成团长任务的状态流转
+func MarkTaskCompleted(ctx context.Context, taskID int64) (int64, error) {
+	now := time.Now()
+	res, err := postgres.DB.NewUpdate().
+		Model((*model.ErrandTask)(nil)).
+		Set("status = ?", model.ErrandTaskStatusCompleted).
+		Set("payment_completed_at = ?", now).
+		Set("updated_at = ?", now).
+		Where("id = ?", taskID).
+		Where("status = ?", model.ErrandTaskStatusCollectingPayment).
+		Exec(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
