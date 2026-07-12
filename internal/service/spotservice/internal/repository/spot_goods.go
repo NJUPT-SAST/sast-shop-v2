@@ -71,7 +71,12 @@ func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int3
 	return rows, nil
 }
 
-func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents int32, updatedAt time.Time) (int64, error) {
+func UpdateSpotGoodsPrice(
+	ctx context.Context,
+	goodsID int64,
+	newSalePriceCents int32,
+	updatedAt time.Time,
+) (int64, error) {
 	result, err := postgres.DB.NewUpdate().
 		Model((*model.SpotGoods)(nil)).
 		Set("sale_price_cents = ?", newSalePriceCents).

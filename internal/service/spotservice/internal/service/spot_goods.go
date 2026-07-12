@@ -84,7 +84,13 @@ func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) error {
 	return nil
 }
 
-func UpdateSpotGoodsStock(ctx context.Context, callerID int64, goodsID int64, newStockTotal int32, updatedAt time.Time) error {
+func UpdateSpotGoodsStock(
+	ctx context.Context,
+	callerID int64,
+	goodsID int64,
+	newStockTotal int32,
+	updatedAt time.Time,
+) error {
 	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d before updating stock", goodsID)
@@ -130,7 +136,13 @@ func UpdateSpotGoodsStock(ctx context.Context, callerID int64, goodsID int64, ne
 	return nil
 }
 
-func UpdateSpotGoodsPrice(ctx context.Context, callerID int64, goodsID int64, newSalePriceCents int32, updatedAt time.Time) error {
+func UpdateSpotGoodsPrice(
+	ctx context.Context,
+	callerID int64,
+	goodsID int64,
+	newSalePriceCents int32,
+	updatedAt time.Time,
+) error {
 	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d before updating price", goodsID)

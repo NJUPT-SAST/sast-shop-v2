@@ -178,7 +178,13 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsPrice(
 			},
 		}, "")
 	}
-	err := service.UpdateSpotGoodsPrice(ctx, user.UserID, r.Msg.SpotGoodsId, r.Msg.NewSalePriceCents, r.Msg.UpdatedAt.AsTime())
+	err := service.UpdateSpotGoodsPrice(
+		ctx,
+		user.UserID,
+		r.Msg.SpotGoodsId,
+		r.Msg.NewSalePriceCents,
+		r.Msg.UpdatedAt.AsTime(),
+	)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good sale price for goodsID: %d", r.Msg.SpotGoodsId)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
