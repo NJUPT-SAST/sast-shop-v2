@@ -35,7 +35,7 @@ func OnErrandTaskPaymentConfirmed(ctx context.Context, taskID, payerID int64) er
 		log.Debug().Int64("task_id", taskID).Msg("task already completed, skip OnPaymentConfirmed")
 		return nil
 	}
-	//其他状态拒绝流转
+	// 其他状态拒绝流转
 	if task.Status != model.ErrandTaskStatusCollectingPayment {
 		log.Warn().
 			Int64("task_id", taskID).
@@ -44,7 +44,7 @@ func OnErrandTaskPaymentConfirmed(ctx context.Context, taskID, payerID int64) er
 		return errandInternalError()
 	}
 
-	//根据taskID, payerID获取assignments
+	// 根据taskID, payerID获取assignments
 	assignments, err := repository.GetAssignmentsByTaskAndPurchaser(ctx, taskID, payerID)
 	if err != nil {
 		log.Error().Err(err).
@@ -64,7 +64,7 @@ func OnErrandTaskPaymentConfirmed(ctx context.Context, taskID, payerID int64) er
 		itemIDs = append(itemIDs, a.DemandItemID)
 	}
 
-	//将所有 demand_item 状态流转至完成
+	// 将所有 demand_item 状态流转至完成
 	if _, err := repository.MarkDemandItemsCompletedByIDs(ctx, itemIDs); err != nil {
 		log.Error().Err(err).Msg("mark demand items completed failed")
 		return errandInternalError()
@@ -80,7 +80,7 @@ func OnErrandTaskPaymentConfirmed(ctx context.Context, taskID, payerID int64) er
 		demandIDSet[it.ErrandDemandID] = struct{}{}
 	}
 
-	//将所有 assignment 涉及到的所有 demand_item 都完成的demand状态流转到完成
+	// 将所有 assignment 涉及到的所有 demand_item 都完成的demand状态流转到完成
 	for demandID := range demandIDSet {
 		if _, err := repository.MarkDemandCompletedIfAllItemsDone(ctx, demandID); err != nil {
 			log.Error().Err(err).Int64("demand_id", demandID).
