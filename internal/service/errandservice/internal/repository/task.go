@@ -99,4 +99,3 @@ func MarkTaskCompleted(ctx context.Context, taskID int64) (int64, error) {
 	}
 	return res.RowsAffected()
 }
-
