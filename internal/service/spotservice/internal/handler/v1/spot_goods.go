@@ -7,6 +7,7 @@ import (
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	spotv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/spot/v1"
 	"connectrpc.com/connect"
+	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/service"
@@ -90,9 +91,17 @@ func (s *SpotGoodsServiceServer) CreateSpotGoods(
 	ctx context.Context,
 	r *connect.Request[spotv1.CreateSpotGoodsRequest],
 ) (*connect.Response[spotv1.CreateSpotGoodsResponse], error) {
+	user, ok := rpcinterceptor.UserFromContext(ctx)
+	if !ok {
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "user not found in context")
+	}
 	goods := &model.SpotGoods{
-		// SellerID:          r.Msg.SellerId,
-		// StoreID:           r.Msg.StoreId,
+		SellerID:          user.UserID,
+		StoreID:           r.Msg.StoreId,
 		ProductTemplateID: r.Msg.ProductTemplateId,
 		SalePriceCents:    r.Msg.SalePriceCents,
 		StockTotal:        r.Msg.StockTotal,
@@ -121,6 +130,14 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsStock(
 	ctx context.Context,
 	r *connect.Request[spotv1.UpdateSpotGoodsStockRequest],
 ) (*connect.Response[spotv1.UpdateSpotGoodsStockResponse], error) {
+	user, ok := rpcinterceptor.UserFromContext(ctx)
+	if !ok {
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "user not found in context")
+	}
 	if r.Msg.UpdatedAt == nil {
 		log.Warn().Msgf("UpdatedAt is nil in UpdateSpotGoodsStockRequest for goodsID: %d", r.Msg.SpotGoodsId)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -129,7 +146,7 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsStock(
 			},
 		}, "")
 	}
-	err := service.UpdateSpotGoodsStock(ctx, r.Msg.SpotGoodsId, r.Msg.NewStock, r.Msg.UpdatedAt.AsTime())
+	err := service.UpdateSpotGoodsStock(ctx, user.UserID, r.Msg.SpotGoodsId, r.Msg.NewStock, r.Msg.UpdatedAt.AsTime())
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good stock total for goodsID: %d", r.Msg.SpotGoodsId)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -145,6 +162,14 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsPrice(
 	ctx context.Context,
 	r *connect.Request[spotv1.UpdateSpotGoodsPriceRequest],
 ) (*connect.Response[spotv1.UpdateSpotGoodsPriceResponse], error) {
+	user, ok := rpcinterceptor.UserFromContext(ctx)
+	if !ok {
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "user not found in context")
+	}
 	if r.Msg.UpdatedAt == nil {
 		log.Warn().Msgf("UpdatedAt is nil in UpdateSpotGoodsPriceRequest for goodsID: %d", r.Msg.SpotGoodsId)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -153,7 +178,7 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsPrice(
 			},
 		}, "")
 	}
-	err := service.UpdateSpotGoodsPrice(ctx, r.Msg.SpotGoodsId, r.Msg.NewSalePriceCents, r.Msg.UpdatedAt.AsTime())
+	err := service.UpdateSpotGoodsPrice(ctx, user.UserID, r.Msg.SpotGoodsId, r.Msg.NewSalePriceCents, r.Msg.UpdatedAt.AsTime())
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good sale price for goodsID: %d", r.Msg.SpotGoodsId)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{

@@ -53,24 +53,32 @@ func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) error {
 	return err
 }
 
-func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int32, updatedAt time.Time) error {
-	_, err := postgres.DB.NewUpdate().
+func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int32, updatedAt time.Time) (int64, error) {
+	result, err := postgres.DB.NewUpdate().
 		Model((*model.SpotGoods)(nil)).
 		Set("stock_total = ?", newStockTotal).
 		Set("updated_at = ?", time.Now()).
 		Where("id = ?", goodsID).
 		Where("updated_at = ?", updatedAt).
 		Exec(ctx)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	rows, _ := result.RowsAffected()
+	return rows, nil
 }
 
-func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents int32, updatedAt time.Time) error {
-	_, err := postgres.DB.NewUpdate().
+func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents int32, updatedAt time.Time) (int64, error) {
+	result, err := postgres.DB.NewUpdate().
 		Model((*model.SpotGoods)(nil)).
 		Set("sale_price_cents = ?", newSalePriceCents).
 		Set("updated_at = ?", time.Now()).
 		Where("id = ?", goodsID).
 		Where("updated_at = ?", updatedAt).
 		Exec(ctx)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	rows, _ := result.RowsAffected()
+	return rows, nil
 }

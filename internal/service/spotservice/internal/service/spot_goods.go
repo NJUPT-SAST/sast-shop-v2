@@ -84,7 +84,7 @@ func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) error {
 	return nil
 }
 
-func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int32, updatedAt time.Time) error {
+func UpdateSpotGoodsStock(ctx context.Context, callerID int64, goodsID int64, newStockTotal int32, updatedAt time.Time) error {
 	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d before updating stock", goodsID)
@@ -94,17 +94,33 @@ func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int3
 			},
 		}, "")
 	}
-	if goods == nil || goods.ClosedAt != nil {
-		log.Warn().Msgf("Spot good not found for goodsID: %d when updating stock", goodsID)
+	if goods.ClosedAt != nil {
+		log.Warn().Msgf("Spot good is closed for goodsID: %d, cannot update stock", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
 		}, "")
 	}
-	err = repository.UpdateSpotGoodsStock(ctx, goodsID, newStockTotal, updatedAt)
+	if goods.SellerID != callerID {
+		log.Warn().Msgf("Caller %d is not the seller of goodsID: %d, cannot update stock", callerID, goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	rows, err := repository.UpdateSpotGoodsStock(ctx, goodsID, newStockTotal, updatedAt)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good stock total for goodsID: %d", goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	if rows == 0 {
+		log.Warn().Msgf("Optimistic lock conflict when updating stock for goodsID: %d", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
@@ -114,7 +130,7 @@ func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int3
 	return nil
 }
 
-func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents int32, updatedAt time.Time) error {
+func UpdateSpotGoodsPrice(ctx context.Context, callerID int64, goodsID int64, newSalePriceCents int32, updatedAt time.Time) error {
 	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d before updating price", goodsID)
@@ -124,17 +140,33 @@ func UpdateSpotGoodsPrice(ctx context.Context, goodsID int64, newSalePriceCents 
 			},
 		}, "")
 	}
-	if goods == nil || goods.ClosedAt != nil {
-		log.Warn().Msgf("Spot good not found for goodsID: %d when updating price", goodsID)
+	if goods.ClosedAt != nil {
+		log.Warn().Msgf("Spot good is closed for goodsID: %d, cannot update price", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
 		}, "")
 	}
-	err = repository.UpdateSpotGoodsPrice(ctx, goodsID, newSalePriceCents, updatedAt)
+	if goods.SellerID != callerID {
+		log.Warn().Msgf("Caller %d is not the seller of goodsID: %d, cannot update price", callerID, goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	rows, err := repository.UpdateSpotGoodsPrice(ctx, goodsID, newSalePriceCents, updatedAt)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good sale price for goodsID: %d", goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	if rows == 0 {
+		log.Warn().Msgf("Optimistic lock conflict when updating price for goodsID: %d", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
