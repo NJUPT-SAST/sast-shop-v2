@@ -506,43 +506,97 @@ func shoppingTaskItemRowToProto(row repository.ShoppingTaskItemRow, storeID int6
 }
 
 func SaveShoppingTaskItem(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
-	if captainID <= 0{
+	if err := ValidateSaveRequest(ctx, captainID, req); err != nil {
+		return err
+	}
+	return executeSaveShoppingTask(ctx, captainID, req)
+}
+
+func ValidateSaveRequest(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
+	if captainID <= 0 {
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}
-	if req == nil || req.ErrandTaskId <= 0 || req.ErrandTaskItemId <= 0 || req.ErrandTaskItemUpdatedAt == nil || !req.ErrandTaskItemUpdatedAt.IsValid() {
+	if req == nil || req.ErrandTaskId <= 0 || req.ErrandTaskItemId <= 0 || req.ErrandTaskItemUpdatedAt == nil ||
+		!req.ErrandTaskItemUpdatedAt.IsValid() {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("incalid save shopping task item request"))
 	}
+	return nil
+}
+
+func executeSaveShoppingTask(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
 	expectedUpdatedAt := req.ErrandTaskItemUpdatedAt.AsTime().UTC()
 	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		row, err := repository.GetShoppingTaskItemForUpdate(ctx, tx, req.ErrandTaskId, req.ErrandTaskItemId, captainID)
+		row, err := loadTaskItem(ctx, tx, req, captainID)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows){
-				return connect.NewError(connect.CodeNotFound, errors.New("shopping task item not found"))
-			}
-			log.Error().Err(err).Int64("captain_id",captainID).Int64("errand_task_id", req.ErrandTaskId).Int64("errand_task_item_id", req.ErrandTaskItemId).Msg("failed to load shopping task item for update")
-			return newErrandInternalError("")
+			return err
 		}
-		if row.TaskStatus != model.ErrandTaskStatusShopping{
+		if row.TaskStatus != model.ErrandTaskStatusShopping {
 			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
 		}
-		if !row.TaskItemUpdatedAt.UTC().Equal(expectedUpdatedAt){
+		if !row.TaskItemUpdatedAt.UTC().Equal(expectedUpdatedAt) {
 			return ErrConcurrencyConflict
 		}
-		if req.PurchasedQuantity <0 || req.PurchasedQuantity > row.RequiredQuantity {
+		if req.PurchasedQuantity < 0 || req.PurchasedQuantity > row.RequiredQuantity {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid purchased quantity"))
 		}
-		nonPurchaseReason := ""
-		if req.NonPurchaseReason != nil {
-			nonPurchaseReason = req.GetNonPurchaseReason()
-		}
-		now := time.Now().UTC()
-		if err := repository.UpdateShoppingTaskItem(ctx, tx, req.ErrandTaskItemId, expectedUpdatedAt, req.PurchasedQuantity, nonPurchaseReason, now);err != nil {
-			if errors.Is(err, sql.ErrNoRows){
-				return ErrConcurrencyConflict
-			}
-			log.Error().Err(err).Int64("captain_id",captainID).Int64("errand_task_id", req.ErrandTaskId).Int64("errand_task_item_id", req.ErrandTaskItemId).Msg("failed to load shopping task item")
-			return newErrandInternalError("")
-		}
-		return nil
+
+		return updateTaskItem(ctx, tx, req, expectedUpdatedAt, captainID)
 	})
+}
+
+func loadTaskItem(
+	ctx context.Context,
+	tx bun.Tx,
+	req *errandv1.SaveShoppingTaskItemRequest,
+	captainID int64,
+) (*repository.ShoppingTaskItemForUpdateRow, error) {
+	row, err := repository.GetShoppingTaskItemForUpdate(ctx, tx, req.ErrandTaskId, req.ErrandTaskItemId, captainID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("shopping task item not found"))
+		}
+		log.Error().
+			Err(err).
+			Int64("captain_id", captainID).
+			Int64("errand_task_id", req.ErrandTaskId).
+			Int64("errand_task_item_id", req.ErrandTaskItemId).
+			Msg("failed to load shopping task item for update")
+		return nil, newErrandInternalError("")
+	}
+	return row, nil
+}
+
+func updateTaskItem(
+	ctx context.Context,
+	tx bun.Tx,
+	req *errandv1.SaveShoppingTaskItemRequest,
+	expectedUpdatedAt time.Time,
+	captainID int64,
+) error {
+	nonPurchaseReason := ""
+	if req.NonPurchaseReason != nil {
+		nonPurchaseReason = req.GetNonPurchaseReason()
+	}
+	now := time.Now().UTC()
+	if err := repository.UpdateShoppingTaskItem(
+		ctx,
+		tx,
+		req.ErrandTaskItemId,
+		expectedUpdatedAt,
+		req.PurchasedQuantity,
+		nonPurchaseReason,
+		now,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrConcurrencyConflict
+		}
+		log.Error().
+			Err(err).
+			Int64("captain_id", captainID).
+			Int64("errand_task_id", req.ErrandTaskId).
+			Int64("errand_task_item_id", req.ErrandTaskItemId).
+			Msg("failed to load shopping task item")
+		return newErrandInternalError("")
+	}
+	return nil
 }

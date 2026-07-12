@@ -34,10 +34,12 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 			},
 		}, "")
 	}
-	getUsersResponse, err := client.UserInternalServiceClient.GetUsers(ctx, connect.NewRequest(
-		&userv1.GetUsersRequest{
-			UserIds: []int64{paymentBill.PayeeID, paymentBill.PayerID},
-		}),
+	getUsersResponse, err := client.UserInternalServiceClient.GetUsers(
+		ctx, connect.NewRequest(
+			&userv1.GetUsersRequest{
+				UserIds: []int64{paymentBill.PayeeID, paymentBill.PayerID},
+			},
+		),
 	)
 	if err != nil || len(getUsersResponse.Msg.Users) < 2 {
 		log.Error().Err(err).Msgf("Failed to get user info for billId: %d", billId)
@@ -113,10 +115,12 @@ func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv
 		pb.ClosedAt = timestamppb.New(*bill.ClosedAt)
 	}
 
-	getUsersResp, err := client.UserInternalServiceClient.GetUsers(ctx, connect.NewRequest(
-		&userv1.GetUsersRequest{
-			UserIds: []int64{bill.PayerID, bill.PayeeID},
-		}),
+	getUsersResp, err := client.UserInternalServiceClient.GetUsers(
+		ctx, connect.NewRequest(
+			&userv1.GetUsersRequest{
+				UserIds: []int64{bill.PayerID, bill.PayeeID},
+			},
+		),
 	)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get user info for billId: %d", bill.ID)

@@ -54,14 +54,14 @@ type ShoppingTaskItemRow struct {
 }
 
 type ShoppingTaskItemForUpdateRow struct {
-    TaskID             int64     `bun:"task_id"`
-    TaskStatus         model.ErrandTaskStatus    `bun:"task_status"`
-    TaskUpdatedAt      time.Time `bun:"task_updated_at"`
-    TaskItemID         int64     `bun:"task_item_id"`
-    RequiredQuantity   int32       `bun:"required_quantity"`
-    PurchasedQuantity  *int32       `bun:"purchased_quantity"`
-    NonPurchaseReason  string    `bun:"non_purchase_reason"`
-    TaskItemUpdatedAt  time.Time `bun:"task_item_updated_at"`
+	TaskID            int64                  `bun:"task_id"`
+	TaskStatus        model.ErrandTaskStatus `bun:"task_status"`
+	TaskUpdatedAt     time.Time              `bun:"task_updated_at"`
+	TaskItemID        int64                  `bun:"task_item_id"`
+	RequiredQuantity  int32                  `bun:"required_quantity"`
+	PurchasedQuantity *int32                 `bun:"purchased_quantity"`
+	NonPurchaseReason string                 `bun:"non_purchase_reason"`
+	TaskItemUpdatedAt time.Time              `bun:"task_item_updated_at"`
 }
 
 func RunInTx(ctx context.Context, fn func(ctx context.Context, tx bun.Tx) error) error {
@@ -281,36 +281,57 @@ func ListShoppingTaskItems(ctx context.Context, db bun.IDB, taskID int64) ([]Sho
 
 	return rows, err
 }
-func GetShoppingTaskItemForUpdate(ctx context.Context, db bun.IDB, taskID, taskItemID, captainID int64) (*ShoppingTaskItemForUpdateRow, error) {
+
+func GetShoppingTaskItemForUpdate(
+	ctx context.Context,
+	db bun.IDB,
+	taskID, taskItemID, captainID int64,
+) (*ShoppingTaskItemForUpdateRow, error) {
 	var row ShoppingTaskItemForUpdateRow
 	err := db.NewSelect().
-	TableExpr("errand.errand_task_item as eti").
-	Join("join errand.errand_task as on et.id = eti.task_id").
-	ColumnExpr("et.id as task_id").
-	ColumnExpr("et.status as task_status").
-	ColumnExpr("et.updated_at as task_updated_at").
-	ColumnExpr("eti.id as task_item_id").
-	ColumnExpr("eti.required_quantity as required_quantity").
-	ColumnExpr("eti.purchased_quantity as purchased_quantity").
-	ColumnExpr("eti.non_purchase_reason as non_purchase_reason").
-	ColumnExpr("eti.updated_at as task_item_updated_at").Where("et.id = ?",taskID).Where("eti.id = ?", taskItemID).Where("et.captain_id = ?",captainID).Limit(1).For("update").Scan(ctx, &row)
+		TableExpr("errand.errand_task_item as eti").
+		Join("join errand.errand_task as on et.id = eti.task_id").
+		ColumnExpr("et.id as task_id").
+		ColumnExpr("et.status as task_status").
+		ColumnExpr("et.updated_at as task_updated_at").
+		ColumnExpr("eti.id as task_item_id").
+		ColumnExpr("eti.required_quantity as required_quantity").
+		ColumnExpr("eti.purchased_quantity as purchased_quantity").
+		ColumnExpr("eti.non_purchase_reason as non_purchase_reason").
+		ColumnExpr("eti.updated_at as task_item_updated_at").
+		Where("et.id = ?", taskID).
+		Where("eti.id = ?", taskItemID).Where("et.captain_id = ?", captainID).Limit(1).For("update").Scan(ctx, &row)
 	if err != nil {
 		return nil, err
 	}
-	return &row,nil
+	return &row, nil
 }
 
-func UpdateShoppingTaskItem(ctx context.Context, db bun.IDB, taskItemID int64, expectedUpdatedAt time.Time, purchasedQuantity int32, nonPurchaseReason string, now time.Time) error {
-	res, err := db.NewUpdate().Model((*model.ErrandTaskItem)(nil)).Set("purchased_quantity = ?",purchasedQuantity).Set("non_purchase_reason = ? ",nonPurchaseReason).Set("updated_at = ? ",now).
-	Where("id = ? ", taskItemID).Where("updated_at = ? ",expectedUpdatedAt).Exec(ctx)
-	if err != nil{
+func UpdateShoppingTaskItem(
+	ctx context.Context,
+	db bun.IDB,
+	taskItemID int64,
+	expectedUpdatedAt time.Time,
+	purchasedQuantity int32,
+	nonPurchaseReason string,
+	now time.Time,
+) error {
+	res, err := db.NewUpdate().
+		Model((*model.ErrandTaskItem)(nil)).
+		Set("purchased_quantity = ?", purchasedQuantity).
+		Set("non_purchase_reason = ? ", nonPurchaseReason).
+		Set("updated_at = ? ", now).
+		Where("id = ? ", taskItemID).
+		Where("updated_at = ? ", expectedUpdatedAt).
+		Exec(ctx)
+	if err != nil {
 		return err
 	}
 	affected, err := res.RowsAffected()
-	if err != nil{
+	if err != nil {
 		return err
 	}
-	//1. 行已删除。2. 乐观锁冲突
+	// 1. 行已删除。2. 乐观锁冲突
 	if affected == 0 {
 		return sql.ErrNoRows
 	}
