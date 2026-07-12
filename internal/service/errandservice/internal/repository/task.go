@@ -9,8 +9,11 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// 根据任务和支付者获取付款对应的assignment，即分配记录
-func GetAssignmentsByTaskAndPurchaser(ctx context.Context, taskID, purchaserID int64) ([]*model.ErrandTaskAssignment, error) {
+// GetAssignmentsByTaskAndPurchaser 根据任务和支付者获取付款对应的assignment，即分配记录
+func GetAssignmentsByTaskAndPurchaser(
+	ctx context.Context,
+	taskID, purchaserID int64,
+) ([]*model.ErrandTaskAssignment, error) {
 	var assignments []*model.ErrandTaskAssignment
 	err := postgres.DB.NewSelect().
 		Model(&assignments).
@@ -27,7 +30,7 @@ func GetTaskByID(ctx context.Context, taskID int64) (*model.ErrandTask, error) {
 	return &task, err
 }
 
-// 获取对应客户订单
+// GetDemandItemsByIDs 获取对应客户订单
 func GetDemandItemsByIDs(ctx context.Context, ids []int64) ([]*model.ErrandDemandItem, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -35,12 +38,12 @@ func GetDemandItemsByIDs(ctx context.Context, ids []int64) ([]*model.ErrandDeman
 	var items []*model.ErrandDemandItem
 	err := postgres.DB.NewSelect().
 		Model(&items).
-		Where("id IN (?)", bun.In(ids)).
+		Where("id IN (?)", bun.List(ids)).
 		Scan(ctx)
 	return items, err
 }
 
-// 单个买家购买的所有商品状态流转到完成
+// MarkDemandItemsCompletedByIDs 单个买家购买的所有商品状态流转到完成
 func MarkDemandItemsCompletedByIDs(ctx context.Context, ids []int64) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
@@ -50,7 +53,7 @@ func MarkDemandItemsCompletedByIDs(ctx context.Context, ids []int64) (int64, err
 		Model((*model.ErrandDemandItem)(nil)).
 		Set("status = ?", model.ErrandDemandItemStatusCompleted).
 		Set("updated_at = ?", now).
-		Where("id IN (?)", bun.In(ids)).
+		Where("id IN (?)", bun.List(ids)).
 		Where("status = ?", model.ErrandDemandItemStatusPendingPayment).
 		Exec(ctx)
 	if err != nil {
@@ -80,7 +83,7 @@ func MarkDemandCompletedIfAllItemsDone(ctx context.Context, demandID int64) (int
 	return res.RowsAffected()
 }
 
-// 完成团长任务的状态流转
+// MarkTaskCompleted 完成团长任务的状态流转
 func MarkTaskCompleted(ctx context.Context, taskID int64) (int64, error) {
 	now := time.Now()
 	res, err := postgres.DB.NewUpdate().
