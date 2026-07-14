@@ -104,7 +104,11 @@ func CreateErrandDemand(
 
 // validateProducts 逐个校验商品：存在、归属店铺、版本号匹配。
 // 返回 productID → ProductTemplate 的映射。
-func validateProducts(ctx context.Context, storeID int64, items []DemandItemDraft) (map[int64]*catalogv1.ProductTemplate, error) {
+func validateProducts(
+	ctx context.Context,
+	storeID int64,
+	items []DemandItemDraft,
+) (map[int64]*catalogv1.ProductTemplate, error) {
 	productMap := make(map[int64]*catalogv1.ProductTemplate)
 	for _, item := range items {
 		p, err := client.GetProductTemplate(ctx, item.ProductTemplateID)
@@ -205,7 +209,11 @@ func fetchStoreNames(ctx context.Context, aggs []*repository.DemandListAggregati
 }
 
 // filterByStoreName 按店铺名称模糊匹配过滤聚合结果。
-func filterByStoreName(aggs []*repository.DemandListAggregation, storeMap map[int64]string, name string) []*repository.DemandListAggregation {
+func filterByStoreName(
+	aggs []*repository.DemandListAggregation,
+	storeMap map[int64]string,
+	name string,
+) []*repository.DemandListAggregation {
 	filtered := make([]*repository.DemandListAggregation, 0)
 	for _, agg := range aggs {
 		if n, ok := storeMap[agg.StoreID]; ok && strings.Contains(n, name) {
@@ -216,7 +224,10 @@ func filterByStoreName(aggs []*repository.DemandListAggregation, storeMap map[in
 }
 
 // collectRequesters 收集各店铺前 N 个买家 ID，用于后续批量查头像。
-func collectRequesters(ctx context.Context, aggs []*repository.DemandListAggregation) (map[int64][]int64, map[int64]struct{}) {
+func collectRequesters(
+	ctx context.Context,
+	aggs []*repository.DemandListAggregation,
+) (map[int64][]int64, map[int64]struct{}) {
 	storeReq := make(map[int64][]int64) // storeID → requesterIDs
 	allIDs := make(map[int64]struct{})  // 去重后的所有买家 ID
 	for _, agg := range aggs {
