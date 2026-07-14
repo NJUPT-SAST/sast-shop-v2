@@ -117,7 +117,7 @@ func (s *ErrandDemandServiceServer) GetDemandList(
 		})
 	}
 
-	totalCount32 := int32(totalCount)
+	totalCount32 := int32(totalCount) //nolint:gosec
 	return connect.NewResponse(&errandv1.GetDemandListResponse{
 		Demands:     demands,
 		CurrentPage: page,
