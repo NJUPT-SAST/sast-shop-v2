@@ -120,7 +120,7 @@ func (s *ErrandDemandServiceServer) GetDemandList(
 	return connect.NewResponse(&errandv1.GetDemandListResponse{
 		Demands:     demands,
 		CurrentPage: page,
-		TotalCount:  totalCount,
+		TotalCount:  int32(totalCount),
 	}), nil
 }
 
