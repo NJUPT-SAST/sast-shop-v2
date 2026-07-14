@@ -117,10 +117,11 @@ func (s *ErrandDemandServiceServer) GetDemandList(
 		})
 	}
 
+	totalCount32 := int32(totalCount)
 	return connect.NewResponse(&errandv1.GetDemandListResponse{
 		Demands:     demands,
 		CurrentPage: page,
-		TotalCount:  int32(totalCount),
+		TotalCount:  totalCount32,
 	}), nil
 }
 
