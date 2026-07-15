@@ -49,10 +49,7 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderBrief(
 
 	orders := make([]*errandv1.BuyerErrandOrderBrief, 0, len(results))
 	for _, r := range results {
-		protoTemplates := make([]*catalogv1.ProductTemplate, 0, len(r.ProductTemplates))
-		for _, pt := range r.ProductTemplates {
-			protoTemplates = append(protoTemplates, pt)
-		}
+		protoTemplates := append([]*catalogv1.ProductTemplate{}, r.ProductTemplates...)
 
 		orders = append(orders, &errandv1.BuyerErrandOrderBrief{
 			ErrandDemandId:         r.ErrandDemandID,
