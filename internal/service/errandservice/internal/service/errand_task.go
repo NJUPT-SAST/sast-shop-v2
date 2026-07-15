@@ -14,6 +14,7 @@ import (
 	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/feishu"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/repository"
@@ -27,30 +28,33 @@ type taskItemGroupKey struct {
 	ProductTemplateID int64
 	Deadline          time.Time
 }
-//分组结果
+
+// 按商品id和截止时间分组结果
 type taskItemGroup struct {
 	Snapshot         repository.ProductSnapshotRow
 	RequiredQuantity int32
 	Rows             []repository.SelectedDemandItemRow
 }
-//记录团长选中的需求
+
+// 记录团长选中的需求
 type createTaskSelection struct {
 	SelectedUpdatedAt map[int64]time.Time
 	SelectedIDs       []int64
 }
-//数据加载结果
+
+// 数据加载结果
 type createTaskLoadResult struct {
 	Now        time.Time
-	Rows       []repository.SelectedDemandItemRow
-	DemandRows map[int64][]repository.SelectedDemandItemRow
+	Rows       []repository.SelectedDemandItemRow           // 完整列表，用于遍历和统计
+	DemandRows map[int64][]repository.SelectedDemandItemRow // 按demandID分组，用于业务处理
 	Snapshots  map[int64]repository.ProductSnapshotRow
 }
 
 var (
-	ErrInvalidDemandItem = errors.New("invalid demand item") //传参错误
-	ErrConcurrencyConflict = errors.New("concurrency conflict") //乐观锁冲突
-	ErrStoreMismatch       = errors.New("store mismatch") //所选需求项与门店不一致
-	ErrDemandItemNotOpen   = errors.New("demand item not open")  //任务已关闭
+	ErrInvalidDemandItem   = errors.New("invalid demand item")  // 传参错误
+	ErrConcurrencyConflict = errors.New("concurrency conflict") // 乐观锁冲突
+	ErrStoreMismatch       = errors.New("store mismatch")       // 所选需求项与门店不一致
+	ErrDemandItemNotOpen   = errors.New("demand item not open") // 任务已关闭
 )
 
 func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRequest) (int64, error) {
@@ -62,7 +66,7 @@ func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRe
 		return 0, ErrInvalidDemandItem
 	}
 
-	//解析请求
+	// 解析请求,
 	selection, err := buildCreateTaskSelection(req)
 	if err != nil {
 		return 0, err
@@ -70,27 +74,27 @@ func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRe
 
 	var taskID int64
 	err = repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		//根据店铺id和选项id加载数据
+		// 根据店铺id和选项id加载数据
 		loaded, err := loadCreateTaskData(ctx, tx, req.StoreId, selection)
 		if err != nil {
 			return err
 		}
-		//创建任务，在errand_task表中插入新纪录
+		// 创建任务，在errand_task表中插入新纪录，task进入shopping状态
 		task, err := createShoppingTask(ctx, tx, captainID, req.StoreId)
 		if err != nil {
 			return err
 		}
 		taskID = task.ID
-		//按商品分组创建任务，统计不同需求相同商品的数量，关联产品快照
+		// 按 product_template_id + deadline 聚合被选中的 demand_item，写入 errand_task_item
 		taskItemIDByDemandItemID, err := createGroupedTaskItems(ctx, tx, task.ID, loaded.Rows, loaded.Snapshots)
 		if err != nil {
 			return err
 		}
-		//创建任务分配，根据加载的数据在errand_task_assigniments表中插入数据
+		// 创建任务分配，根据加载的数据在errand_task_assigniments表中插入数据
 		if err := createTaskAssignments(ctx, tx, task.ID, loaded.Rows, taskItemIDByDemandItemID); err != nil {
 			return err
 		}
-		//同步需求状态，标记已接单
+		// 同步需求状态，标记已接单shopping
 		if err := syncSelectedDemandStatus(ctx, tx, task.ID, loaded.Now, loaded.DemandRows); err != nil {
 			return err
 		}
@@ -112,7 +116,7 @@ func buildCreateTaskSelection(req *errandv1.CreateTaskRequest) (*createTaskSelec
 		if item == nil || item.ErrandDemandItemId <= 0 || item.UpdatedAt == nil || !item.UpdatedAt.IsValid() {
 			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("demand_items[%d] is invalid", i))
 		}
-
+		// 防止前端传两次同一需求
 		if _, dup := selectedUpdatedAt[item.ErrandDemandItemId]; dup {
 			return nil, ErrInvalidDemandItem
 		}
@@ -133,7 +137,7 @@ func loadCreateTaskData(
 	storeID int64,
 	selection *createTaskSelection,
 ) (*createTaskLoadResult, error) {
-	//悲观锁查询task和task_item
+	// 悲观锁查询task和task_item
 	rows, err := repository.LoadSelectedDemandItemsForUpdate(ctx, tx, selection.SelectedIDs)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to load selected demand items")
@@ -144,19 +148,19 @@ func loadCreateTaskData(
 	}
 
 	now := time.Now().UTC()
-	demandRows := make(map[int64][]repository.SelectedDemandItemRow) //按用户需求分组
-	productIDsSet := make(map[int64]struct{}, len(rows)) //收集商品id，去重后批量加载商品快照
+	demandRows := make(map[int64][]repository.SelectedDemandItemRow) // 按用户需求分组
+	productIDsSet := make(map[int64]struct{}, len(rows))             // 收集商品id，去重后批量加载商品快照
 
 	for _, row := range rows {
-		//校验前端请求更新时间和店铺id 与数据库是否一致
+		// 校验前端请求更新时间和店铺id 与数据库是否一致
 		if err := validateSelectedDemandItemRow(row, storeID, selection.SelectedUpdatedAt, now); err != nil {
 			return nil, err
 		}
 
-		demandRows[row.DemandID] = append(demandRows[row.DemandID], row)
-		productIDsSet[row.ProductTemplateID] = struct{}{} //map键具有唯一性，自动去重
+		demandRows[row.DemandID] = append(demandRows[row.DemandID], row) // 按demandID分组
+		productIDsSet[row.ProductTemplateID] = struct{}{}                // map键具有唯一性，自动去重
 	}
-	//根据店铺id和商品id加载和校验商品快照
+	// 根据店铺id和商品id加载和校验商品快照
 	snapshots, err := loadValidatedSnapshots(ctx, tx, storeID, productIDsSet)
 	if err != nil {
 		return nil, err
@@ -199,7 +203,7 @@ func loadValidatedSnapshots(
 	productIDsSet map[int64]struct{},
 ) (map[int64]repository.ProductSnapshotRow, error) {
 	productIDs := make([]int64, 0, len(productIDsSet))
-	//遍历map所有的key
+	// 遍历map所有的key
 	for id := range productIDsSet {
 		productIDs = append(productIDs, id)
 	}
@@ -238,6 +242,7 @@ func createShoppingTask(ctx context.Context, tx bun.Tx, captainID, storeID int64
 	return task, nil
 }
 
+// 将选中的商品按商品id和截止时间分组
 func buildTaskItemGroups(
 	rows []repository.SelectedDemandItemRow,
 	snapshots map[int64]repository.ProductSnapshotRow,
@@ -287,7 +292,7 @@ func createGroupedTaskItems(
 			log.Error().Err(err).Msg("failed to create task item")
 			return nil, newErrandInternalError("")
 		}
-
+		// 按demandItemID分组
 		for _, row := range group.Rows {
 			taskItemIDByDemandItemID[row.DemandItemID] = taskItem.ID
 		}
@@ -333,13 +338,13 @@ func syncSelectedDemandStatus(
 	for demandID := range demandRows {
 		demandIDs = append(demandIDs, demandID)
 	}
-
+	// 批量查询每个demand下的总商品数
 	itemCountByDemandID, err := repository.LoadDemandItemCounts(ctx, tx, demandIDs)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to count demand items")
 		return newErrandInternalError("")
 	}
-
+	// 逐个处理每个demand
 	for demandID, selectedRows := range demandRows {
 		if err := syncSingleDemand(ctx, tx, taskID, demandID, selectedRows, itemCountByDemandID, now); err != nil {
 			return err
@@ -435,6 +440,7 @@ func newErrandInternalError(msg string) error {
 	}, msg)
 }
 
+// 获取采购中的跑腿任务详情
 func GetShoppingTaskDetail(
 	ctx context.Context,
 	captainID int64,
@@ -509,6 +515,7 @@ func shoppingTaskItemRowToProto(row repository.ShoppingTaskItemRow, storeID int6
 	return taskItem
 }
 
+// 更新采购中的跑腿任务商品项（采购中）
 func SaveShoppingTaskItem(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
 	if err := ValidateSaveRequest(ctx, captainID, req); err != nil {
 		return err
@@ -605,6 +612,7 @@ func updateTaskItem(
 	return nil
 }
 
+// 将采购任务从采购中流转到待分发
 func TransitionToPendingDistributing(
 	ctx context.Context,
 	captainID int64,
@@ -617,66 +625,439 @@ func TransitionToPendingDistributing(
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition"))
 	}
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
-	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		task, err := repository.GetErrandTaskForUpdate(ctx, tx, req.ErrandTaskId, captainID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return connect.NewError(connect.CodeNotFound, errors.New("shopping task not found"))
-			}
-			log.Error().
-				Err(err).
-				Int64("capatin_id", captainID).
-				Int64("errand_task_id", req.ErrandTaskId).
-				Msg("failde to load errand task for update")
-			return newErrandInternalError("")
-		}
-		if task.Status != model.ErrandTaskStatusShopping {
-			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
-		}
-		if !task.UpdatedAt.UTC().Equal(expectedUpdatedAt) {
-			return ErrConcurrencyConflict
-		}
-		summary, err := repository.GetTaskItemHandlingSummary(ctx, tx, req.ErrandTaskId)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", req.ErrandTaskId).
-				Msg("failde to load task for item handling summary")
-			return newErrandInternalError("")
-		}
-		if summary.TotalCount == 0 {
-			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task has no shopping items"))
-		}
-		if summary.UnhandledCount == 0 {
-			return connect.NewError(connect.CodeFailedPrecondition, errors.New("unhandled shopping items"))
-		}
-		now := time.Now().UTC()
-		if err := repository.UpdateTaskToPendingDistributing(
-			ctx,
-			tx,
-			req.ErrandTaskId,
-			expectedUpdatedAt,
-			now,
-		); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrConcurrencyConflict
-			}
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", req.ErrandTaskId).
-				Msg("failed to load shopping task item")
-			return newErrandInternalError("")
+	notificationRows, err := transitionTaskToPendingDistributing(ctx, captainID, req.ErrandTaskId, expectedUpdatedAt)
+	if err != nil {
+		return err
+	}
 
-		}
-		if err := repository.UpdateTaskRelatedDemandsToPendingDistributing(ctx, tx, req.ErrandTaskId, now); err != nil {
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", req.ErrandTaskId).
-				Msg("failed to load shopping task item")
-			return newErrandInternalError("")
+	sendNonPurchasedNotifications(ctx, req.ErrandTaskId, notificationRows)
+	return nil
+}
+
+func transitionTaskToPendingDistributing(
+	ctx context.Context,
+	captainID, taskID int64,
+	expectedUpdatedAt time.Time,
+) ([]repository.NonPurchasedDemandItemNotificationRow, error) {
+	var notificationRows []repository.NonPurchasedDemandItemNotificationRow
+
+	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		rows, err := executeTransitionToPendingDistributingTx(ctx, tx, captainID, taskID, expectedUpdatedAt)
+		if err != nil {
+			return err
 		}
 
-		// TODO: send notifications for fully-unpurchased or partially-purchased demand items here.
+		notificationRows = rows
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return notificationRows, nil
+}
+
+func executeTransitionToPendingDistributingTx(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID, taskID int64,
+	expectedUpdatedAt time.Time,
+) ([]repository.NonPurchasedDemandItemNotificationRow, error) {
+	task, err := loadShoppingTaskForTransition(ctx, tx, captainID, taskID, expectedUpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureTaskItemsHandledForTransition(ctx, tx, taskID); err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	if err := updatePendingDistributingStatus(ctx, tx, task.TaskID, expectedUpdatedAt, now); err != nil {
+		return nil, err
+	}
+
+	return loadPendingDistributingNotifications(ctx, tx, taskID)
+}
+
+func loadShoppingTaskForTransition(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID, taskID int64,
+	expectedUpdatedAt time.Time,
+) (*repository.ErrandTaskForUpdateRow, error) {
+	task, err := repository.GetErrandTaskForUpdate(ctx, tx, taskID, captainID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("shopping task not found"))
+		}
+		log.Error().
+			Err(err).
+			Int64("captain_id", captainID).
+			Int64("errand_task_id", taskID).
+			Msg("failed to load errand task for update")
+		return nil, newErrandInternalError("")
+	}
+	if task.Status != model.ErrandTaskStatusShopping {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
+	}
+	if !task.UpdatedAt.UTC().Equal(expectedUpdatedAt) {
+		return nil, ErrConcurrencyConflict
+	}
+
+	return task, nil
+}
+
+func ensureTaskItemsHandledForTransition(ctx context.Context, tx bun.Tx, taskID int64) error {
+	summary, err := repository.GetTaskItemHandlingSummary(ctx, tx, taskID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", taskID).
+			Msg("failed to load task item handling summary")
+		return newErrandInternalError("")
+	}
+	if summary.TotalCount == 0 {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task has no shopping items"))
+	}
+	if summary.UnhandledCount > 0 {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unhandled shopping items"))
+	}
+
+	return nil
+}
+
+func updatePendingDistributingStatus(
+	ctx context.Context,
+	tx bun.Tx,
+	taskID int64,
+	expectedUpdatedAt, now time.Time,
+) error {
+	if err := repository.UpdateTaskToPendingDistributing(ctx, tx, taskID, expectedUpdatedAt, now); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrConcurrencyConflict
+		}
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", taskID).
+			Msg("failed to update task to pending distributing")
+		return newErrandInternalError("")
+	}
+	if err := repository.UpdateTaskRelatedDemandsToPendingDistributing(ctx, tx, taskID, now); err != nil {
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", taskID).
+			Msg("failed to update related demand items to pending distributing")
+		return newErrandInternalError("")
+	}
+
+	return nil
+}
+
+func loadPendingDistributingNotifications(
+	ctx context.Context,
+	tx bun.Tx,
+	taskID int64,
+) ([]repository.NonPurchasedDemandItemNotificationRow, error) {
+	rows, err := repository.ListNonPurchasedDemandItemNotifications(ctx, tx, taskID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", taskID).
+			Msg("failed to load non-purchase notifications")
+		return nil, newErrandInternalError("")
+	}
+
+	return rows, nil
+}
+
+func sendNonPurchasedNotifications(
+	ctx context.Context,
+	taskID int64,
+	rows []repository.NonPurchasedDemandItemNotificationRow,
+) {
+	grouped := make(map[int64][]repository.NonPurchasedDemandItemNotificationRow)
+	for _, row := range rows {
+		grouped[row.TaskItemID] = append(grouped[row.TaskItemID], row)
+	}
+
+	for _, itemRows := range grouped {
+		remaining := itemRows[0].PurchasedQuantity
+		for _, row := range itemRows {
+			purchasedForThisDemand := minInt32(remaining, row.RequiredQuantity)
+			remaining -= purchasedForThisDemand
+			if purchasedForThisDemand == row.RequiredQuantity || row.RequesterOpenID == "" {
+				continue
+			}
+
+			statusText := "部分采购"
+			if purchasedForThisDemand == 0 {
+				statusText = "未采购"
+			}
+			text := fmt.Sprintf(
+				"你的跑腿商品“%s”采购结果已更新：需求 %d 件，实际采购 %d 件，当前状态：%s。",
+				row.TitleSnapshot,
+				row.RequiredQuantity,
+				purchasedForThisDemand,
+				statusText,
+			)
+			bizKey := fmt.Sprintf("errand:task:%d:demand-item:%d:shopping-result", taskID, row.DemandItemID)
+
+			if _, err := feishu.SendTextByOpenID(ctx, row.RequesterOpenID, text, bizKey); err != nil {
+				log.Warn().
+					Err(err).
+					Int64("task_id", taskID).
+					Int64("demand_item_id", row.DemandItemID).
+					Msg("failed to send errand shopping result notification")
+			}
+		}
+	}
+}
+
+func minInt32(a, b int32) int32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func GetDistributingTaskDetail(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.GetDistributingTaskDetailRequest,
+) (*errandv1.GetDistributingTaskDetailResponse, error) {
+	if captainID <= 0 {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+	}
+	if req == nil || req.ErrandTaskId <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
+	}
+
+	header, err := repository.GetDistributingTaskHeader(ctx, postgres.DB, req.ErrandTaskId, captainID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("distributing task not found"))
+		}
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", req.ErrandTaskId).
+			Int64("captain_id", captainID).
+			Msg("failed to load distributing task header")
+		return nil, newErrandInternalError("")
+	}
+	if header.Status != model.ErrandTaskStatusPendingDistributing &&
+		header.Status != model.ErrandTaskStatusDistributing {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in distributing flow"))
+	}
+
+	rows, err := repository.ListDistributingTaskDetails(ctx, postgres.DB, header.TaskID)
+	if err != nil {
+		log.Error().Err(err).Int64("errand_task_id", header.TaskID).Msg("failed to load distributing task details")
+		return nil, newErrandInternalError("")
+	}
+
+	items := make([]*errandv1.DistributingItem, 0)
+	itemByID := make(map[int64]*errandv1.DistributingItem, len(rows))
+	for _, row := range rows {
+		item := itemByID[row.TaskItemID]
+		if item == nil {
+			actual := int32(0)
+			if row.ActualUnitPriceCents != nil {
+				actual = *row.ActualUnitPriceCents
+			}
+			item = &errandv1.DistributingItem{
+				ErrandTaskItemId:     row.TaskItemID,
+				ProductTemplateId:    row.ProductTemplateID,
+				TitleSnapshot:        row.TitleSnapshot,
+				DescriptionSnapshot:  row.DescriptionSnapshot,
+				ImageUrlSnapshot:     row.ImageURLSnapshot,
+				OriginUnitPriceCents: row.OriginUnitPriceCents,
+				ActualUnitPriceCents: actual,
+				Requesters:           make([]*errandv1.DistributingRequestInfo, 0, 1),
+			}
+			itemByID[row.TaskItemID] = item
+			items = append(items, item)
+		}
+
+		item.Requesters = append(item.Requesters, &errandv1.DistributingRequestInfo{
+			PurchaserId:                   row.PurchaserID,
+			PurchaserName:                 row.PurchaserName,
+			PurchaserAvatarUrl:            row.PurchaserAvatarURL,
+			Quantity:                      row.Quantity,
+			DistributedQuantity:           row.DistributedQuantity,
+			ErrandTaskAssignmentId:        row.TaskAssignmentID,
+			ErrandDemandItemId:            row.DemandItemID,
+			ErrandTaskAssignmentUpdatedAt: timestamppb.New(row.TaskAssignmentUpdatedAt),
+		})
+	}
+
+	return &errandv1.GetDistributingTaskDetailResponse{
+		ErrandTaskId:      header.TaskID,
+		StoreId:           header.StoreID,
+		StoreName:         header.StoreName,
+		PackagingFeeCents: header.PackagingFeeCents,
+		DistributingItems: items,
+	}, nil
+}
+
+func UpdateActualPrice(ctx context.Context, captainID int64, req *errandv1.UpdateActualPriceRequest) error {
+	if captainID <= 0 {
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+	}
+	if req == nil || req.ErrandTaskId <= 0 || req.ErrandTaskItemId <= 0 ||
+		req.ErrandTaskItemUpdatedAt == nil || !req.ErrandTaskItemUpdatedAt.IsValid() ||
+		req.ActualUnitPriceCents < 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid update actual price request"))
+	}
+
+	expectedUpdatedAt := req.ErrandTaskItemUpdatedAt.AsTime().UTC()
+	return updateActualPriceInTx(ctx, captainID, req, expectedUpdatedAt)
+}
+
+func updateActualPriceInTx(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.UpdateActualPriceRequest,
+	expectedUpdatedAt time.Time,
+) error {
+	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		return executeUpdateActualPriceTx(ctx, tx, captainID, req, expectedUpdatedAt)
+	})
+}
+
+func executeUpdateActualPriceTx(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID int64,
+	req *errandv1.UpdateActualPriceRequest,
+	expectedUpdatedAt time.Time,
+) error {
+	row, err := loadDistributingTaskItemForPriceUpdate(ctx, tx, captainID, req.ErrandTaskId, req.ErrandTaskItemId)
+	if err != nil {
+		return err
+	}
+	if err := validateActualPriceUpdate(row, expectedUpdatedAt, req.ActualUnitPriceCents); err != nil {
+		return err
+	}
+	if actualPriceUnchanged(row, req.ActualUnitPriceCents) {
+		return nil
+	}
+	if err := createActualPriceChangeLog(
+		ctx,
+		tx,
+		captainID,
+		req.ErrandTaskItemId,
+		row.ActualUnitPriceCents,
+		req.ActualUnitPriceCents,
+	); err != nil {
+		return err
+	}
+
+	return persistActualPrice(ctx, tx, captainID, req.ErrandTaskItemId, expectedUpdatedAt, req.ActualUnitPriceCents)
+}
+
+func loadDistributingTaskItemForPriceUpdate(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID, taskID, taskItemID int64,
+) (*repository.DistributingTaskItemForUpdateRow, error) {
+	row, err := repository.GetDistributingTaskItemForUpdate(ctx, tx, taskID, taskItemID, captainID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("distributing task item not found"))
+		}
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", taskID).
+			Int64("errand_task_item_id", taskItemID).
+			Int64("captain_id", captainID).
+			Msg("failed to load distributing task item for update")
+		return nil, newErrandInternalError("")
+	}
+
+	return row, nil
+}
+
+func validateActualPriceUpdate(
+	row *repository.DistributingTaskItemForUpdateRow,
+	expectedUpdatedAt time.Time,
+	actualUnitPriceCents int32,
+) error {
+	if row.TaskStatus != model.ErrandTaskStatusPendingDistributing {
+		return connect.NewError(
+			connect.CodeFailedPrecondition,
+			errors.New("task is not in pending distributing status"),
+		)
+	}
+	if !row.TaskItemUpdatedAt.UTC().Equal(expectedUpdatedAt) {
+		return ErrConcurrencyConflict
+	}
+	if row.PurchasedQuantity == nil {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task item has not been handled"))
+	}
+	if *row.PurchasedQuantity == 0 && actualUnitPriceCents != 0 {
+		return connect.NewError(
+			connect.CodeInvalidArgument,
+			errors.New("fully-unpurchased item must use 0 actual price"),
+		)
+	}
+
+	return nil
+}
+
+func actualPriceUnchanged(row *repository.DistributingTaskItemForUpdateRow, actualUnitPriceCents int32) bool {
+	return row.ActualUnitPriceCents != nil && *row.ActualUnitPriceCents == actualUnitPriceCents
+}
+
+func createActualPriceChangeLog(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID, taskItemID int64,
+	oldUnitPriceCents *int32,
+	newUnitPriceCents int32,
+) error {
+	if err := repository.CreatePriceChangeLog(ctx, tx, &model.ErrandPriceChangeLog{
+		TaskItemID:        taskItemID,
+		OperatorID:        captainID,
+		OldUnitPriceCents: oldUnitPriceCents,
+		NewUnitPriceCents: newUnitPriceCents,
+	}); err != nil {
+		log.Error().
+			Err(err).
+			Int64("errand_task_item_id", taskItemID).
+			Int64("captain_id", captainID).
+			Msg("failed to create price change log")
+		return newErrandInternalError("")
+	}
+
+	return nil
+}
+
+func persistActualPrice(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID, taskItemID int64,
+	expectedUpdatedAt time.Time,
+	actualUnitPriceCents int32,
+) error {
+	now := time.Now().UTC()
+	if err := repository.UpdateTaskItemActualPrice(
+		ctx,
+		tx,
+		taskItemID,
+		expectedUpdatedAt,
+		actualUnitPriceCents,
+		now,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrConcurrencyConflict
+		}
+		log.Error().
+			Err(err).
+			Int64("errand_task_item_id", taskItemID).
+			Int64("captain_id", captainID).
+			Msg("failed to update actual price")
+		return newErrandInternalError("")
+	}
+
+	return nil
 }
