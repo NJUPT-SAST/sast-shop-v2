@@ -12,7 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// BuyerOrderBrief 买家跑腿订单列表项。
 type BuyerOrderBrief struct {
 	ErrandDemandID         int64
 	StoreID                int64
@@ -26,7 +25,6 @@ type BuyerOrderBrief struct {
 	ProductTemplates       []*catalogv1.ProductTemplate
 }
 
-// BuyerOrderProductItem 订单详情中的商品行。
 type BuyerOrderProductItem struct {
 	ProductTemplate         *catalogv1.ProductTemplate
 	ActualUnitPriceCents    *int32
@@ -39,7 +37,6 @@ type BuyerOrderProductItem struct {
 	ErrandDemandItemID      int64
 }
 
-// BuyerOrderDetail 买家跑腿订单详情。
 type BuyerOrderDetail struct {
 	ErrandDemandID          int64
 	StoreID                 int64
@@ -60,7 +57,6 @@ type BuyerOrderDetail struct {
 	CancelledAt             *time.Time
 }
 
-// GetBuyerOrderBriefList 分页查询买家跑腿订单列表。
 func GetBuyerOrderBriefList(
 	ctx context.Context,
 	requesterID int64,
@@ -135,7 +131,7 @@ func GetBuyerOrderBriefList(
 			StoreID:                d.StoreID,
 			CreatedAt:              d.CreatedAt,
 			Status:                 d.Status,
-			ProductTotalCount:      int32(len(items)),
+			ProductTotalCount:      int32(len(items)), //nolint:gosec
 			TotalOriginAmountCents: originCents,
 			TotalServiceFeeCents:   serviceCents,
 			StoreInfo:              storeMap[d.StoreID],
@@ -172,7 +168,6 @@ func fetchProducts(ctx context.Context, idSet map[int64]struct{}) map[int64]*cat
 	return m
 }
 
-// GetBuyerOrderDetail 查询买家跑腿订单详情。
 func GetBuyerOrderDetail(ctx context.Context, requesterID, demandID int64) (*BuyerOrderDetail, error) {
 	demand, err := repository.GetDemandByID(ctx, demandID)
 	if err != nil {
@@ -197,69 +192,17 @@ func GetBuyerOrderDetail(ctx context.Context, requesterID, demandID int64) (*Buy
 		productIDSet[item.ProductTemplateID] = struct{}{}
 	}
 
-	assignments, _ := repository.GetAssignmentsByDemandItemIDs(ctx, itemIDs)
-	assignByItem := make(map[int64]*model.ErrandTaskAssignment)
-	for _, a := range assignments {
-		assignByItem[a.DemandItemID] = a
+	assignByItem := loadAssignments(ctx, itemIDs)
+	taskItemByProduct, task := loadTaskInfo(ctx, demand.TaskID)
+	store, storeErr := client.GetStore(ctx, demand.StoreID)
+	if storeErr != nil {
+		log.Warn().Err(storeErr).Int64("store_id", demand.StoreID).Msg("get store failed")
 	}
-
-	var task *model.ErrandTask
-	var taskItems []*model.ErrandTaskItem
-	if demand.TaskID != nil {
-		task, _ = repository.GetTaskByID(ctx, *demand.TaskID)
-		taskItems, _ = repository.GetTaskItemsByTaskID(ctx, *demand.TaskID)
-	}
-	taskItemByProduct := make(map[int64]*model.ErrandTaskItem)
-	for _, ti := range taskItems {
-		taskItemByProduct[ti.ProductTemplateID] = ti
-	}
-
-	store, _ := client.GetStore(ctx, demand.StoreID)
 	productMap := fetchProducts(ctx, productIDSet)
+	captainInfo := loadCaptain(ctx, task)
+	billID := findBillID(assignByItem)
 
-	var captainInfo *userv1.UserInfo
-	if task != nil {
-		users, err := client.GetUsers(ctx, []int64{task.CaptainID})
-		if err == nil && len(users) > 0 {
-			captainInfo = users[0]
-		}
-	}
-
-	var billID *int64
-	for _, a := range assignments {
-		if a.PaymentBillID != nil {
-			billID = a.PaymentBillID
-			break
-		}
-	}
-
-	productItems := make([]*BuyerOrderProductItem, 0, len(items))
-	var originCents, serviceCents int32
-
-	for _, item := range items {
-		originCents += item.EstimatedUnitPriceCents * item.Quantity
-		serviceCents += item.ServiceFeePerUnitCents * item.Quantity
-
-		pi := &BuyerOrderProductItem{
-			ProductTemplate:         productMap[item.ProductTemplateID],
-			RequiredQuantity:        item.Quantity,
-			ServiceFeePerUnitCents:  item.ServiceFeePerUnitCents,
-			EstimatedUnitPriceCents: item.EstimatedUnitPriceCents,
-			ErrandDemandItemID:      item.ID,
-		}
-
-		if a, ok := assignByItem[item.ID]; ok {
-			pi.DistributedQuantity = a.DistributedQuantity
-		}
-
-		if ti, ok := taskItemByProduct[item.ProductTemplateID]; ok {
-			pi.ActualUnitPriceCents = ti.ActualUnitPriceCents
-			pi.PurchasedQuantity = ti.PurchasedQuantity
-			pi.NonPurchaseReason = ti.NonPurchaseReason
-		}
-
-		productItems = append(productItems, pi)
-	}
+	productItems, originCents, serviceCents := buildProductItems(items, assignByItem, taskItemByProduct, productMap)
 
 	return &BuyerOrderDetail{
 		ErrandDemandID:          demand.ID,
@@ -279,4 +222,89 @@ func GetBuyerOrderDetail(ctx context.Context, requesterID, demandID int64) (*Buy
 		PaymentCompletedAt:      demand.PaymentCompletedAt,
 		CancelledAt:             demand.CancelledAt,
 	}, nil
+}
+
+func loadAssignments(ctx context.Context, itemIDs []int64) map[int64]*model.ErrandTaskAssignment {
+	assignments, err := repository.GetAssignmentsByDemandItemIDs(ctx, itemIDs)
+	if err != nil {
+		log.Warn().Err(err).Msg("get assignments failed")
+	}
+	m := make(map[int64]*model.ErrandTaskAssignment)
+	for _, a := range assignments {
+		m[a.DemandItemID] = a
+	}
+	return m
+}
+
+func loadTaskInfo(ctx context.Context, taskID *int64) (map[int64]*model.ErrandTaskItem, *model.ErrandTask) {
+	if taskID == nil {
+		return nil, nil
+	}
+	task, err := repository.GetTaskByID(ctx, *taskID)
+	if err != nil {
+		log.Warn().Err(err).Int64("task_id", *taskID).Msg("get task failed")
+		return nil, nil
+	}
+	items, err := repository.GetTaskItemsByTaskID(ctx, *taskID)
+	if err != nil {
+		log.Warn().Err(err).Int64("task_id", *taskID).Msg("get task items failed")
+	}
+	m := make(map[int64]*model.ErrandTaskItem)
+	for _, ti := range items {
+		m[ti.ProductTemplateID] = ti
+	}
+	return m, task
+}
+
+func loadCaptain(ctx context.Context, task *model.ErrandTask) *userv1.UserInfo {
+	if task == nil {
+		return nil
+	}
+	users, err := client.GetUsers(ctx, []int64{task.CaptainID})
+	if err != nil || len(users) == 0 {
+		return nil
+	}
+	return users[0]
+}
+
+func findBillID(assignByItem map[int64]*model.ErrandTaskAssignment) *int64 {
+	for _, a := range assignByItem {
+		if a.PaymentBillID != nil {
+			return a.PaymentBillID
+		}
+	}
+	return nil
+}
+
+func buildProductItems(
+	items []*model.ErrandDemandItem,
+	assignByItem map[int64]*model.ErrandTaskAssignment,
+	taskItemByProduct map[int64]*model.ErrandTaskItem,
+	productMap map[int64]*catalogv1.ProductTemplate,
+) ([]*BuyerOrderProductItem, int32, int32) {
+	productItems := make([]*BuyerOrderProductItem, 0, len(items))
+	var originCents, serviceCents int32
+
+	for _, item := range items {
+		originCents += item.EstimatedUnitPriceCents * item.Quantity
+		serviceCents += item.ServiceFeePerUnitCents * item.Quantity
+
+		pi := &BuyerOrderProductItem{
+			ProductTemplate:         productMap[item.ProductTemplateID],
+			RequiredQuantity:        item.Quantity,
+			ServiceFeePerUnitCents:  item.ServiceFeePerUnitCents,
+			EstimatedUnitPriceCents: item.EstimatedUnitPriceCents,
+			ErrandDemandItemID:      item.ID,
+		}
+		if a, ok := assignByItem[item.ID]; ok {
+			pi.DistributedQuantity = a.DistributedQuantity
+		}
+		if ti, ok := taskItemByProduct[item.ProductTemplateID]; ok {
+			pi.ActualUnitPriceCents = ti.ActualUnitPriceCents
+			pi.PurchasedQuantity = ti.PurchasedQuantity
+			pi.NonPurchaseReason = ti.NonPurchaseReason
+		}
+		productItems = append(productItems, pi)
+	}
+	return productItems, originCents, serviceCents
 }
