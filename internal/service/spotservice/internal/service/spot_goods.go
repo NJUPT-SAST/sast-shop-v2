@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"math"
-	"time"
 
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	spotv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/spot/v1"
@@ -11,9 +10,10 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/repository"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*model.SpotGoods, error) {
+func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*spotv1.SpotGoodsBrief, error) {
 	spotGoodsList, err := repository.ListSpotGoods(ctx, storeID, offset, limit)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to list spot goods for storeID: %d", storeID)
@@ -24,7 +24,16 @@ func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*mo
 		}, "")
 	}
 
-	return spotGoodsList, nil
+	briefs := make([]*spotv1.SpotGoodsBrief, 0, len(spotGoodsList))
+	for _, g := range spotGoodsList {
+		briefs = append(briefs, &spotv1.SpotGoodsBrief{
+			Id:             g.ID,
+			SalePriceCents: g.SalePriceCents,
+			CreatedAt:      timestamppb.New(g.CreatedAt),
+			UpdatedAt:      timestamppb.New(g.UpdatedAt),
+		})
+	}
+	return briefs, nil
 }
 
 func GetSpotGoodLength(ctx context.Context, storeID int64) (int32, error) {
@@ -45,7 +54,7 @@ func GetSpotGoodLength(ctx context.Context, storeID int64) (int32, error) {
 	return int32(count), nil
 }
 
-func GetSpotGoods(ctx context.Context, goodsID int64) (*model.SpotGoods, error) {
+func GetSpotGoods(ctx context.Context, goodsID int64) (*spotv1.SpotGoodsDetail, error) {
 	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d", goodsID)
@@ -55,7 +64,7 @@ func GetSpotGoods(ctx context.Context, goodsID int64) (*model.SpotGoods, error) 
 			},
 		}, "")
 	}
-	return goods, nil
+	return modelToDetail(goods), nil
 }
 
 func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGoods, error) {
@@ -71,17 +80,17 @@ func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGood
 	return spotGoodsList, nil
 }
 
-func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) error {
+func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) (*spotv1.SpotGoodsDetail, error) {
 	err := repository.CreateSpotGoods(ctx, goods)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to create spot good: %v", goods)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
 		}, "")
 	}
-	return nil
+	return modelToDetail(goods), nil
 }
 
 func UpdateSpotGoodsStock(
@@ -89,7 +98,7 @@ func UpdateSpotGoodsStock(
 	callerID int64,
 	goodsID int64,
 	newStockTotal int32,
-	updatedAt time.Time,
+	updatedAt *timestamppb.Timestamp,
 ) error {
 	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
 	if err != nil {
@@ -116,7 +125,15 @@ func UpdateSpotGoodsStock(
 			},
 		}, "")
 	}
-	rows, err := repository.UpdateSpotGoodsStock(ctx, goodsID, newStockTotal, updatedAt)
+	if updatedAt == nil {
+		log.Warn().Msgf("UpdatedAt is nil in update stock request for goodsID: %d", goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	rows, err := repository.UpdateSpotGoodsStock(ctx, goodsID, newStockTotal, updatedAt.AsTime())
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good stock total for goodsID: %d", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -141,7 +158,7 @@ func UpdateSpotGoodsPrice(
 	callerID int64,
 	goodsID int64,
 	newSalePriceCents int32,
-	updatedAt time.Time,
+	updatedAt *timestamppb.Timestamp,
 ) error {
 	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
 	if err != nil {
@@ -168,7 +185,15 @@ func UpdateSpotGoodsPrice(
 			},
 		}, "")
 	}
-	rows, err := repository.UpdateSpotGoodsPrice(ctx, goodsID, newSalePriceCents, updatedAt)
+	if updatedAt == nil {
+		log.Warn().Msgf("UpdatedAt is nil in update price request for goodsID: %d", goodsID)
+		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	rows, err := repository.UpdateSpotGoodsPrice(ctx, goodsID, newSalePriceCents, updatedAt.AsTime())
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good sale price for goodsID: %d", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -186,4 +211,14 @@ func UpdateSpotGoodsPrice(
 		}, "")
 	}
 	return nil
+}
+
+func modelToDetail(goods *model.SpotGoods) *spotv1.SpotGoodsDetail {
+	return &spotv1.SpotGoodsDetail{
+		Id:             goods.ID,
+		SalePriceCents: goods.SalePriceCents,
+		CreatedAt:      timestamppb.New(goods.CreatedAt),
+		UpdatedAt:      timestamppb.New(goods.UpdatedAt),
+		Stock:          goods.StockTotal,
+	}
 }

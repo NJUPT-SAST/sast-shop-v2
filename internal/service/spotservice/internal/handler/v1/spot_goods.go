@@ -13,7 +13,6 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type SpotGoodsServiceServer struct {
@@ -24,7 +23,7 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 	ctx context.Context,
 	r *connect.Request[spotv1.ListSpotGoodsRequest],
 ) (*connect.Response[spotv1.ListSpotGoodsResponse], error) {
-	spotGoodsList, err := service.ListSpotGoods(
+	spotGoodsBrief, err := service.ListSpotGoods(
 		ctx,
 		r.Msg.StoreId,
 		int((r.Msg.Page-1)*r.Msg.PageSize),
@@ -37,15 +36,6 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
 		}, "")
-	}
-	var spotGoodsBrief []*spotv1.SpotGoodsBrief
-	for _, goods := range spotGoodsList {
-		spotGoodsBrief = append(spotGoodsBrief, &spotv1.SpotGoodsBrief{
-			Id:             goods.ID,
-			SalePriceCents: goods.SalePriceCents,
-			CreatedAt:      timestamppb.New(goods.CreatedAt),
-			UpdatedAt:      timestamppb.New(goods.UpdatedAt),
-		})
 	}
 	totalCount, err := service.GetSpotGoodLength(ctx, r.Msg.StoreId)
 	if err != nil {
@@ -67,7 +57,7 @@ func (s *SpotGoodsServiceServer) GetSpotGoods(
 	ctx context.Context,
 	r *connect.Request[spotv1.GetSpotGoodsRequest],
 ) (*connect.Response[spotv1.GetSpotGoodsResponse], error) {
-	goods, err := service.GetSpotGoods(ctx, r.Msg.SpotGoodsId)
+	detail, err := service.GetSpotGoods(ctx, r.Msg.SpotGoodsId)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d", r.Msg.SpotGoodsId)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -77,13 +67,7 @@ func (s *SpotGoodsServiceServer) GetSpotGoods(
 		}, "")
 	}
 	return connect.NewResponse(&spotv1.GetSpotGoodsResponse{
-		SpotGoodsDetail: &spotv1.SpotGoodsDetail{
-			Id:             goods.ID,
-			SalePriceCents: goods.SalePriceCents,
-			CreatedAt:      timestamppb.New(goods.CreatedAt),
-			UpdatedAt:      timestamppb.New(goods.UpdatedAt),
-			Stock:          goods.StockTotal,
-		},
+		SpotGoodsDetail: detail,
 	}), nil
 }
 
@@ -106,7 +90,7 @@ func (s *SpotGoodsServiceServer) CreateSpotGoods(
 		SalePriceCents:    r.Msg.SalePriceCents,
 		StockTotal:        r.Msg.StockTotal,
 	}
-	err := service.CreateSpotGoods(ctx, goods)
+	detail, err := service.CreateSpotGoods(ctx, goods)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to create spot good: %v", goods)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -116,13 +100,7 @@ func (s *SpotGoodsServiceServer) CreateSpotGoods(
 		}, "")
 	}
 	return connect.NewResponse(&spotv1.CreateSpotGoodsResponse{
-		SpotGoodsDetail: &spotv1.SpotGoodsDetail{
-			Id:             goods.ID,
-			SalePriceCents: goods.SalePriceCents,
-			CreatedAt:      timestamppb.New(goods.CreatedAt),
-			UpdatedAt:      timestamppb.New(goods.UpdatedAt),
-			Stock:          goods.StockTotal,
-		},
+		SpotGoodsDetail: detail,
 	}), nil
 }
 
@@ -138,15 +116,7 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsStock(
 			},
 		}, "user not found in context")
 	}
-	if r.Msg.UpdatedAt == nil {
-		log.Warn().Msgf("UpdatedAt is nil in UpdateSpotGoodsStockRequest for goodsID: %d", r.Msg.SpotGoodsId)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-	err := service.UpdateSpotGoodsStock(ctx, user.UserID, r.Msg.SpotGoodsId, r.Msg.NewStock, r.Msg.UpdatedAt.AsTime())
+	err := service.UpdateSpotGoodsStock(ctx, user.UserID, r.Msg.SpotGoodsId, r.Msg.NewStock, r.Msg.UpdatedAt)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good stock total for goodsID: %d", r.Msg.SpotGoodsId)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -170,21 +140,7 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsPrice(
 			},
 		}, "user not found in context")
 	}
-	if r.Msg.UpdatedAt == nil {
-		log.Warn().Msgf("UpdatedAt is nil in UpdateSpotGoodsPriceRequest for goodsID: %d", r.Msg.SpotGoodsId)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-	err := service.UpdateSpotGoodsPrice(
-		ctx,
-		user.UserID,
-		r.Msg.SpotGoodsId,
-		r.Msg.NewSalePriceCents,
-		r.Msg.UpdatedAt.AsTime(),
-	)
+	err := service.UpdateSpotGoodsPrice(ctx, user.UserID, r.Msg.SpotGoodsId, r.Msg.NewSalePriceCents, r.Msg.UpdatedAt)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good sale price for goodsID: %d", r.Msg.SpotGoodsId)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
