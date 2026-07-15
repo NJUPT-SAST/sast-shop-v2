@@ -1061,3 +1061,249 @@ func persistActualPrice(
 
 	return nil
 }
+
+func TransitionToDistributing(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.TransitionToDistributingRequest,
+) error {
+	if captainID <= 0 {
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+	}
+	if req == nil || req.ErrandTaskId <= 0 || req.PackagingFeeCents < 0 ||
+		req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition to distributing request"))
+	}
+
+	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
+	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		task, err := loadPendingDistributingTaskForTransition(
+			ctx,
+			tx,
+			captainID,
+			req.ErrandTaskId,
+			expectedUpdatedAt,
+		)
+		if err != nil {
+			return err
+		}
+
+		return updateDistributingStatus(ctx, tx, task.TaskID, expectedUpdatedAt, req.PackagingFeeCents)
+	})
+}
+
+func loadPendingDistributingTaskForTransition(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID, taskID int64,
+	expectedUpdatedAt time.Time,
+) (*repository.ErrandTaskForUpdateRow, error) {
+	task, err := repository.GetErrandTaskForUpdate(ctx, tx, taskID, captainID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("pending distributing task not found"))
+		}
+		log.Error().
+			Err(err).
+			Int64("captain_id", captainID).
+			Int64("errand_task_id", taskID).
+			Msg("failed to load pending distributing task for update")
+		return nil, newErrandInternalError("")
+	}
+	if task.Status != model.ErrandTaskStatusPendingDistributing {
+		return nil, connect.NewError(
+			connect.CodeFailedPrecondition,
+			errors.New("task is not in pending distributing status"),
+		)
+	}
+	if !task.UpdatedAt.UTC().Equal(expectedUpdatedAt) {
+		return nil, ErrConcurrencyConflict
+	}
+
+	return task, nil
+}
+
+func updateDistributingStatus(
+	ctx context.Context,
+	tx bun.Tx,
+	taskID int64,
+	expectedUpdatedAt time.Time,
+	packagingFeeCents int32,
+) error {
+	now := time.Now().UTC()
+	if err := repository.UpdateTaskToDistributing(
+		ctx,
+		tx,
+		taskID,
+		expectedUpdatedAt,
+		packagingFeeCents,
+		now,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrConcurrencyConflict
+		}
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", taskID).
+			Msg("failed to update task to distributing")
+		return newErrandInternalError("")
+	}
+	if err := repository.UpdateTaskRelatedDemandsToDistributing(ctx, tx, taskID, now); err != nil {
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", taskID).
+			Msg("failed to update related demands to distributing")
+		return newErrandInternalError("")
+	}
+	if err := repository.UpdateTaskRelatedDemandItemsToDistributing(ctx, tx, taskID, now); err != nil {
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", taskID).
+			Msg("failed to update related demand items to distributing")
+		return newErrandInternalError("")
+	}
+
+	return nil
+}
+
+func SaveDistributingTaskAssignment(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.SaveDistributingTaskAssignmentRequest,
+) error {
+	if captainID <= 0 {
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+	}
+	if req == nil || req.ErrandTaskItemId <= 0 || req.ErrandTaskAssignmentId <= 0 ||
+		req.DistributedQuantity < 0 ||
+		req.ErrandTaskAssignmentUpdatedAt == nil || !req.ErrandTaskAssignmentUpdatedAt.IsValid() {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid distributing task assignment request"))
+	}
+
+	expectedUpdatedAt := req.ErrandTaskAssignmentUpdatedAt.AsTime().UTC()
+	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		return executeSaveDistributingTaskAssignmentTx(ctx, tx, captainID, req, expectedUpdatedAt)
+	})
+}
+
+func executeSaveDistributingTaskAssignmentTx(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID int64,
+	req *errandv1.SaveDistributingTaskAssignmentRequest,
+	expectedUpdatedAt time.Time,
+) error {
+	row, err := loadDistributingTaskAssignmentForUpdate(
+		ctx,
+		tx,
+		captainID,
+		req.ErrandTaskItemId,
+		req.ErrandTaskAssignmentId,
+	)
+	if err != nil {
+		return err
+	}
+	if err := validateDistributingTaskAssignmentUpdate(ctx, tx, row, req.DistributedQuantity, expectedUpdatedAt); err != nil {
+		return err
+	}
+	if row.DistributedQuantity == req.DistributedQuantity {
+		return nil
+	}
+
+	return persistDistributingTaskAssignment(
+		ctx,
+		tx,
+		captainID,
+		req.ErrandTaskAssignmentId,
+		expectedUpdatedAt,
+		req.DistributedQuantity,
+	)
+}
+
+func loadDistributingTaskAssignmentForUpdate(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID, taskItemID, assignmentID int64,
+) (*repository.DistributingTaskAssignmentForUpdateRow, error) {
+	row, err := repository.GetDistributingTaskAssignmentForUpdate(ctx, tx, taskItemID, assignmentID, captainID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("distributing task assignment not found"))
+		}
+		log.Error().
+			Err(err).
+			Int64("captain_id", captainID).
+			Int64("errand_task_item_id", taskItemID).
+			Int64("errand_task_assignment_id", assignmentID).
+			Msg("failed to load distributing task assignment for update")
+		return nil, newErrandInternalError("")
+	}
+
+	return row, nil
+}
+
+func validateDistributingTaskAssignmentUpdate(
+	ctx context.Context,
+	tx bun.Tx,
+	row *repository.DistributingTaskAssignmentForUpdateRow,
+	distributedQuantity int32,
+	expectedUpdatedAt time.Time,
+) error {
+	if row.TaskStatus != model.ErrandTaskStatusDistributing {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in distributing status"))
+	}
+	if !row.AssignmentUpdatedAt.UTC().Equal(expectedUpdatedAt) {
+		return ErrConcurrencyConflict
+	}
+	if row.PurchasedQuantity == nil {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task item has not been purchased"))
+	}
+	if distributedQuantity > row.DemandQuantity {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("distributed quantity exceeds demand quantity"))
+	}
+
+	totalDistributed, err := repository.SumTaskItemDistributedQuantity(ctx, tx, row.TaskItemID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Int64("errand_task_item_id", row.TaskItemID).
+			Msg("failed to sum distributed quantity")
+		return newErrandInternalError("")
+	}
+	totalAfterUpdate := totalDistributed - int64(row.DistributedQuantity) + int64(distributedQuantity)
+	if totalAfterUpdate > int64(*row.PurchasedQuantity) {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("distributed quantity exceeds purchased quantity"))
+	}
+
+	return nil
+}
+
+func persistDistributingTaskAssignment(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID, assignmentID int64,
+	expectedUpdatedAt time.Time,
+	distributedQuantity int32,
+) error {
+	now := time.Now().UTC()
+	if err := repository.UpdateDistributingTaskAssignment(
+		ctx,
+		tx,
+		assignmentID,
+		expectedUpdatedAt,
+		distributedQuantity,
+		now,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrConcurrencyConflict
+		}
+		log.Error().
+			Err(err).
+			Int64("captain_id", captainID).
+			Int64("errand_task_assignment_id", assignmentID).
+			Msg("failed to update distributing task assignment")
+		return newErrandInternalError("")
+	}
+
+	return nil
+}

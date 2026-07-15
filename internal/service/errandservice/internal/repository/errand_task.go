@@ -360,7 +360,7 @@ func GetErrandTaskForUpdate(ctx context.Context, db bun.IDB, taskID, captainID i
 		Where("et.captain_id = ?", captainID).
 		Limit(1).
 		For("update").
-		Scan(ctx, row)
+		Scan(ctx, &row)
 	if err != nil {
 		return nil, err
 	}
@@ -597,6 +597,149 @@ func UpdateTaskItemActualPrice(
 		Set("actual_unit_price_cents = ?", actualUnitPriceCents).
 		Set("updated_at = ?", now).
 		Where("id = ?", taskItemID).
+		Where("updated_at = ?", expectedUpdatedAt).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+type DistributingTaskAssignmentForUpdateRow struct {
+	TaskID              int64                  `bun:"task_id"`
+	TaskStatus          model.ErrandTaskStatus `bun:"task_status"`
+	TaskItemID          int64                  `bun:"task_item_id"`
+	AssignmentID        int64                  `bun:"assignment_id"`
+	PurchasedQuantity   *int32                 `bun:"purchased_quantity"`
+	DemandQuantity      int32                  `bun:"demand_quantity"`
+	DistributedQuantity int32                  `bun:"distributed_quantity"`
+	AssignmentUpdatedAt time.Time              `bun:"assignment_updated_at"`
+}
+
+func UpdateTaskToDistributing(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	expectedUpdatedAt time.Time,
+	packagingFeeCents int32,
+	now time.Time,
+) error {
+	res, err := db.NewUpdate().
+		Model((*model.ErrandTask)(nil)).
+		Set("status = ?", model.ErrandTaskStatusDistributing).
+		Set("packaging_fee_cents = ?", packagingFeeCents).
+		Set("updated_at = ?", now).
+		Where("id = ?", taskID).
+		Where("status = ?", model.ErrandTaskStatusPendingDistributing).
+		Where("updated_at = ?", expectedUpdatedAt).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func UpdateTaskRelatedDemandsToDistributing(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemand)(nil)).
+		Set("status = ?", model.ErrandDemandStatusDistributing).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT DISTINCT edi.errand_demand_id
+			FROM errand.errand_task_assignment AS eta
+			JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status = ?", model.ErrandDemandStatusPendingDistributing).
+		Exec(ctx)
+	return err
+}
+
+func UpdateTaskRelatedDemandItemsToDistributing(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandDemandItemStatusDistributing).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT eta.demand_item_id
+			FROM errand.errand_task_assignment AS eta
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status = ?", model.ErrandDemandItemStatusPendingDistributing).
+		Exec(ctx)
+	return err
+}
+
+func GetDistributingTaskAssignmentForUpdate(
+	ctx context.Context,
+	db bun.IDB,
+	taskItemID, assignmentID, captainID int64,
+) (*DistributingTaskAssignmentForUpdateRow, error) {
+	var row DistributingTaskAssignmentForUpdateRow
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_assignment AS eta").
+		Join("JOIN errand.errand_task_item AS eti ON eti.id = eta.task_item_id AND eti.task_id = eta.task_id").
+		Join("JOIN errand.errand_task AS et ON et.id = eta.task_id").
+		Join("JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id").
+		ColumnExpr("et.id AS task_id").
+		ColumnExpr("et.status AS task_status").
+		ColumnExpr("eti.id AS task_item_id").
+		ColumnExpr("eta.id AS assignment_id").
+		ColumnExpr("eti.purchased_quantity AS purchased_quantity").
+		ColumnExpr("edi.quantity AS demand_quantity").
+		ColumnExpr("eta.distributed_quantity AS distributed_quantity").
+		ColumnExpr("eta.updated_at AS assignment_updated_at").
+		Where("eti.id = ?", taskItemID).
+		Where("eta.id = ?", assignmentID).
+		Where("et.captain_id = ?", captainID).
+		Limit(1).
+		For("UPDATE").
+		Scan(ctx, &row)
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+func SumTaskItemDistributedQuantity(ctx context.Context, db bun.IDB, taskItemID int64) (int64, error) {
+	var row struct {
+		TotalDistributed int64 `bun:"total_distributed"`
+	}
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_assignment AS eta").
+		ColumnExpr("COALESCE(SUM(eta.distributed_quantity), 0) AS total_distributed").
+		Where("eta.task_item_id = ?", taskItemID).
+		Scan(ctx, &row)
+	return row.TotalDistributed, err
+}
+
+func UpdateDistributingTaskAssignment(
+	ctx context.Context,
+	db bun.IDB,
+	assignmentID int64,
+	expectedUpdatedAt time.Time,
+	distributedQuantity int32,
+	now time.Time,
+) error {
+	res, err := db.NewUpdate().
+		Model((*model.ErrandTaskAssignment)(nil)).
+		Set("distributed_quantity = ?", distributedQuantity).
+		Set("updated_at = ?", now).
+		Where("id = ?", assignmentID).
 		Where("updated_at = ?", expectedUpdatedAt).
 		Exec(ctx)
 	if err != nil {

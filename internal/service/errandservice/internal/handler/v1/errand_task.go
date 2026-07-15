@@ -104,11 +104,32 @@ func (s *ErrandTaskServiceServer) UpdateActualPrice(
 	return connect.NewResponse(&errandv1.UpdateActualPriceResponse{}), nil
 }
 
+func (s *ErrandTaskServiceServer) TransitionToDistributing(
+	ctx context.Context,
+	r *connect.Request[errandv1.TransitionToDistributingRequest],
+) (*connect.Response[errandv1.TransitionToDistributingResponse], error) {
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := service.TransitionToDistributing(ctx, captainID, r.Msg); err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&errandv1.TransitionToDistributingResponse{}), nil
+}
+
 func (s *ErrandTaskServiceServer) SaveDistributingTaskAssignment(
 	ctx context.Context,
 	r *connect.Request[errandv1.SaveDistributingTaskAssignmentRequest],
 ) (*connect.Response[errandv1.SaveDistributingTaskAssignmentResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := service.SaveDistributingTaskAssignment(ctx, captainID, r.Msg); err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&errandv1.SaveDistributingTaskAssignmentResponse{}), nil
 }
 
 func (s *ErrandTaskServiceServer) TransitionToCollectingPayment(
