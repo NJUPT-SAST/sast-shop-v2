@@ -51,14 +51,28 @@ func (s *ErrandTaskServiceServer) SaveShoppingTaskItem(
 	ctx context.Context,
 	r *connect.Request[errandv1.SaveShoppingTaskItemRequest],
 ) (*connect.Response[errandv1.SaveShoppingTaskItemResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := service.SaveShoppingTaskItem(ctx, captainID, r.Msg); err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&errandv1.SaveShoppingTaskItemResponse{}), nil
 }
 
 func (s *ErrandTaskServiceServer) TransitionToPendingDistributing(
 	ctx context.Context,
 	r *connect.Request[errandv1.TransitionToPendingDistributingRequest],
 ) (*connect.Response[errandv1.TransitionToPendingDistributingResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := service.TransitionToPendingDistributing(ctx, captainID, r.Msg); err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&errandv1.TransitionToPendingDistributingResponse{}), nil
 }
 
 func (s *ErrandTaskServiceServer) GetDistributingTaskDetail(

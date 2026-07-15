@@ -72,7 +72,7 @@ func LoadSelectedDemandItemsForUpdate(ctx context.Context, db bun.IDB, ids []int
 	rows := make([]SelectedDemandItemRow, 0, len(ids))
 	err := db.NewSelect().
 		TableExpr("errand.errand_demand_item as edi").
-		Join("join errand.errand_demand as ed on ed.id = edi.errand_demand_id").
+		Join("join errand.errand_demand as ed on ed.id = edi.errand_demand_id"). //内连接ed，一次查询即可获取需求项本身及其需求单的字段
 		ColumnExpr("edi.id AS demand_item_id").
 		ColumnExpr("edi.updated_at AS demand_item_updated_at").
 		ColumnExpr("edi.status AS demand_item_status").
@@ -85,14 +85,15 @@ func LoadSelectedDemandItemsForUpdate(ctx context.Context, db bun.IDB, ids []int
 		ColumnExpr("edi.service_fee_per_unit_cents AS service_fee_per_unit_cents").
 		ColumnExpr("ed.deadline AS deadline").
 		Where("edi.id IN (?)", bun.List(ids)).
-		OrderExpr("edi.id ASC").
-		For("update").
+		OrderExpr("edi.id ASC"). //按需求项升序排列
+		For("update"). //查询返回的每一行都会被锁定，直到当前事务repository.RunInTx提交或回滚
 		Scan(ctx, &rows)
 
 	return rows, err
 }
 
 func LoadProductSnapshots(ctx context.Context, db bun.IDB, ids []int64) (map[int64]ProductSnapshotRow, error) {
+	//前面productId没有校验过，可能为空（？
 	if len(ids) == 0 {
 		return map[int64]ProductSnapshotRow{}, nil
 	}
@@ -105,7 +106,7 @@ func LoadProductSnapshots(ctx context.Context, db bun.IDB, ids []int64) (map[int
 		ColumnExpr("cpt.title as title").
 		ColumnExpr("cpt.description as description").
 		ColumnExpr("cpt.store_id as store_id").
-		ColumnExpr(`
+		ColumnExpr(`  
 		coalesce(
 		(select cpi.image_url
 		from
@@ -116,7 +117,7 @@ func LoadProductSnapshots(ctx context.Context, db bun.IDB, ids []int64) (map[int
 		cpi.sort_order asc,cpi.id asc
 		limit 1),''
 		) as main_image_url
-	`).
+	`). //关联子查询，用于单条数据联表查询
 		Where("cpt.id IN (?)", bun.List(ids)).
 		Scan(ctx, &rows)
 	if err != nil {
@@ -131,7 +132,7 @@ func LoadProductSnapshots(ctx context.Context, db bun.IDB, ids []int64) (map[int
 
 func CreateTask(ctx context.Context, db bun.IDB, task *model.ErrandTask) error {
 	_, err := db.NewInsert().
-		Model(task).
+		Model(task). //使用Model(task)时，反射分析task的类型，自动生成表名，并插入task数据
 		Returning("id").
 		Exec(ctx)
 	return err
@@ -336,4 +337,90 @@ func UpdateShoppingTaskItem(
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+type ErrandTaskForUpdateRow struct {
+	TaskID    int64                  `bun:"task_id"`
+	CaptainID int64                  `bun:"captain_id"`
+	Status    model.ErrandTaskStatus `bun:"status"`
+	UpdatedAt time.Time              `bun:"updated_at"`
+}
+
+func GetErrandTaskForUpdate(ctx context.Context, db bun.IDB, taskID, captainID int64) (*ErrandTaskForUpdateRow, error) {
+	var row ErrandTaskForUpdateRow
+	err := db.NewSelect().
+		TableExpr("errand.errand_task as et").
+		ColumnExpr("et.id as task_id").
+		ColumnExpr("et.captain_id as captain_id").
+		ColumnExpr("et.status as status").
+		ColumnExpr("et.updated_at as updated_at").
+		Where("et.id = ?", taskID).
+		Where("et.captain_id = ?", captainID).
+		Limit(1).
+		For("update").
+		Scan(ctx, row)
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+type TaskItemHandlingSummaryRow struct {
+	TotalCount     int64 `bun:"total_count"`
+	UnhandledCount int64 `bun:"unhandled_count"`
+}
+
+func GetTaskItemHandlingSummary(ctx context.Context, db bun.IDB, taskID int64) (*TaskItemHandlingSummaryRow, error) {
+	var row TaskItemHandlingSummaryRow
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_id as eti").
+		ColumnExpr("count(*) as total_count").
+		ColumnExpr("count(*) filfer (where eti.purchased_quantity is null) as unhandled_count").
+		Where("eti.task_id = ?", taskID).
+		Scan(ctx, &row)
+	if err != nil {
+		return nil, err
+	}
+	return &row, err
+}
+
+func UpdateTaskToPendingDistributing(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	expectedUpdatedAt time.Time,
+	now time.Time,
+) error {
+	res, err := db.NewUpdate().
+		Model((*model.ErrandTask)(nil)).
+		Set("status = ?", model.ErrandTaskStatusPendingDistributing).
+		Set("shopping_conpleted_at = ? ", now).
+		Set("updated_at = ?", now).
+		Where("id = ?", taskID).
+		Where("status = ?", model.ErrandDemandStatusShopping).
+		Where("updated_at = ?", expectedUpdatedAt).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	// 乐观锁冲突/当前状态不是采购中/任务不存在
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func UpdateTaskRelatedDemandsToPendingDistributing(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandTaskStatusPendingDistributing).
+		Set("updated_at = ?", now).
+		Where("id in (select eta.demand_item_id from errand.errand_task_assigniment as eta where eta.task_id = ?)", taskID).
+		Where("status = ?", model.ErrandDemandStatusShopping).
+		Exec(ctx)
+	return err
 }

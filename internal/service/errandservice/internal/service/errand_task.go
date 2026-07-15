@@ -27,18 +27,18 @@ type taskItemGroupKey struct {
 	ProductTemplateID int64
 	Deadline          time.Time
 }
-
+//分组结果
 type taskItemGroup struct {
 	Snapshot         repository.ProductSnapshotRow
 	RequiredQuantity int32
 	Rows             []repository.SelectedDemandItemRow
 }
-
+//记录团长选中的需求
 type createTaskSelection struct {
 	SelectedUpdatedAt map[int64]time.Time
 	SelectedIDs       []int64
 }
-
+//数据加载结果
 type createTaskLoadResult struct {
 	Now        time.Time
 	Rows       []repository.SelectedDemandItemRow
@@ -47,11 +47,10 @@ type createTaskLoadResult struct {
 }
 
 var (
-	ErrInvalidDemandItem = errors.New("invalid demand item")
-
-	ErrConcurrencyConflict = errors.New("concurrency conflict")
-	ErrStoreMismatch       = errors.New("store mismatch")
-	ErrDemandItemNotOpen   = errors.New("demand item not open")
+	ErrInvalidDemandItem = errors.New("invalid demand item") //传参错误
+	ErrConcurrencyConflict = errors.New("concurrency conflict") //乐观锁冲突
+	ErrStoreMismatch       = errors.New("store mismatch") //所选需求项与门店不一致
+	ErrDemandItemNotOpen   = errors.New("demand item not open")  //任务已关闭
 )
 
 func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRequest) (int64, error) {
@@ -63,6 +62,7 @@ func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRe
 		return 0, ErrInvalidDemandItem
 	}
 
+	//解析请求
 	selection, err := buildCreateTaskSelection(req)
 	if err != nil {
 		return 0, err
@@ -70,26 +70,27 @@ func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRe
 
 	var taskID int64
 	err = repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		//根据店铺id和选项id加载数据
 		loaded, err := loadCreateTaskData(ctx, tx, req.StoreId, selection)
 		if err != nil {
 			return err
 		}
-
+		//创建任务，在errand_task表中插入新纪录
 		task, err := createShoppingTask(ctx, tx, captainID, req.StoreId)
 		if err != nil {
 			return err
 		}
 		taskID = task.ID
-
+		//按商品分组创建任务，统计不同需求相同商品的数量，关联产品快照
 		taskItemIDByDemandItemID, err := createGroupedTaskItems(ctx, tx, task.ID, loaded.Rows, loaded.Snapshots)
 		if err != nil {
 			return err
 		}
-
+		//创建任务分配，根据加载的数据在errand_task_assigniments表中插入数据
 		if err := createTaskAssignments(ctx, tx, task.ID, loaded.Rows, taskItemIDByDemandItemID); err != nil {
 			return err
 		}
-
+		//同步需求状态，标记已接单
 		if err := syncSelectedDemandStatus(ctx, tx, task.ID, loaded.Now, loaded.DemandRows); err != nil {
 			return err
 		}
@@ -132,6 +133,7 @@ func loadCreateTaskData(
 	storeID int64,
 	selection *createTaskSelection,
 ) (*createTaskLoadResult, error) {
+	//悲观锁查询task和task_item
 	rows, err := repository.LoadSelectedDemandItemsForUpdate(ctx, tx, selection.SelectedIDs)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to load selected demand items")
@@ -142,18 +144,19 @@ func loadCreateTaskData(
 	}
 
 	now := time.Now().UTC()
-	demandRows := make(map[int64][]repository.SelectedDemandItemRow)
-	productIDsSet := make(map[int64]struct{}, len(rows))
+	demandRows := make(map[int64][]repository.SelectedDemandItemRow) //按用户需求分组
+	productIDsSet := make(map[int64]struct{}, len(rows)) //收集商品id，去重后批量加载商品快照
 
 	for _, row := range rows {
+		//校验前端请求更新时间和店铺id 与数据库是否一致
 		if err := validateSelectedDemandItemRow(row, storeID, selection.SelectedUpdatedAt, now); err != nil {
 			return nil, err
 		}
 
 		demandRows[row.DemandID] = append(demandRows[row.DemandID], row)
-		productIDsSet[row.ProductTemplateID] = struct{}{}
+		productIDsSet[row.ProductTemplateID] = struct{}{} //map键具有唯一性，自动去重
 	}
-
+	//根据店铺id和商品id加载和校验商品快照
 	snapshots, err := loadValidatedSnapshots(ctx, tx, storeID, productIDsSet)
 	if err != nil {
 		return nil, err
@@ -196,6 +199,7 @@ func loadValidatedSnapshots(
 	productIDsSet map[int64]struct{},
 ) (map[int64]repository.ProductSnapshotRow, error) {
 	productIDs := make([]int64, 0, len(productIDsSet))
+	//遍历map所有的key
 	for id := range productIDsSet {
 		productIDs = append(productIDs, id)
 	}
@@ -599,4 +603,80 @@ func updateTaskItem(
 		return newErrandInternalError("")
 	}
 	return nil
+}
+
+func TransitionToPendingDistributing(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.TransitionToPendingDistributingRequest,
+) error {
+	if captainID <= 0 {
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+	}
+	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition"))
+	}
+	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
+	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		task, err := repository.GetErrandTaskForUpdate(ctx, tx, req.ErrandTaskId, captainID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return connect.NewError(connect.CodeNotFound, errors.New("shopping task not found"))
+			}
+			log.Error().
+				Err(err).
+				Int64("capatin_id", captainID).
+				Int64("errand_task_id", req.ErrandTaskId).
+				Msg("failde to load errand task for update")
+			return newErrandInternalError("")
+		}
+		if task.Status != model.ErrandTaskStatusShopping {
+			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
+		}
+		if !task.UpdatedAt.UTC().Equal(expectedUpdatedAt) {
+			return ErrConcurrencyConflict
+		}
+		summary, err := repository.GetTaskItemHandlingSummary(ctx, tx, req.ErrandTaskId)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Int64("errand_task_id", req.ErrandTaskId).
+				Msg("failde to load task for item handling summary")
+			return newErrandInternalError("")
+		}
+		if summary.TotalCount == 0 {
+			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task has no shopping items"))
+		}
+		if summary.UnhandledCount == 0 {
+			return connect.NewError(connect.CodeFailedPrecondition, errors.New("unhandled shopping items"))
+		}
+		now := time.Now().UTC()
+		if err := repository.UpdateTaskToPendingDistributing(
+			ctx,
+			tx,
+			req.ErrandTaskId,
+			expectedUpdatedAt,
+			now,
+		); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrConcurrencyConflict
+			}
+			log.Error().
+				Err(err).
+				Int64("errand_task_id", req.ErrandTaskId).
+				Msg("failed to load shopping task item")
+			return newErrandInternalError("")
+
+		}
+		if err := repository.UpdateTaskRelatedDemandsToPendingDistributing(ctx, tx, req.ErrandTaskId, now); err != nil {
+			log.Error().
+				Err(err).
+				Int64("errand_task_id", req.ErrandTaskId).
+				Msg("failed to load shopping task item")
+			return newErrandInternalError("")
+		}
+
+		// TODO: send notifications for fully-unpurchased or partially-purchased demand items here.
+		return nil
+	})
 }
