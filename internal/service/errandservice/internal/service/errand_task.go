@@ -12,6 +12,8 @@ import (
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
+	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
+	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/feishu"
@@ -524,6 +526,7 @@ func SaveShoppingTaskItem(ctx context.Context, captainID int64, req *errandv1.Sa
 	}
 	return executeSaveShoppingTask(ctx, captainID, req)
 }
+
 // 基础校验
 func ValidateSaveRequest(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
 	if captainID <= 0 {
@@ -1311,4 +1314,352 @@ func persistDistributingTaskAssignment(
 	}
 
 	return nil
+}
+
+func TransitionToCollectingPayment(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.TransitionToCollectingPaymentRequest,
+) error {
+	if captainID <= 0 {
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+	}
+	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition to collecting payment request"))
+	}
+
+	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
+	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		task, err := loadDistributingTaskForCollectingPayment(
+			ctx,
+			tx,
+			captainID,
+			req.ErrandTaskId,
+			expectedUpdatedAt,
+		)
+		if err != nil {
+			return err
+		}
+		if err := ensureTaskDistributionCompleted(ctx, tx, task.TaskID); err != nil {
+			return err
+		}
+
+		now := time.Now().UTC()
+		if err := repository.UpdateTaskToCollectingPayment(
+			ctx,
+			tx,
+			task.TaskID,
+			expectedUpdatedAt,
+			now,
+		); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrConcurrencyConflict
+			}
+			log.Error().
+				Err(err).
+				Int64("errand_task_id", task.TaskID).
+				Msg("failed to update task to collecting payment")
+			return newErrandInternalError("")
+		}
+		if err := repository.UpdateTaskRelatedDemandsToPendingPayment(ctx, tx, task.TaskID, now); err != nil {
+			log.Error().
+				Err(err).
+				Int64("errand_task_id", task.TaskID).
+				Msg("failed to update related demands to pending payment")
+			return newErrandInternalError("")
+		}
+		if err := repository.UpdateTaskRelatedDemandItemsToPendingPayment(ctx, tx, task.TaskID, now); err != nil {
+			log.Error().
+				Err(err).
+				Int64("errand_task_id", task.TaskID).
+				Msg("failed to update related demand items to pending payment")
+			return newErrandInternalError("")
+		}
+
+		return nil
+	})
+}
+
+func loadDistributingTaskForCollectingPayment(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID, taskID int64,
+	expectedUpdatedAt time.Time,
+) (*repository.ErrandTaskForUpdateRow, error) {
+	task, err := repository.GetErrandTaskForUpdate(ctx, tx, taskID, captainID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("distributing task not found"))
+		}
+		log.Error().
+			Err(err).
+			Int64("captain_id", captainID).
+			Int64("errand_task_id", taskID).
+			Msg("failed to load distributing task for collecting payment")
+		return nil, newErrandInternalError("")
+	}
+	if task.Status != model.ErrandTaskStatusDistributing {
+		return nil, connect.NewError(
+			connect.CodeFailedPrecondition,
+			errors.New("task is not in distributing status"),
+		)
+	}
+	if !task.UpdatedAt.UTC().Equal(expectedUpdatedAt) {
+		return nil, ErrConcurrencyConflict
+	}
+
+	return task, nil
+}
+
+func ensureTaskDistributionCompleted(ctx context.Context, tx bun.Tx, taskID int64) error {
+	summary, err := repository.GetTaskDistributionSummary(ctx, tx, taskID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", taskID).
+			Msg("failed to load task distribution summary")
+		return newErrandInternalError("")
+	}
+	if summary.TotalTaskItemCount == 0 {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task has no distributing items"))
+	}
+	if summary.UnhandledCount > 0 {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unhandled shopping items"))
+	}
+	if summary.UnpricedCount > 0 {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unpriced distributing items"))
+	}
+	if summary.IncompleteCount > 0 {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("incomplete distributing items"))
+	}
+
+	return nil
+}
+
+func GetCollectingPaymentDetail(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.GetCollectingPaymentDetailRequest,
+) (*errandv1.GetCollectingPaymentDetailResponse, error) {
+	if captainID <= 0 {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+	}
+	if req == nil || req.ErrandTaskId <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
+	}
+
+	header, err := repository.GetCollectingPaymentTaskHeader(ctx, postgres.DB, req.ErrandTaskId, captainID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("collecting payment task not found"))
+		}
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", req.ErrandTaskId).
+			Int64("captain_id", captainID).
+			Msg("failed to load collecting payment task header")
+		return nil, newErrandInternalError("")
+	}
+	if header.Status != model.ErrandTaskStatusCollectingPayment {
+		return nil, connect.NewError(
+			connect.CodeFailedPrecondition,
+			errors.New("task is not in collecting payment status"),
+		)
+	}
+
+	rows, err := repository.ListCollectingPaymentDetails(ctx, postgres.DB, header.TaskID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", header.TaskID).
+			Msg("failed to load collecting payment details")
+		return nil, newErrandInternalError("")
+	}
+
+	return &errandv1.GetCollectingPaymentDetailResponse{
+		Bills: buildCollectingPaymentBills(header, rows),
+	}, nil
+}
+
+func buildCollectingPaymentBills(
+	header *repository.CollectingPaymentTaskHeaderRow,
+	rows []repository.CollectingPaymentDetailRow,
+) []*errandv1.CollectingPaymentBillDetail {
+	type billGroup struct {
+		rows    []repository.CollectingPaymentDetailRow
+		billRow *repository.CollectingPaymentDetailRow
+	}
+
+	groups := make(map[int64]*billGroup)
+	payerIDs := make([]int64, 0)
+	for i := range rows {
+		row := &rows[i]
+		group, ok := groups[row.PayerID]
+		if !ok {
+			group = &billGroup{}
+			groups[row.PayerID] = group
+			payerIDs = append(payerIDs, row.PayerID)
+		}
+		group.rows = append(group.rows, *row)
+		if group.billRow == nil && row.PaymentBillID != nil {
+			group.billRow = row
+		}
+	}
+
+	packagingShare := ceilDivide(header.PackagingFeeCents, int32(len(payerIDs)))
+	bills := make([]*errandv1.CollectingPaymentBillDetail, 0, len(payerIDs))
+	for _, payerID := range payerIDs {
+		group := groups[payerID]
+		items := make([]*errandv1.CollectingPaymentRequesterItemDetail, 0, len(group.rows))
+		var productAmountCents int64
+		var serviceFeeAmountCents int64
+		var packagingFeeShareCents int64
+
+		for i, row := range group.rows {
+			productAmount := int64(row.ActualUnitPriceCents) * int64(row.DistributedQuantity)
+			serviceFeeAmount := int64(row.ServiceFeePerUnitCents) * int64(row.DistributedQuantity)
+			itemPackagingShare := int64(0)
+			if i == 0 {
+				itemPackagingShare = int64(packagingShare)
+			}
+
+			productAmountCents += productAmount
+			serviceFeeAmountCents += serviceFeeAmount
+			packagingFeeShareCents += itemPackagingShare
+
+			item := &errandv1.CollectingPaymentRequesterItemDetail{
+				ErrandDemandItemId:     row.DemandItemID,
+				TitleSnapshot:          row.TitleSnapshot,
+				RequiredQuantity:       row.RequiredQuantity,
+				PurchasedQuantity:      row.PurchasedQuantity,
+				DistributedQuantity:    row.DistributedQuantity,
+				ActualUnitPriceCents:   row.ActualUnitPriceCents,
+				ProductAmountCents:     int32(productAmount),
+				ServiceFeePerUnitCents: row.ServiceFeePerUnitCents,
+				ServiceFeeAmountCents:  int32(serviceFeeAmount),
+				PackagingFeeShareCents: int32(itemPackagingShare),
+				SubtotalCents:          int32(productAmount + serviceFeeAmount + itemPackagingShare),
+			}
+			if row.NonPurchaseReason != "" {
+				reason := row.NonPurchaseReason
+				item.NonPurchaseReason = &reason
+			}
+			items = append(items, item)
+		}
+
+		billDetail := &errandv1.CollectingPaymentBillDetail{
+			RequesterId:            payerID,
+			RequesterName:          group.rows[0].PayerName,
+			RequesterAvatarUrl:     group.rows[0].PayerAvatarURL,
+			PaymentStatus:          paymentv1.BillStatus_BILL_STATUS_UNSPECIFIED,
+			Items:                  items,
+			ProductAmountCents:     int32(productAmountCents),
+			ServiceFeeAmountCents:  int32(serviceFeeAmountCents),
+			PackagingFeeShareCents: int32(packagingFeeShareCents),
+			TotalAmountCents:       int32(productAmountCents + serviceFeeAmountCents + packagingFeeShareCents),
+		}
+		if group.billRow != nil {
+			billDetail.PaymentStatus = collectingPaymentBillStatusToProto(group.billRow.BillStatus)
+			billDetail.Bill = collectingPaymentBillToProto(group.billRow)
+		}
+		bills = append(bills, billDetail)
+	}
+
+	return bills
+}
+
+func ceilDivide(value, divisor int32) int32 {
+	if value <= 0 || divisor <= 0 {
+		return 0
+	}
+	return (value + divisor - 1) / divisor
+}
+
+func collectingPaymentBillStatusToProto(status string) paymentv1.BillStatus {
+	switch status {
+	case "unpaid":
+		return paymentv1.BillStatus_BILL_STATUS_UNPAID
+	case "submitted":
+		return paymentv1.BillStatus_BILL_STATUS_SUBMITTED
+	case "completed":
+		return paymentv1.BillStatus_BILL_STATUS_COMPLETED
+	case "closed":
+		return paymentv1.BillStatus_BILL_STATUS_CLOSED
+	default:
+		return paymentv1.BillStatus_BILL_STATUS_UNSPECIFIED
+	}
+}
+
+func collectingPaymentChannelToProto(channel string) paymentv1.Channel {
+	switch channel {
+	case "wechat":
+		return paymentv1.Channel_CHANNEL_WECHAT
+	case "alipay":
+		return paymentv1.Channel_CHANNEL_ALIPAY
+	default:
+		return paymentv1.Channel_CHANNEL_UNSPECIFIED
+	}
+}
+
+func collectingPaymentBillToProto(row *repository.CollectingPaymentDetailRow) *paymentv1.Bill {
+	if row == nil || row.PaymentBillID == nil {
+		return nil
+	}
+
+	bill := &paymentv1.Bill{
+		Id:     *row.PaymentBillID,
+		BillNo: row.BillNo,
+		Payer: &userv1.UserInfo{
+			Id:        row.PayerID,
+			Name:      row.PayerName,
+			AvatarUrl: row.PayerAvatarURL,
+		},
+		Payee: &userv1.UserInfo{
+			Id:        row.PayeeID,
+			Name:      row.PayeeName,
+			AvatarUrl: row.PayeeAvatarURL,
+		},
+		Status:     collectingPaymentBillStatusToProto(row.BillStatus),
+		VerifyCode: row.VerifyCode,
+		Channel:    collectingPaymentChannelToProto(stringValue(row.PaymentChannel)),
+		CreatedAt:  timestamppb.New(timeValue(row.BillCreatedAt)),
+		UpdatedAt:  timestamppb.New(timeValue(row.BillUpdatedAt)),
+	}
+	if row.BillAmountCents != nil {
+		bill.AmountCents = *row.BillAmountCents
+	}
+	if row.SerialNumber != nil && *row.SerialNumber != "" {
+		bill.SerialNumber = row.SerialNumber
+	}
+	if row.SubmittedAt != nil {
+		bill.SubmittedAt = timestamppb.New(*row.SubmittedAt)
+	}
+	if row.CompletedAt != nil {
+		bill.CompletedAt = timestamppb.New(*row.CompletedAt)
+	}
+	if row.ClosedAt != nil {
+		bill.ClosedAt = timestamppb.New(*row.ClosedAt)
+	}
+	if row.SourceType != nil {
+		bill.SourceType = row.SourceType
+	}
+	if row.SourceID != nil {
+		bill.SourceId = row.SourceID
+	}
+
+	return bill
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func timeValue(value *time.Time) time.Time {
+	if value == nil {
+		return time.Time{}
+	}
+	return *value
 }

@@ -136,14 +136,29 @@ func (s *ErrandTaskServiceServer) TransitionToCollectingPayment(
 	ctx context.Context,
 	r *connect.Request[errandv1.TransitionToCollectingPaymentRequest],
 ) (*connect.Response[errandv1.TransitionToCollectingPaymentResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := service.TransitionToCollectingPayment(ctx, captainID, r.Msg); err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&errandv1.TransitionToCollectingPaymentResponse{}), nil
 }
 
 func (s *ErrandTaskServiceServer) GetCollectingPaymentDetail(
 	ctx context.Context,
 	r *connect.Request[errandv1.GetCollectingPaymentDetailRequest],
 ) (*connect.Response[errandv1.GetCollectingPaymentDetailResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := service.GetCollectingPaymentDetail(ctx, captainID, r.Msg)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(resp), nil
 }
 
 func (s *ErrandTaskServiceServer) TransitionToCompleted(

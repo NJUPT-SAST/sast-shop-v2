@@ -754,3 +754,220 @@ func UpdateDistributingTaskAssignment(
 	}
 	return nil
 }
+
+type TaskDistributionSummaryRow struct {
+	TotalTaskItemCount int64 `bun:"total_task_item_count"`
+	UnhandledCount     int64 `bun:"unhandled_count"`
+	UnpricedCount      int64 `bun:"unpriced_count"`
+	IncompleteCount    int64 `bun:"incomplete_count"`
+}
+
+func GetTaskDistributionSummary(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+) (*TaskDistributionSummaryRow, error) {
+	var row TaskDistributionSummaryRow
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_item AS eti").
+		Join(`LEFT JOIN (
+			SELECT task_item_id, COALESCE(SUM(distributed_quantity), 0) AS distributed_quantity
+			FROM errand.errand_task_assignment
+			WHERE task_id = ?
+			GROUP BY task_item_id
+		) AS distribution ON distribution.task_item_id = eti.id`, taskID).
+		ColumnExpr("COUNT(*) AS total_task_item_count").
+		ColumnExpr("COUNT(*) FILTER (WHERE eti.purchased_quantity IS NULL) AS unhandled_count").
+		ColumnExpr("COUNT(*) FILTER (WHERE eti.actual_unit_price_cents IS NULL) AS unpriced_count").
+		ColumnExpr(`
+			COUNT(*) FILTER (
+				WHERE eti.purchased_quantity IS NOT NULL
+				AND COALESCE(distribution.distributed_quantity, 0) <> eti.purchased_quantity
+			) AS incomplete_count
+		`).
+		Where("eti.task_id = ?", taskID).
+		Scan(ctx, &row)
+	return &row, err
+}
+
+func UpdateTaskToCollectingPayment(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	expectedUpdatedAt time.Time,
+	now time.Time,
+) error {
+	res, err := db.NewUpdate().
+		Model((*model.ErrandTask)(nil)).
+		Set("status = ?", model.ErrandTaskStatusCollectingPayment).
+		Set("distribution_completed_at = ?", now).
+		Set("updated_at = ?", now).
+		Where("id = ?", taskID).
+		Where("status = ?", model.ErrandTaskStatusDistributing).
+		Where("updated_at = ?", expectedUpdatedAt).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func UpdateTaskRelatedDemandsToPendingPayment(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	now time.Time,
+) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemand)(nil)).
+		Set("status = ?", model.ErrandDemandStatusPendingPayment).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT DISTINCT edi.errand_demand_id
+			FROM errand.errand_task_assignment AS eta
+			JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status = ?", model.ErrandDemandStatusDistributing).
+		Exec(ctx)
+	return err
+}
+
+func UpdateTaskRelatedDemandItemsToPendingPayment(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	now time.Time,
+) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandDemandItemStatusPendingPayment).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT eta.demand_item_id
+			FROM errand.errand_task_assignment AS eta
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status = ?", model.ErrandDemandItemStatusDistributing).
+		Exec(ctx)
+	return err
+}
+
+type CollectingPaymentTaskHeaderRow struct {
+	TaskID            int64                  `bun:"task_id"`
+	CaptainID         int64                  `bun:"captain_id"`
+	CaptainName       string                 `bun:"captain_name"`
+	CaptainAvatarURL  string                 `bun:"captain_avatar_url"`
+	PackagingFeeCents int32                  `bun:"packaging_fee_cents"`
+	Status            model.ErrandTaskStatus `bun:"status"`
+}
+
+func GetCollectingPaymentTaskHeader(
+	ctx context.Context,
+	db bun.IDB,
+	taskID, captainID int64,
+) (*CollectingPaymentTaskHeaderRow, error) {
+	var row CollectingPaymentTaskHeaderRow
+	err := db.NewSelect().
+		TableExpr("errand.errand_task AS et").
+		Join(`LEFT JOIN "user".user_account AS ua ON ua.id = et.captain_id`).
+		ColumnExpr("et.id AS task_id").
+		ColumnExpr("et.captain_id AS captain_id").
+		ColumnExpr("COALESCE(ua.display_name, '') AS captain_name").
+		ColumnExpr("COALESCE(ua.avatar_url, '') AS captain_avatar_url").
+		ColumnExpr("et.packaging_fee_cents AS packaging_fee_cents").
+		ColumnExpr("et.status AS status").
+		Where("et.id = ?", taskID).
+		Where("et.captain_id = ?", captainID).
+		Limit(1).
+		Scan(ctx, &row)
+	return &row, err
+}
+
+type CollectingPaymentDetailRow struct {
+	TaskItemID             int64      `bun:"task_item_id"`
+	DemandItemID           int64      `bun:"demand_item_id"`
+	PayerID                int64      `bun:"payer_id"`
+	PayerName              string     `bun:"payer_name"`
+	PayerAvatarURL         string     `bun:"payer_avatar_url"`
+	PayeeID                int64      `bun:"payee_id"`
+	PayeeName              string     `bun:"payee_name"`
+	PayeeAvatarURL         string     `bun:"payee_avatar_url"`
+	TitleSnapshot          string     `bun:"title_snapshot"`
+	RequiredQuantity       int32      `bun:"required_quantity"`
+	PurchasedQuantity      int32      `bun:"purchased_quantity"`
+	DistributedQuantity    int32      `bun:"distributed_quantity"`
+	ActualUnitPriceCents   int32      `bun:"actual_unit_price_cents"`
+	ServiceFeePerUnitCents int32      `bun:"service_fee_per_unit_cents"`
+	NonPurchaseReason      string     `bun:"non_purchase_reason"`
+	PaymentBillID          *int64     `bun:"payment_bill_id"`
+	BillNo                 string     `bun:"bill_no"`
+	BillStatus             string     `bun:"bill_status"`
+	BillAmountCents        *int32     `bun:"bill_amount_cents"`
+	VerifyCode             string     `bun:"verify_code"`
+	PaymentChannel         *string    `bun:"payment_channel"`
+	SerialNumber           *string    `bun:"serial_number"`
+	SubmittedAt            *time.Time `bun:"submitted_at"`
+	CompletedAt            *time.Time `bun:"completed_at"`
+	ClosedAt               *time.Time `bun:"closed_at"`
+	BillCreatedAt          *time.Time `bun:"bill_created_at"`
+	BillUpdatedAt          *time.Time `bun:"bill_updated_at"`
+	SourceType             *string    `bun:"source_type"`
+	SourceID               *int64     `bun:"source_id"`
+}
+
+func ListCollectingPaymentDetails(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+) ([]CollectingPaymentDetailRow, error) {
+	rows := make([]CollectingPaymentDetailRow, 0)
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_item AS eti").
+		Join("JOIN errand.errand_task_assignment AS eta ON eta.task_item_id = eti.id AND eta.task_id = eti.task_id").
+		Join("JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id").
+		Join("JOIN errand.errand_task AS et ON et.id = eti.task_id").
+		Join(`LEFT JOIN "user".user_account AS payer ON payer.id = eta.purchaser_id`).
+		Join(`LEFT JOIN "user".user_account AS payee ON payee.id = et.captain_id`).
+		Join("LEFT JOIN payment.payment_bill AS pb ON pb.id = eta.payment_bill_id").
+		ColumnExpr("eti.id AS task_item_id").
+		ColumnExpr("edi.id AS demand_item_id").
+		ColumnExpr("eta.purchaser_id AS payer_id").
+		ColumnExpr("COALESCE(payer.display_name, '') AS payer_name").
+		ColumnExpr("COALESCE(payer.avatar_url, '') AS payer_avatar_url").
+		ColumnExpr("et.captain_id AS payee_id").
+		ColumnExpr("COALESCE(payee.display_name, '') AS payee_name").
+		ColumnExpr("COALESCE(payee.avatar_url, '') AS payee_avatar_url").
+		ColumnExpr("eti.title_snapshot AS title_snapshot").
+		ColumnExpr("edi.quantity AS required_quantity").
+		ColumnExpr("COALESCE(eti.purchased_quantity, 0) AS purchased_quantity").
+		ColumnExpr("eta.distributed_quantity AS distributed_quantity").
+		ColumnExpr("COALESCE(eti.actual_unit_price_cents, 0) AS actual_unit_price_cents").
+		ColumnExpr("eta.service_fee_per_unit_cents AS service_fee_per_unit_cents").
+		ColumnExpr("eti.non_purchase_reason AS non_purchase_reason").
+		ColumnExpr("eta.payment_bill_id AS payment_bill_id").
+		ColumnExpr("COALESCE(pb.bill_no, '') AS bill_no").
+		ColumnExpr("COALESCE(pb.status::text, '') AS bill_status").
+		ColumnExpr("pb.amount_cents AS bill_amount_cents").
+		ColumnExpr("COALESCE(pb.verify_code, '') AS verify_code").
+		ColumnExpr("pb.channel::text AS payment_channel").
+		ColumnExpr("pb.serial_number AS serial_number").
+		ColumnExpr("pb.submitted_at AS submitted_at").
+		ColumnExpr("pb.completed_at AS completed_at").
+		ColumnExpr("pb.closed_at AS closed_at").
+		ColumnExpr("pb.created_at AS bill_created_at").
+		ColumnExpr("pb.updated_at AS bill_updated_at").
+		ColumnExpr("pb.source_type AS source_type").
+		ColumnExpr("pb.source_id AS source_id").
+		Where("eti.task_id = ?", taskID).
+		OrderExpr("eti.deadline ASC, eti.id ASC, eta.id ASC").
+		Scan(ctx, &rows)
+	return rows, err
+}
