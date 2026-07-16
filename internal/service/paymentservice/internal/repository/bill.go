@@ -18,7 +18,7 @@ func GetBillByID(ctx context.Context, billID int64) (*model.PaymentBill, error) 
 }
 
 func CreateBill(ctx context.Context, bill *model.PaymentBill) error {
-	_, err := postgres.DB.NewInsert().Model(bill).Exec(ctx)
+	_, err := postgres.DB.NewInsert().Model(bill).Returning("*").Exec(ctx)
 	return err
 }
 
@@ -42,16 +42,17 @@ func GetBillBySource(
 	return &bill, nil
 }
 
+// UpdateBillStatus 更新账单状态，返回写入 DB 的精确 updated_at 供调用方同步内存对象。
 func UpdateBillStatus(ctx context.Context,
 	billID int64,
 	expectedUpdatedAt time.Time,
 	newStatus model.PaymentBillStatus,
 	extraUpdates map[string]any,
-) (int64, error) {
+) (time.Time, int64, error) {
 	if extraUpdates == nil {
 		extraUpdates = make(map[string]any)
 	}
-	// 防止调用方误传保留字段导致 SQL 中重复 SET / 或意外更新主键
+	// 防止调用方误传保留字段导致 SQL 中重复 SET
 	delete(extraUpdates, "id")
 	delete(extraUpdates, "status")
 	delete(extraUpdates, "updated_at")
@@ -65,13 +66,13 @@ func UpdateBillStatus(ctx context.Context,
 		Where("id = ? AND updated_at = ?", billID, expectedUpdatedAt).
 		Exec(ctx)
 	if err != nil {
-		return 0, err
+		return time.Time{}, 0, err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return 0, err
+		return time.Time{}, 0, err
 	}
-	return affected, nil
+	return now, affected, nil
 }
 
 func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) (int64, error) {
