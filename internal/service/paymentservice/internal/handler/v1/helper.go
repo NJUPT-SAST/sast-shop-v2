@@ -2,12 +2,14 @@ package v1
 
 import (
 	"errors"
+	"time"
 
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/service"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func paymentError() *connect.Error {
@@ -65,4 +67,12 @@ func mapServiceError(err error) *connect.Error {
 	default:
 		return paymentError()
 	}
+}
+
+// requireUpdatedAt 提取 UpdatedAt，为 nil 时返回错误避免 panic。
+func requireUpdatedAt(ts *timestamppb.Timestamp) (time.Time, *connect.Error) {
+	if ts == nil {
+		return time.Time{}, paymentError()
+	}
+	return ts.AsTime(), nil
 }

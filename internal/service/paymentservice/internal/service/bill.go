@@ -33,7 +33,7 @@ func CreateBill(
 	sourceId *int64,
 ) (*paymentv1.Bill, error) {
 	if payerId == payeeId {
-		return nil, fmt.Errorf("create bill: payer and payee cannot be the same user")
+		return nil, ErrInvalidBillStatus
 	}
 
 	bill := &model.PaymentBill{
@@ -90,15 +90,15 @@ func PayBill(
 		return nil, ErrInvalidChannel
 	}
 
-	now := time.Now()
-	affected, err := repository.UpdateBillStatus(
+	submittedAt := time.Now()
+	updatedAt, affected, err := repository.UpdateBillStatus(
 		ctx,
 		billId,
 		expectedUpdatedAt,
 		model.PaymentBillStatusSubmitted,
 		map[string]any{
 			"channel":      ch,
-			"submitted_at": now,
+			"submitted_at": submittedAt,
 		},
 	)
 	if err != nil {
@@ -111,8 +111,8 @@ func PayBill(
 
 	bill.Status = model.PaymentBillStatusSubmitted
 	bill.Channel = &ch
-	bill.SubmittedAt = &now
-	bill.UpdatedAt = now
+	bill.SubmittedAt = &submittedAt
+	bill.UpdatedAt = updatedAt
 
 	return PaymentBillToProto(ctx, bill)
 }
@@ -131,14 +131,14 @@ func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time)
 		return nil, ErrInvalidBillStatus
 	}
 
-	now := time.Now()
-	affected, err := repository.UpdateBillStatus(
+	completedAt := time.Now()
+	updatedAt, affected, err := repository.UpdateBillStatus(
 		ctx,
 		billId,
 		expectedUpdatedAt,
 		model.PaymentBillStatusCompleted,
 		map[string]any{
-			"completed_at": now,
+			"completed_at": completedAt,
 		},
 	)
 	if err != nil {
@@ -150,8 +150,8 @@ func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time)
 	}
 
 	bill.Status = model.PaymentBillStatusCompleted
-	bill.CompletedAt = &now
-	bill.UpdatedAt = now
+	bill.CompletedAt = &completedAt
+	bill.UpdatedAt = updatedAt
 
 	return PaymentBillToProto(ctx, bill)
 }
@@ -187,9 +187,7 @@ func TransitionBill(
 		return nil, ErrInvalidBillStatus
 	}
 
-	now := time.Now()
-
-	affected, err := repository.UpdateBillStatus(ctx, billId, expectedUpdatedAt, newStatus, map[string]any{
+	updatedAt, affected, err := repository.UpdateBillStatus(ctx, billId, expectedUpdatedAt, newStatus, map[string]any{
 		"submitted_at": nil,
 		"channel":      nil,
 	})
@@ -213,7 +211,7 @@ func TransitionBill(
 
 	bill.Status = newStatus
 	bill.Channel = nil
-	bill.UpdatedAt = now
+	bill.UpdatedAt = updatedAt
 	bill.SubmittedAt = nil
 
 	return PaymentBillToProto(ctx, bill)
@@ -238,7 +236,7 @@ func SupplementSerialNumber(
 		return nil, ErrInvalidBillStatus
 	}
 
-	affected, err := repository.UpdateBillStatus(ctx, billId, expectedUpdatedAt, bill.Status, map[string]any{
+	updatedAt, affected, err := repository.UpdateBillStatus(ctx, billId, expectedUpdatedAt, bill.Status, map[string]any{
 		"serial_number": serialNumber,
 	})
 	if err != nil {
@@ -250,7 +248,7 @@ func SupplementSerialNumber(
 	}
 
 	bill.SerialNumber = serialNumber
-	bill.UpdatedAt = time.Now()
+	bill.UpdatedAt = updatedAt
 
 	return PaymentBillToProto(ctx, bill)
 }

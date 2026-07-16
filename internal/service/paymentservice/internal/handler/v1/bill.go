@@ -40,7 +40,11 @@ func (s *BillServiceServer) PayBill(
 	ctx context.Context,
 	r *connect.Request[paymentv1.PayBillRequest],
 ) (*connect.Response[paymentv1.PayBillResponse], error) {
-	bill, err := service.PayBill(ctx, r.Msg.BillId, r.Msg.Channel, r.Msg.UpdatedAt.AsTime())
+	updatedAt, connErr := requireUpdatedAt(r.Msg.UpdatedAt)
+	if connErr != nil {
+		return nil, connErr
+	}
+	bill, err := service.PayBill(ctx, r.Msg.BillId, r.Msg.Channel, updatedAt)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}
@@ -53,7 +57,11 @@ func (s *BillServiceServer) ConfirmBill(
 	ctx context.Context,
 	r *connect.Request[paymentv1.ConfirmBillRequest],
 ) (*connect.Response[paymentv1.ConfirmBillResponse], error) {
-	bill, err := service.ConfirmBill(ctx, r.Msg.BillId, r.Msg.UpdatedAt.AsTime())
+	updatedAt, connErr := requireUpdatedAt(r.Msg.UpdatedAt)
+	if connErr != nil {
+		return nil, connErr
+	}
+	bill, err := service.ConfirmBill(ctx, r.Msg.BillId, updatedAt)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}
@@ -85,11 +93,16 @@ func (s *BillServiceServer) TransitionBill(
 		return nil, paymentError()
 	}
 
+	updatedAt, connErr := requireUpdatedAt(r.Msg.UpdatedAt)
+	if connErr != nil {
+		return nil, connErr
+	}
+
 	bill, err := service.TransitionBill(
 		ctx,
 		r.Msg.BillId,
 		r.Msg.TargetStatus,
-		r.Msg.UpdatedAt.AsTime(),
+		updatedAt,
 		authUser.UserID,
 	)
 	if err != nil {
@@ -104,7 +117,11 @@ func (s *BillServiceServer) SupplementSerialNumber(
 	ctx context.Context,
 	r *connect.Request[paymentv1.SupplementSerialNumberRequest],
 ) (*connect.Response[paymentv1.SupplementSerialNumberResponse], error) {
-	bill, err := service.SupplementSerialNumber(ctx, r.Msg.BillId, r.Msg.SerialNumber, r.Msg.UpdatedAt.AsTime())
+	updatedAt, connErr := requireUpdatedAt(r.Msg.UpdatedAt)
+	if connErr != nil {
+		return nil, connErr
+	}
+	bill, err := service.SupplementSerialNumber(ctx, r.Msg.BillId, r.Msg.SerialNumber, updatedAt)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}
