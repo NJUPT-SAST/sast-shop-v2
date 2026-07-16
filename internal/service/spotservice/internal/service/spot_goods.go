@@ -47,9 +47,12 @@ func GetSpotGoodLength(ctx context.Context, storeID int64) (int32, error) {
 		}, "")
 	}
 	if count > math.MaxInt32 || count < 0 {
-		log.Warn().
-			Msgf("Spot goods count exceeds int32 limit for storeID: %d, returning -1 to indicate overflow", storeID)
-		return -1, nil
+		log.Error().Msgf("Spot goods count out of int32 range for storeID: %d (count=%d)", storeID, count)
+		return 0, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "spot goods count out of range")
 	}
 	return int32(count), nil
 }
@@ -148,7 +151,7 @@ func UpdateSpotGoodsStock(
 			SpotError: &spotv1.SpotError{
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
-		}, "")
+		}, "optimistic lock conflict")
 	}
 	return nil
 }
@@ -208,7 +211,7 @@ func UpdateSpotGoodsPrice(
 			SpotError: &spotv1.SpotError{
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
-		}, "")
+		}, "optimistic lock conflict")
 	}
 	return nil
 }

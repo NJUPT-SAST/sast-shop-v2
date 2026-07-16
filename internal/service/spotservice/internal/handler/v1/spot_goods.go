@@ -23,28 +23,28 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 	ctx context.Context,
 	r *connect.Request[spotv1.ListSpotGoodsRequest],
 ) (*connect.Response[spotv1.ListSpotGoodsResponse], error) {
+	if r.Msg.Page < 1 || r.Msg.PageSize <= 0 {
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR},
+		}, "invalid pagination parameters")
+	}
+	offset := int((r.Msg.Page - 1) * r.Msg.PageSize)
+	limit := int(r.Msg.PageSize)
+
 	spotGoodsBrief, err := service.ListSpotGoods(
 		ctx,
 		r.Msg.StoreId,
-		int((r.Msg.Page-1)*r.Msg.PageSize),
-		int(r.Msg.PageSize),
+		offset,
+		limit,
 	)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to list spot goods for storeID: %d", r.Msg.StoreId)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+		return nil, err
 	}
 	totalCount, err := service.GetSpotGoodLength(ctx, r.Msg.StoreId)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot goods length for storeID: %d", r.Msg.StoreId)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+		return nil, err
 	}
 	return connect.NewResponse(&spotv1.ListSpotGoodsResponse{
 		SpotGoodsList: spotGoodsBrief,
@@ -60,11 +60,7 @@ func (s *SpotGoodsServiceServer) GetSpotGoods(
 	detail, err := service.GetSpotGoods(ctx, r.Msg.SpotGoodsId)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d", r.Msg.SpotGoodsId)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+		return nil, err
 	}
 	return connect.NewResponse(&spotv1.GetSpotGoodsResponse{
 		SpotGoodsDetail: detail,

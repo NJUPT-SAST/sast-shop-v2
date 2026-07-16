@@ -46,10 +46,7 @@ func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGood
 }
 
 func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) error {
-	if goods == nil {
-		return nil
-	}
-	err := postgres.DB.NewInsert().Model(goods).Scan(ctx)
+	_, err := postgres.DB.NewInsert().Model(goods).Returning("*").Exec(ctx)
 	return err
 }
 
@@ -59,6 +56,7 @@ func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int3
 		Set("stock_total = ?", newStockTotal).
 		Set("updated_at = ?", time.Now()).
 		Where("id = ?", goodsID).
+		Where("closed_at IS NULL").
 		Where("updated_at = ?", updatedAt).
 		Exec(ctx)
 	if err != nil {
@@ -82,6 +80,7 @@ func UpdateSpotGoodsPrice(
 		Set("sale_price_cents = ?", newSalePriceCents).
 		Set("updated_at = ?", time.Now()).
 		Where("id = ?", goodsID).
+		Where("closed_at IS NULL").
 		Where("updated_at = ?", updatedAt).
 		Exec(ctx)
 	if err != nil {
