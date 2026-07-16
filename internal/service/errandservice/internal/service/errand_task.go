@@ -74,23 +74,23 @@ func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRe
 
 	var taskID int64
 	err = repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		// 根据店铺id和选项id加载数据
+		// 根据店铺id和选项id加载数据:demand_row,从 catalog 读取商品模板
 		loaded, err := loadCreateTaskData(ctx, tx, req.StoreId, selection)
 		if err != nil {
 			return err
 		}
-		// 创建任务，在errand_task表中插入新纪录，task进入shopping状态
+		// 2. 创建 errand_task，状态为 shopping
 		task, err := createShoppingTask(ctx, tx, captainID, req.StoreId)
 		if err != nil {
 			return err
 		}
 		taskID = task.ID
-		// 按 product_template_id + deadline 聚合被选中的 demand_item，写入 errand_task_item
+		// 按 product_template_id + deadline 聚合被选中的 demand_item，写入 errand_task_item，此时从 catalog 读取商品模板，并固化 title_snapshot、image_url_snapshot 等任务快照字段
 		taskItemIDByDemandItemID, err := createGroupedTaskItems(ctx, tx, task.ID, loaded.Rows, loaded.Snapshots)
 		if err != nil {
 			return err
 		}
-		// 创建任务分配，根据加载的数据在errand_task_assigniments表中插入数据
+		// 2. 为每个 demand_item 写入 errand_task_assignment，并将 demand_item.status 更新为 shopping
 		if err := createTaskAssignments(ctx, tx, task.ID, loaded.Rows, taskItemIDByDemandItemID); err != nil {
 			return err
 		}
@@ -137,7 +137,7 @@ func loadCreateTaskData(
 	storeID int64,
 	selection *createTaskSelection,
 ) (*createTaskLoadResult, error) {
-	// 悲观锁查询task和task_item
+	// 锁定被选择的 demand_item
 	rows, err := repository.LoadSelectedDemandItemsForUpdate(ctx, tx, selection.SelectedIDs)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to load selected demand items")
@@ -152,7 +152,7 @@ func loadCreateTaskData(
 	productIDsSet := make(map[int64]struct{}, len(rows))             // 收集商品id，去重后批量加载商品快照
 
 	for _, row := range rows {
-		// 校验前端请求更新时间和店铺id 与数据库是否一致
+		// 校验其仍处于 open 状态，并基于 updated_at 做并发校验
 		if err := validateSelectedDemandItemRow(row, storeID, selection.SelectedUpdatedAt, now); err != nil {
 			return nil, err
 		}
@@ -242,7 +242,7 @@ func createShoppingTask(ctx context.Context, tx bun.Tx, captainID, storeID int64
 	return task, nil
 }
 
-// 将选中的商品按商品id和截止时间分组
+// 按 product_template_id + deadline 聚合被选中的 demand_item
 func buildTaskItemGroups(
 	rows []repository.SelectedDemandItemRow,
 	snapshots map[int64]repository.ProductSnapshotRow,
@@ -275,10 +275,12 @@ func createGroupedTaskItems(
 	rows []repository.SelectedDemandItemRow,
 	snapshots map[int64]repository.ProductSnapshotRow,
 ) (map[int64]int64, error) {
+	//按 product_template_id + deadline 聚合被选中的 demand_item
 	grouped := buildTaskItemGroups(rows, snapshots)
 	taskItemIDByDemandItemID := make(map[int64]int64, len(rows))
 
 	for key, group := range grouped {
+		//写入 errand_task_item
 		taskItem := &model.ErrandTaskItem{
 			TaskID:              taskID,
 			ProductTemplateID:   key.ProductTemplateID,
@@ -369,7 +371,7 @@ func syncSingleDemand(
 	}
 
 	selectedItemIDs := demandItemIDs(selectedRows)
-
+	// 如果团长选择了某个 demand 下的全部商品，原 demand 直接进入 shopping，并关联新 task
 	if totalCount == len(selectedRows) {
 		if err := repository.UpdateDemandToShopping(ctx, tx, demandID, taskID, now); err != nil {
 			log.Error().Err(err).Msg("failed to update full-selected demand")
@@ -382,7 +384,7 @@ func syncSingleDemand(
 
 		return nil
 	}
-
+	//如果团长只选择了部分商品，系统创建一个新的 demand，状态为 shopping,task_id 指向新 task
 	base := selectedRows[0]
 	taskIDCopy := taskID
 	demandIDCopy := demandID
@@ -395,7 +397,7 @@ func syncSingleDemand(
 		SplitFromDemandID: &demandIDCopy,
 		ShoppingStartAt:   &now,
 	}
-
+	//并将被选中的 demand_item 移入该新 demand；原 demand 仅保留未被选中的 demand_item，状态继续保持 open
 	if err := repository.CreateDemand(ctx, tx, splitDemand); err != nil {
 		log.Error().Err(err).Msg("failed to create split demand")
 		return newErrandInternalError("")
@@ -522,7 +524,7 @@ func SaveShoppingTaskItem(ctx context.Context, captainID int64, req *errandv1.Sa
 	}
 	return executeSaveShoppingTask(ctx, captainID, req)
 }
-
+// 基础校验
 func ValidateSaveRequest(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
 	if captainID <= 0 {
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
@@ -544,13 +546,14 @@ func executeSaveShoppingTask(ctx context.Context, captainID int64, req *errandv1
 		if row.TaskStatus != model.ErrandTaskStatusShopping {
 			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
 		}
+		// 基于 errand_task_item_updated_at 校验并发后
 		if !row.TaskItemUpdatedAt.UTC().Equal(expectedUpdatedAt) {
 			return ErrConcurrencyConflict
 		}
 		if req.PurchasedQuantity < 0 || req.PurchasedQuantity > row.RequiredQuantity {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid purchased quantity"))
 		}
-
+		//更新 purchased_quantity、non_purchase_reason、handled_at、updated_at
 		return updateTaskItem(ctx, tx, req, expectedUpdatedAt, captainID)
 	})
 }
@@ -561,6 +564,7 @@ func loadTaskItem(
 	req *errandv1.SaveShoppingTaskItemRequest,
 	captainID int64,
 ) (*repository.ShoppingTaskItemForUpdateRow, error) {
+	// 加载数据
 	row, err := repository.GetShoppingTaskItemForUpdate(ctx, tx, req.ErrandTaskId, req.ErrandTaskItemId, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -589,6 +593,7 @@ func updateTaskItem(
 		nonPurchaseReason = req.GetNonPurchaseReason()
 	}
 	now := time.Now().UTC()
+	//
 	if err := repository.UpdateShoppingTaskItem(
 		ctx,
 		tx,
