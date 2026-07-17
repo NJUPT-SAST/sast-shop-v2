@@ -53,6 +53,11 @@ func duplicateBillError() *connect.Error {
 }
 
 func mapServiceError(err error) *connect.Error {
+	var connErr *connect.Error
+	if errors.As(err, &connErr) {
+		return connErr
+	}
+
 	switch {
 	case errors.Is(err, service.ErrBillNotFound):
 		return billNotFoundError()

@@ -367,6 +367,24 @@ func GetErrandTaskForUpdate(ctx context.Context, db bun.IDB, taskID, captainID i
 	return &row, nil
 }
 
+func GetErrandTaskForUpdateByID(ctx context.Context, db bun.IDB, taskID int64) (*ErrandTaskForUpdateRow, error) {
+	var row ErrandTaskForUpdateRow
+	err := db.NewSelect().
+		TableExpr("errand.errand_task as et").
+		ColumnExpr("et.id as task_id").
+		ColumnExpr("et.captain_id as captain_id").
+		ColumnExpr("et.status as status").
+		ColumnExpr("et.updated_at as updated_at").
+		Where("et.id = ?", taskID).
+		Limit(1).
+		For("update").
+		Scan(ctx, &row)
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
 type TaskItemHandlingSummaryRow struct {
 	TotalCount     int64 `bun:"total_count"`
 	UnhandledCount int64 `bun:"unhandled_count"`
@@ -375,15 +393,16 @@ type TaskItemHandlingSummaryRow struct {
 func GetTaskItemHandlingSummary(ctx context.Context, db bun.IDB, taskID int64) (*TaskItemHandlingSummaryRow, error) {
 	var row TaskItemHandlingSummaryRow
 	err := db.NewSelect().
-		TableExpr("errand.errand_task_id as eti").
+		TableExpr("errand.errand_task_item as eti").
 		ColumnExpr("count(*) as total_count").
-		ColumnExpr("count(*) filfer (where eti.purchased_quantity is null) as unhandled_count").
+		//统计团长还没有处理和标记的商品
+		ColumnExpr("count(*) filter (where eti.purchased_quantity is null) as unhandled_count").
 		Where("eti.task_id = ?", taskID).
 		Scan(ctx, &row)
 	if err != nil {
 		return nil, err
 	}
-	return &row, err
+	return &row, nil
 }
 
 func UpdateTaskToPendingDistributing(
@@ -418,10 +437,12 @@ func UpdateTaskToPendingDistributing(
 
 func UpdateTaskRelatedDemandsToPendingDistributing(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
 	_, err := db.NewUpdate().
+		// 用空指针传入模型，让bun根据结构体标签推断表名
 		Model((*model.ErrandDemandItem)(nil)).
 		Set("status = ?", model.ErrandTaskStatusPendingDistributing).
 		Set("updated_at = ?", now).
-		Where("id in (select eta.demand_item_id from errand.errand_task_assigniment as eta where eta.task_id = ?)", taskID).
+		// 选择同一次跑腿任务下对应的所有demand_item_id,让demand_item表里的id等与这些
+		Where("id in (select eta.demand_item_id from errand.errand_task_assignment as eta where eta.task_id = ?)", taskID).
 		Where("status = ?", model.ErrandDemandStatusShopping).
 		Exec(ctx)
 	return err
@@ -439,7 +460,7 @@ type NonPurchasedDemandItemNotificationRow struct {
 	RequesterName     string `bun:"requester_name"`
 	RequesterOpenID   string `bun:"requester_open_id"`
 }
-
+//列出任务中未完成购买的需求项通知
 func ListNonPurchasedDemandItemNotifications(
 	ctx context.Context,
 	db bun.IDB,
@@ -578,12 +599,12 @@ func GetDistributingTaskItemForUpdate(
 	}
 	return &row, nil
 }
-
+// - INSERT errand_price_change_log：记录 old_unit_price_cents 和 new_unit_price_cents
 func CreatePriceChangeLog(ctx context.Context, db bun.IDB, priceChangeLog *model.ErrandPriceChangeLog) error {
 	_, err := db.NewInsert().Model(priceChangeLog).Exec(ctx)
 	return err
 }
-
+//- UPDATE errand_task_item.actual_unit_price_cents：基于 errand_task_item_updated_at 校验并发后更新实际采购单价
 func UpdateTaskItemActualPrice(
 	ctx context.Context,
 	db bun.IDB,
@@ -761,7 +782,7 @@ type TaskDistributionSummaryRow struct {
 	UnpricedCount      int64 `bun:"unpriced_count"`
 	IncompleteCount    int64 `bun:"incomplete_count"`
 }
-
+// 计算task在待收款 阶段前 的分配完成度
 func GetTaskDistributionSummary(
 	ctx context.Context,
 	db bun.IDB,
@@ -770,15 +791,21 @@ func GetTaskDistributionSummary(
 	var row TaskDistributionSummaryRow
 	err := db.NewSelect().
 		TableExpr("errand.errand_task_item AS eti").
+		// 左联子查询，从errand_task_assignment查询task_item_id和distributed_quantity，
+		// 对 distributed_quantity 求和，如果 SUM 结果是 NULL，返回 0；否则返回 SUM 值
 		Join(`LEFT JOIN (
 			SELECT task_item_id, COALESCE(SUM(distributed_quantity), 0) AS distributed_quantity
 			FROM errand.errand_task_assignment
 			WHERE task_id = ?
 			GROUP BY task_item_id
 		) AS distribution ON distribution.task_item_id = eti.id`, taskID).
+		// 查询task_item总数
 		ColumnExpr("COUNT(*) AS total_task_item_count").
+		// 查询未采购数 
 		ColumnExpr("COUNT(*) FILTER (WHERE eti.purchased_quantity IS NULL) AS unhandled_count").
+		// 查询未定价数
 		ColumnExpr("COUNT(*) FILTER (WHERE eti.actual_unit_price_cents IS NULL) AS unpriced_count").
+		// 查询分配未完成数 <> 不等于，查询已经采购的并且已分配数量不等于采购数量的
 		ColumnExpr(`
 			COUNT(*) FILTER (
 				WHERE eti.purchased_quantity IS NOT NULL
@@ -789,7 +816,7 @@ func GetTaskDistributionSummary(
 		Scan(ctx, &row)
 	return &row, err
 }
-
+// 更新task主表
 func UpdateTaskToCollectingPayment(
 	ctx context.Context,
 	db bun.IDB,
@@ -818,7 +845,7 @@ func UpdateTaskToCollectingPayment(
 	}
 	return nil
 }
-
+// 更新task对应的demand表状态
 func UpdateTaskRelatedDemandsToPendingPayment(
 	ctx context.Context,
 	db bun.IDB,
@@ -839,7 +866,7 @@ func UpdateTaskRelatedDemandsToPendingPayment(
 		Exec(ctx)
 	return err
 }
-
+// 更新task对应的demand_item表状态
 func UpdateTaskRelatedDemandItemsToPendingPayment(
 	ctx context.Context,
 	db bun.IDB,
@@ -970,4 +997,364 @@ func ListCollectingPaymentDetails(
 		OrderExpr("eti.deadline ASC, eti.id ASC, eta.id ASC").
 		Scan(ctx, &rows)
 	return rows, err
+}
+
+type TaskPaymentSummaryRow struct {
+	PayerCount          int64 `bun:"payer_count"`
+	IncompleteBillCount int64 `bun:"incomplete_bill_count"`
+}
+
+type TaskPaymentBillAssignmentRow struct {
+	AssignmentID           int64 `bun:"assignment_id"`
+	PayerID                int64 `bun:"payer_id"`
+	PayeeID                int64 `bun:"payee_id"`
+	ActualUnitPriceCents   int32 `bun:"actual_unit_price_cents"`
+	DistributedQuantity    int32 `bun:"distributed_quantity"`
+	ServiceFeePerUnitCents int32 `bun:"service_fee_per_unit_cents"`
+	PackagingFeeCents      int32 `bun:"packaging_fee_cents"`
+}
+
+func GetTaskPaymentSummary(ctx context.Context, db bun.IDB, taskID int64) (*TaskPaymentSummaryRow, error) {
+	var row TaskPaymentSummaryRow
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_assignment AS eta").
+		Join("LEFT JOIN payment.payment_bill AS pb ON pb.id = eta.payment_bill_id").
+		ColumnExpr("COUNT(DISTINCT eta.purchaser_id) AS payer_count").
+		ColumnExpr(`
+			COUNT(DISTINCT eta.purchaser_id) FILTER (
+				WHERE eta.payment_bill_id IS NULL OR COALESCE(pb.status::text, '') <> 'completed'
+			) AS incomplete_bill_count
+		`).
+		Where("eta.task_id = ?", taskID).
+		Scan(ctx, &row)
+	return &row, err
+}
+
+func ListTaskPaymentBillAssignments(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+) ([]TaskPaymentBillAssignmentRow, error) {
+	rows := make([]TaskPaymentBillAssignmentRow, 0)
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_assignment AS eta").
+		Join("JOIN errand.errand_task_item AS eti ON eti.id = eta.task_item_id AND eti.task_id = eta.task_id").
+		Join("JOIN errand.errand_task AS et ON et.id = eta.task_id").
+		ColumnExpr("eta.id AS assignment_id").
+		ColumnExpr("eta.purchaser_id AS payer_id").
+		ColumnExpr("et.captain_id AS payee_id").
+		ColumnExpr("COALESCE(eti.actual_unit_price_cents, 0) AS actual_unit_price_cents").
+		ColumnExpr("eta.distributed_quantity AS distributed_quantity").
+		ColumnExpr("eta.service_fee_per_unit_cents AS service_fee_per_unit_cents").
+		ColumnExpr("et.packaging_fee_cents AS packaging_fee_cents").
+		Where("eta.task_id = ?", taskID).
+		OrderExpr("eta.purchaser_id ASC, eta.id ASC").
+		Scan(ctx, &rows)
+	return rows, err
+}
+
+func UpdateTaskAssignmentPaymentBillIDByPayer(
+	ctx context.Context,
+	db bun.IDB,
+	taskID, payerID, billID int64,
+	now time.Time,
+) error {
+	res, err := db.NewUpdate().
+		Model((*model.ErrandTaskAssignment)(nil)).
+		Set("payment_bill_id = ?", billID).
+		Set("updated_at = ?", now).
+		Where("task_id = ?", taskID).
+		Where("purchaser_id = ?", payerID).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func UpdateTaskDemandItemsToCompletedByPayer(
+	ctx context.Context,
+	db bun.IDB,
+	taskID, payerID int64,
+	now time.Time,
+) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandDemandItemStatusCompleted).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT eta.demand_item_id
+			FROM errand.errand_task_assignment AS eta
+			WHERE eta.task_id = ? AND eta.purchaser_id = ?
+		)`, taskID, payerID).
+		Where("status = ?", model.ErrandDemandItemStatusPendingPayment).
+		Exec(ctx)
+	return err
+}
+
+func UpdateTaskToCompleted(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	expectedUpdatedAt time.Time,
+	now time.Time,
+) error {
+	res, err := db.NewUpdate().
+		Model((*model.ErrandTask)(nil)).
+		Set("status = ?", model.ErrandTaskStatusCompleted).
+		Set("payment_completed_at = ?", now).
+		Set("updated_at = ?", now).
+		Where("id = ?", taskID).
+		Where("status = ?", model.ErrandTaskStatusCollectingPayment).
+		Where("updated_at = ?", expectedUpdatedAt).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func UpdateTaskToCompletedWithoutUpdatedAt(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	now time.Time,
+) error {
+	res, err := db.NewUpdate().
+		Model((*model.ErrandTask)(nil)).
+		Set("status = ?", model.ErrandTaskStatusCompleted).
+		Set("payment_completed_at = ?", now).
+		Set("updated_at = ?", now).
+		Where("id = ?", taskID).
+		Where("status = ?", model.ErrandTaskStatusCollectingPayment).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func UpdateTaskRelatedDemandsToCompleted(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemand)(nil)).
+		Set("status = ?", model.ErrandDemandStatusCompleted).
+		Set("payment_completed_at = ?", now).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT DISTINCT edi.errand_demand_id
+			FROM errand.errand_task_assignment AS eta
+			JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status = ?", model.ErrandDemandStatusPendingPayment).
+		Exec(ctx)
+	return err
+}
+
+func UpdateTaskRelatedDemandItemsToCompleted(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandDemandItemStatusCompleted).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT eta.demand_item_id
+			FROM errand.errand_task_assignment AS eta
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status = ?", model.ErrandDemandItemStatusPendingPayment).
+		Exec(ctx)
+	return err
+}
+
+type ErrandTaskListRow struct {
+	TaskID    int64                  `bun:"task_id"`
+	StoreID   int64                  `bun:"store_id"`
+	StoreName string                 `bun:"store_name"`
+	Status    model.ErrandTaskStatus `bun:"status"`
+	CreatedAt time.Time              `bun:"created_at"`
+}
+
+type ErrandTaskListItemRow struct {
+	TaskID               int64     `bun:"task_id"`
+	TaskItemID           int64     `bun:"task_item_id"`
+	ProductTemplateID    int64     `bun:"product_template_id"`
+	TitleSnapshot        string    `bun:"title_snapshot"`
+	DescriptionSnapshot  string    `bun:"description_snapshot"`
+	ImageURLSnapshot     string    `bun:"image_url_snapshot"`
+	ProductPriceCents    int32     `bun:"product_price_cents"`
+	RequiredQuantity     int32     `bun:"required_quantity"`
+	PurchasedQuantity    *int32    `bun:"purchased_quantity"`
+	NonPurchaseReason    string    `bun:"non_purchase_reason"`
+	ActualUnitPriceCents *int32    `bun:"actual_unit_price_cents"`
+	UpdatedAt            time.Time `bun:"updated_at"`
+}
+
+func CountErrandTasks(
+	ctx context.Context,
+	db bun.IDB,
+	captainID int64,
+	status *model.ErrandTaskStatus,
+) (int32, error) {
+	var row struct {
+		Count int32 `bun:"count"`
+	}
+	q := db.NewSelect().
+		TableExpr("errand.errand_task AS et").
+		ColumnExpr("COUNT(*) AS count").
+		Where("et.captain_id = ?", captainID)
+	if status != nil {
+		q = q.Where("et.status = ?", *status)
+	}
+	err := q.Scan(ctx, &row)
+	return row.Count, err
+}
+
+func ListErrandTasks(
+	ctx context.Context,
+	db bun.IDB,
+	captainID int64,
+	status *model.ErrandTaskStatus,
+	limit int,
+	offset int,
+) ([]ErrandTaskListRow, error) {
+	rows := make([]ErrandTaskListRow, 0)
+	q := db.NewSelect().
+		TableExpr("errand.errand_task AS et").
+		Join("LEFT JOIN catalog.catalog_store AS cs ON cs.id = et.store_id").
+		ColumnExpr("et.id AS task_id").
+		ColumnExpr("et.store_id AS store_id").
+		ColumnExpr("COALESCE(cs.name, '') AS store_name").
+		ColumnExpr("et.status AS status").
+		ColumnExpr("et.created_at AS created_at").
+		Where("et.captain_id = ?", captainID).
+		OrderExpr("et.created_at DESC, et.id DESC").
+		Limit(limit).
+		Offset(offset)
+	if status != nil {
+		q = q.Where("et.status = ?", *status)
+	}
+	err := q.Scan(ctx, &rows)
+	return rows, err
+}
+
+func ListErrandTaskItems(
+	ctx context.Context,
+	db bun.IDB,
+	taskIDs []int64,
+) ([]ErrandTaskListItemRow, error) {
+	if len(taskIDs) == 0 {
+		return []ErrandTaskListItemRow{}, nil
+	}
+
+	rows := make([]ErrandTaskListItemRow, 0)
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_item AS eti").
+		Join("LEFT JOIN catalog.catalog_product_template AS cpt ON cpt.id = eti.product_template_id").
+		ColumnExpr("eti.task_id AS task_id").
+		ColumnExpr("eti.id AS task_item_id").
+		ColumnExpr("eti.product_template_id AS product_template_id").
+		ColumnExpr("eti.title_snapshot AS title_snapshot").
+		ColumnExpr("eti.description_snapshot AS description_snapshot").
+		ColumnExpr("eti.image_url_snapshot AS image_url_snapshot").
+		ColumnExpr("COALESCE(cpt.price_cents, 0) AS product_price_cents").
+		ColumnExpr("eti.required_quantity AS required_quantity").
+		ColumnExpr("eti.purchased_quantity AS purchased_quantity").
+		ColumnExpr("eti.non_purchase_reason AS non_purchase_reason").
+		ColumnExpr("eti.actual_unit_price_cents AS actual_unit_price_cents").
+		ColumnExpr("eti.updated_at AS updated_at").
+		Where("eti.task_id IN (?)", bun.List(taskIDs)).
+		OrderExpr("eti.task_id ASC, eti.deadline ASC, eti.id ASC").
+		Scan(ctx, &rows)
+	return rows, err
+}
+
+func UpdateTaskToCancelled(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	expectedUpdatedAt time.Time,
+	now time.Time,
+) error {
+	res, err := db.NewUpdate().
+		Model((*model.ErrandTask)(nil)).
+		Set("status = ?", model.ErrandTaskStatusCancelled).
+		Set("cancelled_at = ?", now).
+		Set("updated_at = ?", now).
+		Where("id = ?", taskID).
+		Where("updated_at = ?", expectedUpdatedAt).
+		Where("status NOT IN (?)", bun.List([]model.ErrandTaskStatus{
+			model.ErrandTaskStatusCompleted,
+			model.ErrandTaskStatusCancelled,
+		})).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func UpdateTaskRelatedDemandsToCancelled(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemand)(nil)).
+		Set("status = ?", model.ErrandDemandStatusCancelled).
+		Set("cancelled_at = ?", now).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT DISTINCT edi.errand_demand_id
+			FROM errand.errand_task_assignment AS eta
+			JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status NOT IN (?)", bun.List([]model.ErrandDemandStatus{
+			model.ErrandDemandStatusCompleted,
+			model.ErrandDemandStatusCancelled,
+		})).
+		Exec(ctx)
+	return err
+}
+
+func UpdateTaskRelatedDemandItemsToCancelled(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandDemandItemStatusCancelled).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT eta.demand_item_id
+			FROM errand.errand_task_assignment AS eta
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status NOT IN (?)", bun.List([]model.ErrandDemandItemStatus{
+			model.ErrandDemandItemStatusCompleted,
+			model.ErrandDemandItemStatusCancelled,
+		})).
+		Exec(ctx)
+	return err
 }

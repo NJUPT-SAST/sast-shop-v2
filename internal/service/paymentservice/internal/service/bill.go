@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
@@ -153,7 +154,13 @@ func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time)
 	bill.CompletedAt = &completedAt
 	bill.UpdatedAt = updatedAt
 
-	return PaymentBillToProto(ctx, bill)
+	protoBill, err := PaymentBillToProto(ctx, bill)
+	if err != nil {
+		return nil, err
+	}
+	notifyGroupTradePaymentConfirmed(ctx, bill)
+
+	return protoBill, nil
 }
 
 func TransitionBill(
@@ -301,6 +308,68 @@ func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, 
 		return fmt.Errorf("cancel bill by source: %w", err)
 	}
 	return nil
+}
+
+func notifyGroupTradePaymentConfirmed(ctx context.Context, bill *model.PaymentBill) {
+	if bill == nil || bill.SourceType == nil || bill.SourceID == nil {
+		return
+	}
+	if *bill.SourceType != "errand_task" {
+		return
+	}
+	if client.GroupTradeInternalServiceClient == nil {
+		log.Error().
+			Int64("bill_id", bill.ID).
+			Msg("grouptrade internal service client is not initialized")
+		return
+	}
+
+	if _, err := client.GroupTradeInternalServiceClient.OnPaymentConfirmed(
+		ctx,
+		connect.NewRequest(&errandv1.OnPaymentConfirmedRequest{
+			SourceType: *bill.SourceType,
+			SourceId:   *bill.SourceID,
+			PayerId:    bill.PayerID,
+		}),
+	); err != nil {
+		log.Error().
+			Err(err).
+			Int64("bill_id", bill.ID).
+			Str("source_type", *bill.SourceType).
+			Int64("source_id", *bill.SourceID).
+			Int64("payer_id", bill.PayerID).
+			Msg("failed to notify grouptrade payment confirmed")
+		return
+	}
+
+	incompleteCount, err := repository.CountIncompleteBillsBySource(ctx, *bill.SourceType, *bill.SourceID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Int64("bill_id", bill.ID).
+			Str("source_type", *bill.SourceType).
+			Int64("source_id", *bill.SourceID).
+			Msg("failed to count incomplete bills by source")
+		return
+	}
+	if incompleteCount > 0 {
+		return
+	}
+
+	if _, err := client.GroupTradeInternalServiceClient.OnAllPaymentsConfirmed(
+		ctx,
+		connect.NewRequest(&errandv1.OnAllPaymentsConfirmedRequest{
+			SourceType: *bill.SourceType,
+			SourceId:   *bill.SourceID,
+		}),
+	); err != nil {
+		log.Error().
+			Err(err).
+			Int64("bill_id", bill.ID).
+			Str("source_type", *bill.SourceType).
+			Int64("source_id", *bill.SourceID).
+			Msg("failed to notify grouptrade all payments confirmed")
+	}
 }
 
 func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv1.Bill, error) {

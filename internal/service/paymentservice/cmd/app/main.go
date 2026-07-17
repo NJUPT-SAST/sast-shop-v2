@@ -22,6 +22,7 @@ func main() {
 	redis.Init(constant.PaymentServiceName)
 	feishu.Init()
 	client.InitUserServiceClient()
+	client.InitGroupTradeInternalServiceClient()
 	e := echo.New()
 	v1.Init(e)
 	if err := e.Start(fmt.Sprintf(":%d", config.AppConfig.PaymentServicePort)); err != nil {
