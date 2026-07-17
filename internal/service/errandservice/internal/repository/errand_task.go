@@ -28,6 +28,7 @@ type ProductSnapshotRow struct {
 	ID           int64  `bun:"id"`
 	Title        string `bun:"title"`
 	Description  string `bun:"description"`
+	PriceCents   int32  `bun:"price_cents"`
 	StoreID      int64  `bun:"store_id"`
 	MainImageURL string `bun:"main_image_url"`
 }
@@ -41,7 +42,7 @@ type ShoppingTaskHeaderRow struct {
 
 type ShoppingTaskItemRow struct {
 	TaskItemID           int64     `bun:"task_item_id"`
-	ProductTemplateID    int64     `bun:"product_templated_id"`
+	ProductTemplateID    int64     `bun:"product_template_id"`
 	TitleSnapshot        string    `bun:"title_snapshot"`
 	DescriptionSnapshot  string    `bun:"description_snapshot"`
 	ImageURLSnapshot     string    `bun:"image_url_snapshot"`
@@ -105,6 +106,7 @@ func LoadProductSnapshots(ctx context.Context, db bun.IDB, ids []int64) (map[int
 		ColumnExpr("cpt.id as id").
 		ColumnExpr("cpt.title as title").
 		ColumnExpr("cpt.description as description").
+		ColumnExpr("cpt.price_cents as price_cents").
 		ColumnExpr("cpt.store_id as store_id").
 		ColumnExpr(
 			`  
@@ -253,12 +255,17 @@ func TouchDemandUpdatedAt(ctx context.Context, db bun.IDB, demandID int64, now t
 
 func GetShoppingTaskHeader(ctx context.Context, db bun.IDB, taskID, captainID int64) (*ShoppingTaskHeaderRow, error) {
 	var row ShoppingTaskHeaderRow
-	err := db.NewSelect().TableExpr("errand.errand_task as et").
-		Join("left join catalog.catalog_store as cs").
-		ColumnExpr("et.id as task_id,").
-		ColumnExpr("et.id as task_id,").
+	err := db.NewSelect().
+		TableExpr("errand.errand_task as et").
+		Join("left join catalog.catalog_store as cs on cs.id = et.store_id").
+		ColumnExpr("et.id as task_id").
+		ColumnExpr("et.store_id as store_id").
 		ColumnExpr("coalesce(cs.name, '') as store_name").
-		Where("et.id = ?", taskID).Where("et.captain_id = ? ", captainID).Limit(1).Scan(ctx, &row)
+		ColumnExpr("et.status as status").
+		Where("et.id = ?", taskID).
+		Where("et.captain_id = ?", captainID).
+		Limit(1).
+		Scan(ctx, &row)
 	if err != nil {
 		return nil, err
 	}
@@ -269,18 +276,21 @@ func ListShoppingTaskItems(ctx context.Context, db bun.IDB, taskID int64) ([]Sho
 	rows := make([]ShoppingTaskItemRow, 0)
 	err := db.NewSelect().
 		TableExpr("errand.errand_task_item as eti").
-		Join("left join catalog.catalog_product_template as cpt").
+		Join("left join catalog.catalog_product_template as cpt on cpt.id = eti.product_template_id").
 		ColumnExpr("eti.id as task_item_id").
 		ColumnExpr("eti.product_template_id as product_template_id").
 		ColumnExpr("eti.title_snapshot as title_snapshot").
 		ColumnExpr("eti.description_snapshot as description_snapshot").
 		ColumnExpr("eti.image_url_snapshot as image_url_snapshot").
-		ColumnExpr("eti.product_price_cents as product_price_cents").
+		ColumnExpr("coalesce(cpt.price_cents, 0) as product_price_cents").
 		ColumnExpr("eti.required_quantity as required_quantity").
+		ColumnExpr("eti.purchased_quantity as purchased_quantity").
 		ColumnExpr("eti.non_purchase_reason as non_purchase_reason").
 		ColumnExpr("eti.actual_unit_price_cents as actual_unit_price_cents").
 		ColumnExpr("eti.updated_at as updated_at").
-		Where("eti.task_id = ?", taskID).OrderExpr("eti.deadline asc, eit.id asc").Scan(ctx, &rows)
+		Where("eti.task_id = ?", taskID).
+		OrderExpr("eti.deadline asc, eti.id asc").
+		Scan(ctx, &rows)
 
 	return rows, err
 }
@@ -293,7 +303,7 @@ func GetShoppingTaskItemForUpdate(
 	var row ShoppingTaskItemForUpdateRow
 	err := db.NewSelect().
 		TableExpr("errand.errand_task_item as eti").
-		Join("join errand.errand_task as on et.id = eti.task_id").
+		Join("join errand.errand_task as et on et.id = eti.task_id").
 		ColumnExpr("et.id as task_id").
 		ColumnExpr("et.status as task_status").
 		ColumnExpr("et.updated_at as task_updated_at").
@@ -303,7 +313,11 @@ func GetShoppingTaskItemForUpdate(
 		ColumnExpr("eti.non_purchase_reason as non_purchase_reason").
 		ColumnExpr("eti.updated_at as task_item_updated_at").
 		Where("et.id = ?", taskID).
-		Where("eti.id = ?", taskItemID).Where("et.captain_id = ?", captainID).Limit(1).For("update").Scan(ctx, &row)
+		Where("eti.id = ?", taskItemID).
+		Where("et.captain_id = ?", captainID).
+		Limit(1).
+		For("UPDATE").
+		Scan(ctx, &row)
 	if err != nil {
 		return nil, err
 	}
@@ -322,10 +336,11 @@ func UpdateShoppingTaskItem(
 	res, err := db.NewUpdate().
 		Model((*model.ErrandTaskItem)(nil)).
 		Set("purchased_quantity = ?", purchasedQuantity).
-		Set("non_purchase_reason = ? ", nonPurchaseReason).
-		Set("updated_at = ? ", now).
-		Where("id = ? ", taskItemID).
-		Where("updated_at = ? ", expectedUpdatedAt).
+		Set("non_purchase_reason = ?", nonPurchaseReason).
+		Set("handled_at = ?", now).
+		Set("updated_at = ?", now).
+		Where("id = ?", taskItemID).
+		Where("updated_at = ?", expectedUpdatedAt).
 		Exec(ctx)
 	if err != nil {
 		return err
@@ -375,9 +390,9 @@ type TaskItemHandlingSummaryRow struct {
 func GetTaskItemHandlingSummary(ctx context.Context, db bun.IDB, taskID int64) (*TaskItemHandlingSummaryRow, error) {
 	var row TaskItemHandlingSummaryRow
 	err := db.NewSelect().
-		TableExpr("errand.errand_task_id as eti").
+		TableExpr("errand.errand_task_item as eti").
 		ColumnExpr("count(*) as total_count").
-		ColumnExpr("count(*) filfer (where eti.purchased_quantity is null) as unhandled_count").
+		ColumnExpr("count(*) filter (where eti.purchased_quantity is null) as unhandled_count").
 		Where("eti.task_id = ?", taskID).
 		Scan(ctx, &row)
 	if err != nil {
@@ -396,10 +411,10 @@ func UpdateTaskToPendingDistributing(
 	res, err := db.NewUpdate().
 		Model((*model.ErrandTask)(nil)).
 		Set("status = ?", model.ErrandTaskStatusPendingDistributing).
-		Set("shopping_conpleted_at = ? ", now).
+		Set("shopping_completed_at = ?", now).
 		Set("updated_at = ?", now).
 		Where("id = ?", taskID).
-		Where("status = ?", model.ErrandDemandStatusShopping).
+		Where("status = ?", model.ErrandTaskStatusShopping).
 		Where("updated_at = ?", expectedUpdatedAt).
 		Exec(ctx)
 	if err != nil {
@@ -418,11 +433,30 @@ func UpdateTaskToPendingDistributing(
 
 func UpdateTaskRelatedDemandsToPendingDistributing(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
 	_, err := db.NewUpdate().
-		Model((*model.ErrandDemandItem)(nil)).
-		Set("status = ?", model.ErrandTaskStatusPendingDistributing).
+		Model((*model.ErrandDemand)(nil)).
+		Set("status = ?", model.ErrandDemandStatusPendingDistributing).
 		Set("updated_at = ?", now).
-		Where("id in (select eta.demand_item_id from errand.errand_task_assigniment as eta where eta.task_id = ?)", taskID).
+		Where(`id IN (
+			SELECT DISTINCT edi.errand_demand_id
+			FROM errand.errand_task_assignment AS eta
+			JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id
+			WHERE eta.task_id = ?
+		)`, taskID).
 		Where("status = ?", model.ErrandDemandStatusShopping).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandDemandItemStatusPendingDistributing).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT eta.demand_item_id
+			FROM errand.errand_task_assignment AS eta
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status = ?", model.ErrandDemandItemStatusShopping).
 		Exec(ctx)
 	return err
 }
@@ -450,7 +484,7 @@ func ListNonPurchasedDemandItemNotifications(
 		TableExpr("errand.errand_task_item AS eti").
 		Join("JOIN errand.errand_task_assignment AS eta ON eta.task_item_id = eti.id").
 		Join("JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id").
-		Join("LEFT JOIN user.user_account AS ua ON ua.id = edi.requester_id").
+		Join(`LEFT JOIN "user".user_account AS ua ON ua.id = edi.requester_id`).
 		ColumnExpr("eti.id AS task_item_id").
 		ColumnExpr("eti.title_snapshot AS title_snapshot").
 		ColumnExpr("COALESCE(eti.purchased_quantity, 0) AS purchased_quantity").
@@ -530,7 +564,7 @@ func ListDistributingTaskDetails(ctx context.Context, db bun.IDB, taskID int64) 
 		TableExpr("errand.errand_task_item AS eti").
 		Join("JOIN errand.errand_task_assignment AS eta ON eta.task_item_id = eti.id").
 		Join("JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id").
-		Join("LEFT JOIN user.user_account AS ua ON ua.id = eta.purchaser_id").
+		Join(`LEFT JOIN "user".user_account AS ua ON ua.id = eta.purchaser_id`).
 		ColumnExpr("eti.id AS task_item_id").
 		ColumnExpr("eti.product_template_id AS product_template_id").
 		ColumnExpr("eti.title_snapshot AS title_snapshot").

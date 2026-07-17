@@ -136,35 +136,72 @@ func (s *ErrandTaskServiceServer) TransitionToCollectingPayment(
 	ctx context.Context,
 	r *connect.Request[errandv1.TransitionToCollectingPaymentRequest],
 ) (*connect.Response[errandv1.TransitionToCollectingPaymentResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := service.TransitionToCollectingPayment(ctx, captainID, r.Msg); err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&errandv1.TransitionToCollectingPaymentResponse{}), nil
 }
 
 func (s *ErrandTaskServiceServer) GetCollectingPaymentDetail(
 	ctx context.Context,
 	r *connect.Request[errandv1.GetCollectingPaymentDetailRequest],
 ) (*connect.Response[errandv1.GetCollectingPaymentDetailResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := service.GetCollectingPaymentDetail(ctx, captainID, r.Msg)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(resp), nil
 }
 
 func (s *ErrandTaskServiceServer) TransitionToCompleted(
 	ctx context.Context,
 	r *connect.Request[errandv1.TransitionToCompletedRequest],
 ) (*connect.Response[errandv1.TransitionToCompletedResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := service.TransitionToCompleted(ctx, captainID, r.Msg); err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&errandv1.TransitionToCompletedResponse{}), nil
 }
 
 func (s *ErrandTaskServiceServer) GetErrandTaskList(
 	ctx context.Context,
 	r *connect.Request[errandv1.GetErrandTaskListRequest],
 ) (*connect.Response[errandv1.GetErrandTaskListResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := service.GetErrandTaskList(ctx, captainID, r.Msg)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(resp), nil
 }
 
 func (s *ErrandTaskServiceServer) CancelTask(
 	ctx context.Context,
 	r *connect.Request[errandv1.CancelTaskRequest],
 ) (*connect.Response[errandv1.CancelTaskResponse], error) {
-	return nil, errandError()
+	captainID, err := captainIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := service.CancelTask(ctx, captainID, r.Msg); err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&errandv1.CancelTaskResponse{}), nil
 }
 
 func InitErrandTaskServiceHandler(e *echo.Echo, opts ...connect.HandlerOption) {
