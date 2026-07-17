@@ -26,11 +26,31 @@ func storeNotFoundError() *connect.Error {
 	}, "")
 }
 
+func productNotFoundError() *connect.Error {
+	return rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
+		CatalogError: &catalogv1.CatalogError{
+			Code: catalogv1.CatalogErrorCode_CATALOG_ERROR_CODE_INTERNAL_ERROR,
+		},
+	}, "")
+}
+
+func barcodeNotFoundError() *connect.Error {
+	return rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
+		CatalogError: &catalogv1.CatalogError{
+			Code: catalogv1.CatalogErrorCode_CATALOG_ERROR_CODE_INTERNAL_ERROR,
+		},
+	}, "")
+}
+
 // mapServiceError 将 service 层哨兵错误映射为 Connect 错误。
 func mapServiceError(err error) *connect.Error {
 	switch {
 	case errors.Is(err, service.ErrStoreNotFound):
 		return storeNotFoundError()
+	case errors.Is(err, service.ErrProductNotFound):
+		return productNotFoundError()
+	case errors.Is(err, service.ErrBarcodeNotFound):
+		return barcodeNotFoundError()
 	default:
 		return catalogError()
 	}
