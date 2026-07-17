@@ -1592,7 +1592,7 @@ func createPaymentBillsForTask(ctx context.Context, taskID int64) error {
 				Msg("payment service returned empty bill")
 			return newErrandInternalError("")
 		}
-
+		//将返回的 bill.id 写入该 payer 在当前 task 下对应的 errand_task_assignment.payment_bill_id
 		if err := repository.UpdateTaskAssignmentPaymentBillIDByPayer(
 			ctx,
 			postgres.DB,
@@ -1716,7 +1716,7 @@ func buildCollectingPaymentBills(
 		rows    []repository.CollectingPaymentDetailRow
 		billRow *repository.CollectingPaymentDetailRow
 	}
-
+	// 按付款人分组
 	groups := make(map[int64]*billGroup)
 	payerIDs := make([]int64, 0)
 	for i := range rows {
