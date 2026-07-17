@@ -7,7 +7,7 @@ require (
 	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260607141353-2f726ec59732.1
 	connectrpc.com/connect v1.20.0
 	github.com/NJUPT-SAST/sast-shop-v2/internal/pkg v0.0.0
-	github.com/labstack/echo/v5 v5.1.1
+	github.com/labstack/echo/v5 v5.3.0
 	github.com/rs/zerolog v1.35.1
 	github.com/uptrace/bun v1.2.18
 	google.golang.org/protobuf v1.36.11
@@ -39,11 +39,10 @@ require (
 	go.opentelemetry.io/otel v1.41.0 // indirect
 	go.opentelemetry.io/otel/trace v1.41.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect
-	golang.org/x/net v0.54.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250922171735-9219d122eba9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250922171735-9219d122eba9 // indirect
 	mellium.im/sasl v0.3.2 // indirect
