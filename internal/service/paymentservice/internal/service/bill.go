@@ -409,10 +409,12 @@ func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv
 		pb.ClosedAt = timestamppb.New(*bill.ClosedAt)
 	}
 
-	getUsersResp, err := client.UserInternalServiceClient.GetUsers(ctx, connect.NewRequest(
-		&userv1.GetUsersRequest{
-			UserIds: []int64{bill.PayerID, bill.PayeeID},
-		}),
+	getUsersResp, err := client.UserInternalServiceClient.GetUsers(
+		ctx, connect.NewRequest(
+			&userv1.GetUsersRequest{
+				UserIds: []int64{bill.PayerID, bill.PayeeID},
+			},
+		),
 	)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get user info for billId: %d", bill.ID)

@@ -114,7 +114,11 @@ type TaskPaymentBillAssignmentRow struct {
 	ServiceFeePerUnitCents int32 `bun:"service_fee_per_unit_cents"`
 }
 
-func ListTaskPaymentBillAssignments(ctx context.Context, db bun.IDB, taskID int64) ([]TaskPaymentBillAssignmentRow, error) {
+func ListTaskPaymentBillAssignments(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+) ([]TaskPaymentBillAssignmentRow, error) {
 	rows := make([]TaskPaymentBillAssignmentRow, 0)
 	err := db.NewSelect().
 		TableExpr("errand.errand_task_assignment AS eta").
