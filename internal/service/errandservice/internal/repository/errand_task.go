@@ -395,7 +395,7 @@ func GetTaskItemHandlingSummary(ctx context.Context, db bun.IDB, taskID int64) (
 	err := db.NewSelect().
 		TableExpr("errand.errand_task_item as eti").
 		ColumnExpr("count(*) as total_count").
-		//统计团长还没有处理和标记的商品
+		// 统计团长还没有处理和标记的商品
 		ColumnExpr("count(*) filter (where eti.purchased_quantity is null) as unhandled_count").
 		Where("eti.task_id = ?", taskID).
 		Scan(ctx, &row)
@@ -460,7 +460,8 @@ type NonPurchasedDemandItemNotificationRow struct {
 	RequesterName     string `bun:"requester_name"`
 	RequesterOpenID   string `bun:"requester_open_id"`
 }
-//列出任务中未完成购买的需求项通知
+
+// 列出任务中未完成购买的需求项通知
 func ListNonPurchasedDemandItemNotifications(
 	ctx context.Context,
 	db bun.IDB,
@@ -599,12 +600,14 @@ func GetDistributingTaskItemForUpdate(
 	}
 	return &row, nil
 }
+
 // - INSERT errand_price_change_log：记录 old_unit_price_cents 和 new_unit_price_cents
 func CreatePriceChangeLog(ctx context.Context, db bun.IDB, priceChangeLog *model.ErrandPriceChangeLog) error {
 	_, err := db.NewInsert().Model(priceChangeLog).Exec(ctx)
 	return err
 }
-//- UPDATE errand_task_item.actual_unit_price_cents：基于 errand_task_item_updated_at 校验并发后更新实际采购单价
+
+// - UPDATE errand_task_item.actual_unit_price_cents：基于 errand_task_item_updated_at 校验并发后更新实际采购单价
 func UpdateTaskItemActualPrice(
 	ctx context.Context,
 	db bun.IDB,
@@ -782,6 +785,7 @@ type TaskDistributionSummaryRow struct {
 	UnpricedCount      int64 `bun:"unpriced_count"`
 	IncompleteCount    int64 `bun:"incomplete_count"`
 }
+
 // 计算task在待收款 阶段前 的分配完成度
 func GetTaskDistributionSummary(
 	ctx context.Context,
@@ -801,7 +805,7 @@ func GetTaskDistributionSummary(
 		) AS distribution ON distribution.task_item_id = eti.id`, taskID).
 		// 查询task_item总数
 		ColumnExpr("COUNT(*) AS total_task_item_count").
-		// 查询未采购数 
+		// 查询未采购数
 		ColumnExpr("COUNT(*) FILTER (WHERE eti.purchased_quantity IS NULL) AS unhandled_count").
 		// 查询未定价数
 		ColumnExpr("COUNT(*) FILTER (WHERE eti.actual_unit_price_cents IS NULL) AS unpriced_count").
@@ -816,6 +820,7 @@ func GetTaskDistributionSummary(
 		Scan(ctx, &row)
 	return &row, err
 }
+
 // 更新task主表
 func UpdateTaskToCollectingPayment(
 	ctx context.Context,
@@ -845,6 +850,7 @@ func UpdateTaskToCollectingPayment(
 	}
 	return nil
 }
+
 // 更新task对应的demand表状态
 func UpdateTaskRelatedDemandsToPendingPayment(
 	ctx context.Context,
@@ -866,6 +872,7 @@ func UpdateTaskRelatedDemandsToPendingPayment(
 		Exec(ctx)
 	return err
 }
+
 // 更新task对应的demand_item表状态
 func UpdateTaskRelatedDemandItemsToPendingPayment(
 	ctx context.Context,

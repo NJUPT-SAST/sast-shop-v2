@@ -278,12 +278,12 @@ func createGroupedTaskItems(
 	rows []repository.SelectedDemandItemRow,
 	snapshots map[int64]repository.ProductSnapshotRow,
 ) (map[int64]int64, error) {
-	//按 product_template_id + deadline 聚合被选中的 demand_item
+	// 按 product_template_id + deadline 聚合被选中的 demand_item
 	grouped := buildTaskItemGroups(rows, snapshots)
 	taskItemIDByDemandItemID := make(map[int64]int64, len(rows))
 
 	for key, group := range grouped {
-		//写入 errand_task_item
+		// 写入 errand_task_item
 		taskItem := &model.ErrandTaskItem{
 			TaskID:              taskID,
 			ProductTemplateID:   key.ProductTemplateID,
@@ -387,7 +387,7 @@ func syncSingleDemand(
 
 		return nil
 	}
-	//如果团长只选择了部分商品，系统创建一个新的 demand，状态为 shopping,task_id 指向新 task
+	// 如果团长只选择了部分商品，系统创建一个新的 demand，状态为 shopping,task_id 指向新 task
 	base := selectedRows[0]
 	taskIDCopy := taskID
 	demandIDCopy := demandID
@@ -400,7 +400,7 @@ func syncSingleDemand(
 		SplitFromDemandID: &demandIDCopy,
 		ShoppingStartAt:   &now,
 	}
-	//并将被选中的 demand_item 移入该新 demand；原 demand 仅保留未被选中的 demand_item，状态继续保持 open
+	// 并将被选中的 demand_item 移入该新 demand；原 demand 仅保留未被选中的 demand_item，状态继续保持 open
 	if err := repository.CreateDemand(ctx, tx, splitDemand); err != nil {
 		log.Error().Err(err).Msg("failed to create split demand")
 		return newErrandInternalError("")
@@ -557,7 +557,7 @@ func executeSaveShoppingTask(ctx context.Context, captainID int64, req *errandv1
 		if req.PurchasedQuantity < 0 || req.PurchasedQuantity > row.RequiredQuantity {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid purchased quantity"))
 		}
-		//更新 purchased_quantity、non_purchase_reason、handled_at、updated_at
+		// 更新 purchased_quantity、non_purchase_reason、handled_at、updated_at
 		return updateTaskItem(ctx, tx, req, expectedUpdatedAt, captainID)
 	})
 }
@@ -569,7 +569,6 @@ func loadTaskItem(
 	req *errandv1.SaveShoppingTaskItemRequest,
 	captainID int64,
 ) (*repository.ShoppingTaskItemForUpdateRow, error) {
-
 	row, err := repository.GetShoppingTaskItemForUpdate(ctx, tx, req.ErrandTaskId, req.ErrandTaskItemId, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -598,7 +597,7 @@ func updateTaskItem(
 		nonPurchaseReason = req.GetNonPurchaseReason()
 	}
 	now := time.Now().UTC()
-	//更新 purchased_quantity、non_purchase_reason、handled_at、updated_at
+	// 更新 purchased_quantity、non_purchase_reason、handled_at、updated_at
 	if err := repository.UpdateShoppingTaskItem(
 		ctx,
 		tx,
@@ -745,7 +744,7 @@ func updatePendingDistributingStatus(
 	taskID int64,
 	expectedUpdatedAt, now time.Time,
 ) error {
-	//更新demand主表状态
+	// 更新demand主表状态
 	if err := repository.UpdateTaskToPendingDistributing(ctx, tx, taskID, expectedUpdatedAt, now); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrConcurrencyConflict
@@ -756,7 +755,7 @@ func updatePendingDistributingStatus(
 			Msg("failed to update task to pending distributing")
 		return newErrandInternalError("")
 	}
-	//更新demandItem表状态
+	// 更新demandItem表状态
 	if err := repository.UpdateTaskRelatedDemandsToPendingDistributing(ctx, tx, taskID, now); err != nil {
 		log.Error().
 			Err(err).
@@ -792,14 +791,14 @@ func sendNonPurchasedNotifications(
 ) {
 	grouped := make(map[int64][]repository.NonPurchasedDemandItemNotificationRow)
 	for _, row := range rows {
-		grouped[row.TaskItemID] = append(grouped[row.TaskItemID], row) //按taskItemID分组，把统一任务下的demand聚合
+		grouped[row.TaskItemID] = append(grouped[row.TaskItemID], row) // 按taskItemID分组，把统一任务下的demand聚合
 	}
 
 	for _, itemRows := range grouped {
-		remaining := itemRows[0].PurchasedQuantity  // 假设团长买了5件，要分给所有有需求的人
+		remaining := itemRows[0].PurchasedQuantity // 假设团长买了5件，要分给所有有需求的人
 		for _, row := range itemRows {
-			purchasedForThisDemand := minInt32(remaining, row.RequiredQuantity)  // 如果剩余库存大于小王要的货量，要多少给多少，如果小于，有多少给多少
-			remaining -= purchasedForThisDemand  // 减去小王拿走的货量
+			purchasedForThisDemand := minInt32(remaining, row.RequiredQuantity) // 如果剩余库存大于小王要的货量，要多少给多少，如果小于，有多少给多少
+			remaining -= purchasedForThisDemand                                 // 减去小王拿走的货量
 			// 完全满足需求或获取飞书账号失败
 			if purchasedForThisDemand == row.RequiredQuantity || row.RequesterOpenID == "" {
 				continue
@@ -836,6 +835,7 @@ func minInt32(a, b int32) int32 {
 	}
 	return b
 }
+
 // 获取待分发和分发中的跑腿任务详情
 func GetDistributingTaskDetail(
 	ctx context.Context,
@@ -915,6 +915,7 @@ func GetDistributingTaskDetail(
 		DistributingItems: items,
 	}, nil
 }
+
 // 待分发阶段修改实际采购单价
 func UpdateActualPrice(ctx context.Context, captainID int64, req *errandv1.UpdateActualPriceRequest) error {
 	if captainID <= 0 {
@@ -972,6 +973,7 @@ func executeUpdateActualPriceTx(
 
 	return persistActualPrice(ctx, tx, captainID, req.ErrandTaskItemId, expectedUpdatedAt, req.ActualUnitPriceCents)
 }
+
 // 加载taskItem数据
 func loadDistributingTaskItemForPriceUpdate(
 	ctx context.Context,
@@ -994,6 +996,7 @@ func loadDistributingTaskItemForPriceUpdate(
 
 	return row, nil
 }
+
 // 检查taskItem在待分配状态，乐观锁并发，更新purchased_quantity后，未采购条目的价格必须为零（？
 func validateActualPriceUpdate(
 	row *repository.DistributingTaskItemForUpdateRow,
@@ -1021,10 +1024,12 @@ func validateActualPriceUpdate(
 
 	return nil
 }
+
 // 幂等性检查价格是否变化，如果相同直接返回成功
 func actualPriceUnchanged(row *repository.DistributingTaskItemForUpdateRow, actualUnitPriceCents int32) bool {
 	return row.ActualUnitPriceCents != nil && *row.ActualUnitPriceCents == actualUnitPriceCents
 }
+
 // 创建变更日志
 func createActualPriceChangeLog(
 	ctx context.Context,
@@ -1049,6 +1054,7 @@ func createActualPriceChangeLog(
 
 	return nil
 }
+
 // 持久化更新
 func persistActualPrice(
 	ctx context.Context,
@@ -1079,6 +1085,7 @@ func persistActualPrice(
 
 	return nil
 }
+
 // 将采购任务从待分发流转到分发中
 func TransitionToDistributing(
 	ctx context.Context,
@@ -1109,6 +1116,7 @@ func TransitionToDistributing(
 		return updateDistributingStatus(ctx, tx, task.TaskID, expectedUpdatedAt, req.PackagingFeeCents)
 	})
 }
+
 // 加载数据，加锁
 func loadPendingDistributingTaskForTransition(
 	ctx context.Context,
@@ -1140,7 +1148,8 @@ func loadPendingDistributingTaskForTransition(
 
 	return task, nil
 }
-//更新 errand_task.packaging_fee_cents，并将 task 与关联 demand 状态同步为 distributing
+
+// 更新 errand_task.packaging_fee_cents，并将 task 与关联 demand 状态同步为 distributing
 func updateDistributingStatus(
 	ctx context.Context,
 	tx bun.Tx,
@@ -1183,6 +1192,7 @@ func updateDistributingStatus(
 
 	return nil
 }
+
 // 更新分发中的购买人分发结果（Phase 5 — 分发中）
 func SaveDistributingTaskAssignment(
 	ctx context.Context,
@@ -1221,7 +1231,13 @@ func executeSaveDistributingTaskAssignmentTx(
 	if err != nil {
 		return err
 	}
-	if err := validateDistributingTaskAssignmentUpdate(ctx, tx, row, req.DistributedQuantity, expectedUpdatedAt); err != nil {
+	if err := validateDistributingTaskAssignmentUpdate(
+		ctx,
+		tx,
+		row,
+		req.DistributedQuantity,
+		expectedUpdatedAt,
+	); err != nil {
 		return err
 	}
 	// 幂等性检查
@@ -1238,6 +1254,7 @@ func executeSaveDistributingTaskAssignmentTx(
 		req.DistributedQuantity,
 	)
 }
+
 // 加锁查询：基于 errand_task_assignment_updated_at 校验并发后更新实际分发数量
 func loadDistributingTaskAssignmentForUpdate(
 	ctx context.Context,
@@ -1260,6 +1277,7 @@ func loadDistributingTaskAssignmentForUpdate(
 
 	return row, nil
 }
+
 // 校验 分配中 任务状态，乐观锁并发控制，purchased_quantity 已设置（？，分配数量不能超过需求量，总分配数量不能超过总采购量
 func validateDistributingTaskAssignmentUpdate(
 	ctx context.Context,
@@ -1293,10 +1311,13 @@ func validateDistributingTaskAssignmentUpdate(
 	totalAfterUpdate := totalDistributed - int64(row.DistributedQuantity) + int64(distributedQuantity)
 	// 如果更新后总数小于等于采购的数量
 	// 小张想要 6 件
-	//totalAfterUpdate = 5 - 0 + 6 = 11
+	// totalAfterUpdate = 5 - 0 + 6 = 11
 	// 11 > 10  不允许（超过采购总量）
 	if totalAfterUpdate > int64(*row.PurchasedQuantity) {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("distributed quantity exceeds purchased quantity"))
+		return connect.NewError(
+			connect.CodeFailedPrecondition,
+			errors.New("distributed quantity exceeds purchased quantity"),
+		)
 	}
 
 	return nil
@@ -1331,6 +1352,7 @@ func persistDistributingTaskAssignment(
 
 	return nil
 }
+
 // 分发完成后流转到收款中，并创建支付账单
 func TransitionToCollectingPayment(
 	ctx context.Context,
@@ -1341,7 +1363,10 @@ func TransitionToCollectingPayment(
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}
 	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition to collecting payment request"))
+		return connect.NewError(
+			connect.CodeInvalidArgument,
+			errors.New("invalid transition to collecting payment request"),
+		)
 	}
 
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
@@ -1430,6 +1455,7 @@ func loadDistributingTaskForCollectingPayment(
 
 	return task, nil
 }
+
 // 校验分配状态，确保分配已完成
 func ensureTaskDistributionCompleted(ctx context.Context, tx bun.Tx, taskID int64) error {
 	summary, err := repository.GetTaskDistributionSummary(ctx, tx, taskID)
@@ -1545,6 +1571,7 @@ type taskPaymentBillDraft struct {
 	PayeeID     int64
 	AmountCents int32
 }
+
 // 生成支付订单，放在事务外，订单创建失败不影响状态转换
 func createPaymentBillsForTask(ctx context.Context, taskID int64) error {
 	// 检查支付服务客户端
@@ -1565,7 +1592,11 @@ func createPaymentBillsForTask(ctx context.Context, taskID int64) error {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task has no payment assignments"))
 	}
 	// 构建账单草稿
-	for _, draft := range buildTaskPaymentBillDrafts(rows) {
+	drafts, err := buildTaskPaymentBillDrafts(rows)
+	if err != nil {
+		return err
+	}
+	for _, draft := range drafts {
 		// 调用支付服务创建账单
 		resp, err := client.PaymentInternalServiceClient.CreateBillForOrder(
 			ctx,
@@ -1592,7 +1623,7 @@ func createPaymentBillsForTask(ctx context.Context, taskID int64) error {
 				Msg("payment service returned empty bill")
 			return newErrandInternalError("")
 		}
-		//将返回的 bill.id 写入该 payer 在当前 task 下对应的 errand_task_assignment.payment_bill_id
+		// 将返回的 bill.id 写入该 payer 在当前 task 下对应的 errand_task_assignment.payment_bill_id
 		if err := repository.UpdateTaskAssignmentPaymentBillIDByPayer(
 			ctx,
 			postgres.DB,
@@ -1616,8 +1647,9 @@ func createPaymentBillsForTask(ctx context.Context, taskID int64) error {
 
 	return nil
 }
+
 // 将多个分配记录聚合为每个用户的账单草稿
-func buildTaskPaymentBillDrafts(rows []repository.TaskPaymentBillAssignmentRow) []taskPaymentBillDraft {
+func buildTaskPaymentBillDrafts(rows []repository.TaskPaymentBillAssignmentRow) ([]taskPaymentBillDraft, error) {
 	type billGroup struct {
 		payerID int64
 		payeeID int64
@@ -1632,14 +1664,14 @@ func buildTaskPaymentBillDrafts(rows []repository.TaskPaymentBillAssignmentRow) 
 			packagingFeeCents = row.PackagingFeeCents
 		}
 		// 按付款人分组
-		group, ok := groups[row.PayerID] 
+		group, ok := groups[row.PayerID]
 		if !ok {
 			group = &billGroup{
 				payerID: row.PayerID,
 				payeeID: row.PayeeID,
 			}
 			groups[row.PayerID] = group
-			payerIDs = append(payerIDs, row.PayerID)   // 记录新付款人
+			payerIDs = append(payerIDs, row.PayerID) // 记录新付款人
 		}
 
 		productAmount := int64(row.ActualUnitPriceCents) * int64(row.DistributedQuantity)
@@ -1647,19 +1679,27 @@ func buildTaskPaymentBillDrafts(rows []repository.TaskPaymentBillAssignmentRow) 
 		group.amount += productAmount + serviceFeeAmount
 	}
 	// 计算包装费分摊（向上取整除法）
-	packagingShare := int64(ceilDivide(packagingFeeCents, int32(len(payerIDs))))
+	payerCount, err := safeInt32FromInt(len(payerIDs))
+	if err != nil {
+		return nil, err
+	}
+	packagingShare := int64(ceilDivide(packagingFeeCents, payerCount))
 	// 生成草稿账单
 	drafts := make([]taskPaymentBillDraft, 0, len(payerIDs))
 	for _, payerID := range payerIDs {
 		group := groups[payerID]
+		amountCents, err := safeInt32FromInt64(group.amount + packagingShare)
+		if err != nil {
+			return nil, err
+		}
 		drafts = append(drafts, taskPaymentBillDraft{
 			PayerID:     group.payerID,
 			PayeeID:     group.payeeID,
-			AmountCents: int32(group.amount + packagingShare),
+			AmountCents: amountCents,
 		})
 	}
 
-	return drafts
+	return drafts, nil
 }
 
 // 获取收款中状态的跑腿任务详情
@@ -1703,15 +1743,20 @@ func GetCollectingPaymentDetail(
 		return nil, newErrandInternalError("")
 	}
 
+	bills, err := buildCollectingPaymentBills(header, rows)
+	if err != nil {
+		return nil, err
+	}
+
 	return &errandv1.GetCollectingPaymentDetailResponse{
-		Bills: buildCollectingPaymentBills(header, rows),
+		Bills: bills,
 	}, nil
 }
 
 func buildCollectingPaymentBills(
 	header *repository.CollectingPaymentTaskHeaderRow,
 	rows []repository.CollectingPaymentDetailRow,
-) []*errandv1.CollectingPaymentBillDetail {
+) ([]*errandv1.CollectingPaymentBillDetail, error) {
 	type billGroup struct {
 		rows    []repository.CollectingPaymentDetailRow
 		billRow *repository.CollectingPaymentDetailRow
@@ -1733,7 +1778,11 @@ func buildCollectingPaymentBills(
 		}
 	}
 
-	packagingShare := ceilDivide(header.PackagingFeeCents, int32(len(payerIDs)))
+	payerCount, err := safeInt32FromInt(len(payerIDs))
+	if err != nil {
+		return nil, err
+	}
+	packagingShare := ceilDivide(header.PackagingFeeCents, payerCount)
 	bills := make([]*errandv1.CollectingPaymentBillDetail, 0, len(payerIDs))
 	for _, payerID := range payerIDs {
 		group := groups[payerID]
@@ -1754,6 +1803,17 @@ func buildCollectingPaymentBills(
 			serviceFeeAmountCents += serviceFeeAmount
 			packagingFeeShareCents += itemPackagingShare
 
+			subtotalCents := productAmount + serviceFeeAmount + itemPackagingShare
+			itemAmounts, err := safeInt32FromInt64Values(
+				productAmount,
+				serviceFeeAmount,
+				itemPackagingShare,
+				subtotalCents,
+			)
+			if err != nil {
+				return nil, err
+			}
+
 			item := &errandv1.CollectingPaymentRequesterItemDetail{
 				ErrandDemandItemId:     row.DemandItemID,
 				TitleSnapshot:          row.TitleSnapshot,
@@ -1761,11 +1821,11 @@ func buildCollectingPaymentBills(
 				PurchasedQuantity:      row.PurchasedQuantity,
 				DistributedQuantity:    row.DistributedQuantity,
 				ActualUnitPriceCents:   row.ActualUnitPriceCents,
-				ProductAmountCents:     int32(productAmount),
+				ProductAmountCents:     itemAmounts[0],
 				ServiceFeePerUnitCents: row.ServiceFeePerUnitCents,
-				ServiceFeeAmountCents:  int32(serviceFeeAmount),
-				PackagingFeeShareCents: int32(itemPackagingShare),
-				SubtotalCents:          int32(productAmount + serviceFeeAmount + itemPackagingShare),
+				ServiceFeeAmountCents:  itemAmounts[1],
+				PackagingFeeShareCents: itemAmounts[2],
+				SubtotalCents:          itemAmounts[3],
 			}
 			if row.NonPurchaseReason != "" {
 				reason := row.NonPurchaseReason
@@ -1774,16 +1834,27 @@ func buildCollectingPaymentBills(
 			items = append(items, item)
 		}
 
+		totalAmountCents := productAmountCents + serviceFeeAmountCents + packagingFeeShareCents
+		totalAmounts, err := safeInt32FromInt64Values(
+			productAmountCents,
+			serviceFeeAmountCents,
+			packagingFeeShareCents,
+			totalAmountCents,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		billDetail := &errandv1.CollectingPaymentBillDetail{
 			RequesterId:            payerID,
 			RequesterName:          group.rows[0].PayerName,
 			RequesterAvatarUrl:     group.rows[0].PayerAvatarURL,
 			PaymentStatus:          paymentv1.BillStatus_BILL_STATUS_UNSPECIFIED,
 			Items:                  items,
-			ProductAmountCents:     int32(productAmountCents),
-			ServiceFeeAmountCents:  int32(serviceFeeAmountCents),
-			PackagingFeeShareCents: int32(packagingFeeShareCents),
-			TotalAmountCents:       int32(productAmountCents + serviceFeeAmountCents + packagingFeeShareCents),
+			ProductAmountCents:     totalAmounts[0],
+			ServiceFeeAmountCents:  totalAmounts[1],
+			PackagingFeeShareCents: totalAmounts[2],
+			TotalAmountCents:       totalAmounts[3],
 		}
 		if group.billRow != nil {
 			billDetail.PaymentStatus = collectingPaymentBillStatusToProto(group.billRow.BillStatus)
@@ -1792,7 +1863,7 @@ func buildCollectingPaymentBills(
 		bills = append(bills, billDetail)
 	}
 
-	return bills
+	return bills, nil
 }
 
 func ceilDivide(value, divisor int32) int32 {
@@ -1800,6 +1871,34 @@ func ceilDivide(value, divisor int32) int32 {
 		return 0
 	}
 	return (value + divisor - 1) / divisor
+}
+
+const maxInt32Value = 1<<31 - 1
+
+func safeInt32FromInt(value int) (int32, error) {
+	if value < 0 || value > maxInt32Value {
+		return 0, connect.NewError(connect.CodeOutOfRange, errors.New("value exceeds int32 range"))
+	}
+	return int32(value), nil //nolint:gosec // guarded by range check above
+}
+
+func safeInt32FromInt64(value int64) (int32, error) {
+	if value < 0 || value > maxInt32Value {
+		return 0, connect.NewError(connect.CodeOutOfRange, errors.New("amount cents exceeds int32 range"))
+	}
+	return int32(value), nil //nolint:gosec // guarded by range check above
+}
+
+func safeInt32FromInt64Values(values ...int64) ([]int32, error) {
+	result := make([]int32, len(values))
+	for i, value := range values {
+		converted, err := safeInt32FromInt64(value)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = converted
+	}
+	return result, nil
 }
 
 func collectingPaymentBillStatusToProto(status string) paymentv1.BillStatus {
@@ -1890,6 +1989,7 @@ func timeValue(value *time.Time) time.Time {
 	}
 	return *value
 }
+
 // 所有账单确认后将采购任务标记为完成
 func TransitionToCompleted(
 	ctx context.Context,
@@ -1997,6 +2097,7 @@ const (
 	defaultErrandTaskListPageSize = int32(20)
 	maxErrandTaskListPageSize     = int32(100)
 )
+
 // 获取当前团长的跑腿任务列表
 func GetErrandTaskList(
 	ctx context.Context,
@@ -2152,6 +2253,7 @@ func errandTaskListItemRowToProto(row repository.ErrandTaskListItemRow, storeID 
 
 	return item
 }
+
 // 取消未完成的跑腿任务
 func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRequest) error {
 	if captainID <= 0 {

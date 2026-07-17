@@ -19,7 +19,8 @@ func (s *PaymentInternalServer) CreateBillForOrder(
 	ctx context.Context,
 	r *connect.Request[paymentv1.CreateBillForOrderRequest],
 ) (*connect.Response[paymentv1.CreateBillForOrderResponse], error) {
-	bill, err := service.CreateBillForOrder(ctx,
+	bill, err := service.CreateBillForOrder(
+		ctx,
 		r.Msg.GetSourceType(),
 		r.Msg.GetSourceId(),
 		r.Msg.GetPayerId(),
@@ -38,7 +39,8 @@ func (s *PaymentInternalServer) CancelBillBySource(
 	ctx context.Context,
 	r *connect.Request[paymentv1.CancelBillBySourceRequest],
 ) (*connect.Response[paymentv1.CancelBillBySourceResponse], error) {
-	err := service.CancelBillBySource(ctx,
+	err := service.CancelBillBySource(
+		ctx,
 		r.Msg.GetSourceType(),
 		r.Msg.GetSourceId(),
 		r.Msg.PayerId,

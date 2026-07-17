@@ -9,8 +9,10 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/config"
 )
 
-var UserInternalServiceClient userv1connect.UserInternalServiceClient
-var GroupTradeInternalServiceClient errandv1connect.GroupTradeInternalServiceClient
+var (
+	UserInternalServiceClient       userv1connect.UserInternalServiceClient
+	GroupTradeInternalServiceClient errandv1connect.GroupTradeInternalServiceClient
+)
 
 func InitUserServiceClient() {
 	UserInternalServiceClient = userv1connect.NewUserInternalServiceClient(
