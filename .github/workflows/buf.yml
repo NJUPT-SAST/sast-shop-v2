@@ -30,8 +30,10 @@ jobs:
         id: breaking
         if: github.event_name == 'pull_request'
         shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [[ "$(git log -1 --format=%B)" == *"buf skip breaking"* ]]; then
+          if [[ "$(git log -1 --format=%B "$PR_HEAD_SHA")" == *"buf skip breaking"* ]]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
