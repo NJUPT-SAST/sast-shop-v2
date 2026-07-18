@@ -77,6 +77,24 @@ func (s *SpotOrderServiceServer) GetSpotOrderDetail(
 	}), nil
 }
 
+func (s *SpotOrderServiceServer) GetSpotOrderSellerContact(
+	ctx context.Context,
+	r *connect.Request[spotv1.GetSpotOrderSellerContactRequest],
+) (*connect.Response[spotv1.GetSpotOrderSellerContactResponse], error) {
+	userID, err := authenticatedUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	openID, err := service.GetSpotOrderSellerContact(ctx, userID, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&spotv1.GetSpotOrderSellerContactResponse{
+		SellerFeishuOpenId: openID,
+	}), nil
+}
+
 func (s *SpotOrderServiceServer) CancelSpotOrder(
 	ctx context.Context,
 	r *connect.Request[spotv1.CancelSpotOrderRequest],
