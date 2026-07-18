@@ -26,6 +26,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Detect Proto changes
+        id: proto_changes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          if git diff --quiet "$BEFORE_SHA" "$AFTER_SHA" -- proto; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Resolve breaking check policy
         id: breaking
         if: github.event_name == 'pull_request'
@@ -47,3 +61,119 @@ jobs:
           pr_comment: true
           # Skip breaking change check when any PR commit contains "buf skip breaking".
           breaking: ${{ github.event_name == 'pull_request' && steps.breaking.outputs.enabled == 'true' }}
+
+      - name: Check Feishu webhook configuration
+        id: feishu
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.proto_changes.outputs.changed == 'true'
+        shell: bash
+        env:
+          FEISHU_BSR_WEBHOOK: ${{ secrets.FEISHU_BSR_WEBHOOK }}
+        run: |
+          if [[ -n "$FEISHU_BSR_WEBHOOK" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::FEISHU_BSR_WEBHOOK is not configured; skipping Feishu notification"
+          fi
+
+      - name: Build BSR notification card
+        id: bsr_card
+        if: steps.feishu.outputs.configured == 'true'
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+        run: |
+          commit_url="$SERVER_URL/$REPOSITORY/commit/$AFTER_SHA"
+          bsr_url="https://buf.build/sast/sast-shop-v2"
+          short_sha="${AFTER_SHA:0:7}"
+          changed_files="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- proto | wc -l | tr -d ' ')"
+          diff_lines="$(git diff --unified=2 "$BEFORE_SHA" "$AFTER_SHA" -- proto | wc -l | tr -d ' ')"
+          diff_preview="$(git diff --unified=2 "$BEFORE_SHA" "$AFTER_SHA" -- proto | awk '
+            NR <= 80 {
+              if (length($0) > 160) {
+                print substr($0, 1, 160) "…"
+              } else {
+                print
+              }
+            }
+          ')"
+
+          if (( diff_lines > 80 )); then
+            diff_preview+=$'\n... diff 已截断，请在 GitHub 查看完整变更'
+          fi
+
+          payload="$(jq -cn \
+            --arg repository "$REPOSITORY" \
+            --arg short_sha "$short_sha" \
+            --arg commit_url "$commit_url" \
+            --arg bsr_url "$bsr_url" \
+            --arg changed_files "$changed_files" \
+            --arg diff "$diff_preview" \
+            '($diff | gsub("```"; "``\u200b`")) as $safe_diff |
+            {
+              msg_type: "interactive",
+              card: {
+                schema: "2.0",
+                config: {
+                  summary: {
+                    content: "sast-shop-v2 Proto 已发布到 BSR"
+                  }
+                },
+                header: {
+                  title: {
+                    tag: "plain_text",
+                    content: "BSR Proto 已更新"
+                  },
+                  subtitle: {
+                    tag: "plain_text",
+                    content: "main · \($short_sha)"
+                  },
+                  template: "green"
+                },
+                body: {
+                  direction: "vertical",
+                  elements: [
+                    {
+                      tag: "markdown",
+                      content: "**仓库**  [\($repository)](\($commit_url))\n**变更**  \($changed_files) 个 Proto 文件\n**提交**  [`\($short_sha)`](\($commit_url))"
+                    },
+                    {
+                      tag: "hr"
+                    },
+                    {
+                      tag: "markdown",
+                      content: "**Proto diff（最多 80 行）**\n```diff\n\($safe_diff)\n```"
+                    },
+                    {
+                      tag: "button",
+                      text: {
+                        tag: "plain_text",
+                        content: "查看 BSR"
+                      },
+                      type: "primary",
+                      width: "fill",
+                      behaviors: [
+                        {
+                          type: "open_url",
+                          default_url: $bsr_url
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }')"
+
+          echo "payload=$payload" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Feishu after BSR publish
+        if: steps.feishu.outputs.configured == 'true'
+        # v1.1.1, pinned to prevent a mutable tag from changing executed code.
+        uses: northwang-lucky/chatbot-webhook-client@24c335b79a1d9db8ba191f89ddd66837f595dd63
+        with:
+          app: Lark
+          webhook: ${{ secrets.FEISHU_BSR_WEBHOOK }}
+          template: ${{ steps.bsr_card.outputs.payload }}
