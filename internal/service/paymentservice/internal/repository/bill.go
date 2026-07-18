@@ -58,13 +58,16 @@ func UpdateBillStatus(ctx context.Context,
 	delete(extraUpdates, "updated_at")
 
 	now := time.Now()
-	res, err := postgres.DB.NewUpdate().
-		Model(&extraUpdates).
+	q := postgres.DB.NewUpdate().
 		TableExpr("payment.payment_bill").
 		Set("status = ?", newStatus).
 		Set("updated_at = ?", now).
-		Where("id = ? AND updated_at = ?", billID, expectedUpdatedAt).
-		Exec(ctx)
+		Where("id = ? AND updated_at = ?", billID, expectedUpdatedAt)
+	for column, value := range extraUpdates {
+		q = q.Set("? = ?", bun.Ident(column), value)
+	}
+
+	res, err := q.Exec(ctx)
 	if err != nil {
 		return time.Time{}, 0, err
 	}
@@ -73,6 +76,17 @@ func UpdateBillStatus(ctx context.Context,
 		return time.Time{}, 0, err
 	}
 	return now, affected, nil
+}
+
+func CountIncompleteBillsBySource(ctx context.Context, sourceType string, sourceID int64) (int64, error) {
+	count, err := postgres.DB.NewSelect().
+		TableExpr("payment.payment_bill AS pb").
+		Where("pb.source_type = ?", sourceType).
+		Where("pb.source_id = ?", sourceID).
+		Where("pb.status != ?", model.PaymentBillStatusClosed).
+		Where("pb.status != ?", model.PaymentBillStatusCompleted).
+		Count(ctx)
+	return int64(count), err
 }
 
 func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) (int64, error) {
