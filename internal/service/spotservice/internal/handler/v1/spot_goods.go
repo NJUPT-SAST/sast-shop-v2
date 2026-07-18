@@ -23,7 +23,7 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 	ctx context.Context,
 	r *connect.Request[spotv1.ListSpotGoodsRequest],
 ) (*connect.Response[spotv1.ListSpotGoodsResponse], error) {
-	if r.Msg.Page < 1 || r.Msg.PageSize <= 0 {
+	if r.Msg.Page < 1 || r.Msg.PageSize <= 0 || r.Msg.PageSize > 30 {
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR},
 		}, "invalid pagination parameters")

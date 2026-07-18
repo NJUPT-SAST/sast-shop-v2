@@ -2,14 +2,17 @@ package service
 
 import (
 	"context"
+	"errors"
 	"math"
 
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	spotv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/spot/v1"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/repository"
 	"github.com/rs/zerolog/log"
+	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -84,7 +87,18 @@ func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGood
 }
 
 func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) (*spotv1.SpotGoodsDetail, error) {
-	err := repository.CreateSpotGoods(ctx, goods)
+	err := postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := repository.CreateSpotGoodsTx(ctx, tx, goods); err != nil {
+			return err
+		}
+		ledger := &model.SpotStockLedger{
+			ListingID:  goods.ID,
+			Delta:      goods.StockTotal,
+			Reason:     model.StockLedgerReasonPublish,
+			OperatorID: &goods.SellerID,
+		}
+		return repository.CreateStockLedger(ctx, tx, ledger)
+	})
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to create spot good: %v", goods)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -136,7 +150,26 @@ func UpdateSpotGoodsStock(
 			},
 		}, "")
 	}
-	rows, err := repository.UpdateSpotGoodsStock(ctx, goodsID, newStockTotal, updatedAt.AsTime())
+
+	oldStock := goods.StockTotal
+	delta := newStockTotal - oldStock
+
+	err = postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		rows, err := repository.UpdateSpotGoodsStockTx(ctx, tx, goodsID, newStockTotal, updatedAt.AsTime())
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return errors.New("goods was modified by another request")
+		}
+		ledger := &model.SpotStockLedger{
+			ListingID:  goodsID,
+			Delta:      delta,
+			Reason:     model.StockLedgerReasonManualAdjust,
+			OperatorID: &callerID,
+		}
+		return repository.CreateStockLedger(ctx, tx, ledger)
+	})
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good stock total for goodsID: %d", goodsID)
 		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -144,14 +177,6 @@ func UpdateSpotGoodsStock(
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
 		}, "")
-	}
-	if rows == 0 {
-		log.Warn().Msgf("Optimistic lock conflict when updating stock for goodsID: %d", goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "optimistic lock conflict")
 	}
 	return nil
 }

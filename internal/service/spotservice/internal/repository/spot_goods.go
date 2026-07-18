@@ -45,13 +45,18 @@ func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGood
 	return goodsList, err
 }
 
-func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) error {
-	_, err := postgres.DB.NewInsert().Model(goods).Returning("*").Exec(ctx)
+func CreateSpotGoodsTx(ctx context.Context, tx bun.IDB, goods *model.SpotGoods) error {
+	_, err := tx.NewInsert().Model(goods).Returning("*").Exec(ctx)
 	return err
 }
 
-func UpdateSpotGoodsStock(ctx context.Context, goodsID int64, newStockTotal int32, updatedAt time.Time) (int64, error) {
-	result, err := postgres.DB.NewUpdate().
+func CreateStockLedger(ctx context.Context, tx bun.IDB, ledger *model.SpotStockLedger) error {
+	_, err := tx.NewInsert().Model(ledger).Exec(ctx)
+	return err
+}
+
+func UpdateSpotGoodsStockTx(ctx context.Context, tx bun.IDB, goodsID int64, newStockTotal int32, updatedAt time.Time) (int64, error) {
+	result, err := tx.NewUpdate().
 		Model((*model.SpotGoods)(nil)).
 		Set("stock_total = ?", newStockTotal).
 		Set("updated_at = ?", time.Now()).
