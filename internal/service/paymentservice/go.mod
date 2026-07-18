@@ -9,6 +9,7 @@ require (
 	github.com/labstack/echo/v5 v5.1.1
 	github.com/rs/zerolog v1.35.1
 	github.com/uptrace/bun v1.2.18
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
@@ -22,5 +23,4 @@ require (
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 )
