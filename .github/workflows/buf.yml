@@ -31,9 +31,10 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [[ "$(git log -1 --format=%B "$PR_HEAD_SHA")" == *"buf skip breaking"* ]]; then
+          if grep -Fq "buf skip breaking" <<<"$(git log --format=%B "$PR_BASE_SHA..$PR_HEAD_SHA")"; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
@@ -44,5 +45,5 @@ jobs:
           token: ${{ secrets.BUF_TOKEN }}
           breaking_against_registry: true
           pr_comment: true
-          # Skip breaking change check by adding "buf skip breaking" to the commit message
+          # Skip breaking change check when any PR commit contains "buf skip breaking".
           breaking: ${{ github.event_name == 'pull_request' && steps.breaking.outputs.enabled == 'true' }}
