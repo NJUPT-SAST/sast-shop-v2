@@ -104,6 +104,21 @@ func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, 
 	return affected, nil
 }
 
+func CountIncompleteBillsBySource(ctx context.Context, sourceType string, sourceID int64) (int64, error) {
+	var row struct {
+		Count int64 `bun:"count"`
+	}
+	err := postgres.DB.NewSelect().
+		TableExpr("payment.payment_bill AS pb").
+		ColumnExpr("COUNT(*) AS count").
+		Where("pb.source_type = ?", sourceType).
+		Where("pb.source_id = ?", sourceID).
+		Where("pb.status != ?", model.PaymentBillStatusClosed).
+		Where("pb.status != ?", model.PaymentBillStatusCompleted).
+		Scan(ctx, &row)
+	return row.Count, err
+}
+
 func CreateConfirmationLog(ctx context.Context, log *model.PaymentConfirmationLog) error {
 	_, err := postgres.DB.NewInsert().Model(log).Exec(ctx)
 	return err
