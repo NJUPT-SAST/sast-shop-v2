@@ -39,8 +39,6 @@ message CreateSpotGoodsRequest {
   int32 stock_total = 3;
   // 前端读取商品模板时拿到的 updated_at，用于校验模板是否被更新
   google.protobuf.Timestamp product_template_updated_at = 4;
-  // 店铺 ID
-  int64 store_id = 5;
 }
 
 message CreateSpotGoodsResponse {

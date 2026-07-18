@@ -5,10 +5,13 @@ import (
 	"errors"
 	"math"
 
+	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	spotv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/spot/v1"
+	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/repository"
 	"github.com/rs/zerolog/log"
@@ -86,8 +89,49 @@ func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGood
 	return spotGoodsList, nil
 }
 
-func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) (*spotv1.SpotGoodsDetail, error) {
-	err := postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+// ValidateProductTemplate checks if the product template exists and if its updated_at timestamp matches the provided one.
+// If the template does not exist or the timestamps do not match, it returns an error.
+func ValidateProductTemplate(
+	ctx context.Context,
+	productTemplateID int64,
+	productTemplateUpdatedAt *timestamppb.Timestamp,
+) (*catalogv1.ProductTemplate, error) {
+	resp, err := client.CatalogInternalServiceClient.GetProductTemplate(
+		ctx,
+		connect.NewRequest(&catalogv1.GetProductTemplateRequest{
+			ProductTemplateId: productTemplateID,
+		}),
+	)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to get product template for templateID: %d", productTemplateID)
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "failed to get product template")
+	}
+	template := resp.Msg.GetProductTemplate()
+	if template == nil {
+		log.Warn().Msgf("Product template not found for templateID: %d", productTemplateID)
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "product template not found")
+	}
+	if productTemplateUpdatedAt == nil || !template.GetUpdatedAt().AsTime().Equal(productTemplateUpdatedAt.AsTime()) {
+		log.Warn().Msgf("Product template updated_at mismatch for templateID: %d", productTemplateID)
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "product template has been updated, please refresh the page")
+	}
+	return template, nil
+}
+
+func CreateSpotGoodsTx(ctx context.Context, goods *model.SpotGoods) error {
+	return postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if err := repository.CreateSpotGoodsTx(ctx, tx, goods); err != nil {
 			return err
 		}
@@ -99,7 +143,21 @@ func CreateSpotGoods(ctx context.Context, goods *model.SpotGoods) (*spotv1.SpotG
 		}
 		return repository.CreateStockLedger(ctx, tx, ledger)
 	})
+}
+
+func CreateSpotGoods(
+	ctx context.Context,
+	goods *model.SpotGoods,
+	productTemplateUpdatedAt *timestamppb.Timestamp,
+) (*spotv1.SpotGoodsDetail, error) {
+	template, err := ValidateProductTemplate(ctx, goods.ProductTemplateID, productTemplateUpdatedAt)
 	if err != nil {
+		return nil, err
+	}
+
+	goods.StoreID = template.GetStoreId()
+
+	if err := CreateSpotGoodsTx(ctx, goods); err != nil {
 		log.Error().Err(err).Msgf("Failed to create spot good: %v", goods)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{

@@ -31,12 +31,7 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 	offset := int((r.Msg.Page - 1) * r.Msg.PageSize)
 	limit := int(r.Msg.PageSize)
 
-	spotGoodsBrief, err := service.ListSpotGoods(
-		ctx,
-		r.Msg.StoreId,
-		offset,
-		limit,
-	)
+	spotGoodsBrief, err := service.ListSpotGoods(ctx, r.Msg.StoreId, offset, limit)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to list spot goods for storeID: %d", r.Msg.StoreId)
 		return nil, err
@@ -81,12 +76,11 @@ func (s *SpotGoodsServiceServer) CreateSpotGoods(
 	}
 	goods := &model.SpotGoods{
 		SellerID:          user.UserID,
-		StoreID:           r.Msg.StoreId,
 		ProductTemplateID: r.Msg.ProductTemplateId,
 		SalePriceCents:    r.Msg.SalePriceCents,
 		StockTotal:        r.Msg.StockTotal,
 	}
-	detail, err := service.CreateSpotGoods(ctx, goods)
+	detail, err := service.CreateSpotGoods(ctx, goods, r.Msg.ProductTemplateUpdatedAt)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to create spot good: %v", goods)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{

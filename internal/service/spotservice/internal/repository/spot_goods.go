@@ -55,7 +55,13 @@ func CreateStockLedger(ctx context.Context, tx bun.IDB, ledger *model.SpotStockL
 	return err
 }
 
-func UpdateSpotGoodsStockTx(ctx context.Context, tx bun.IDB, goodsID int64, newStockTotal int32, updatedAt time.Time) (int64, error) {
+func UpdateSpotGoodsStockTx(
+	ctx context.Context,
+	tx bun.IDB,
+	goodsID int64,
+	newStockTotal int32,
+	updatedAt time.Time,
+) (int64, error) {
 	result, err := tx.NewUpdate().
 		Model((*model.SpotGoods)(nil)).
 		Set("stock_total = ?", newStockTotal).
