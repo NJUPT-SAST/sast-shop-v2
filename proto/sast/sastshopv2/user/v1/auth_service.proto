@@ -2,9 +2,6 @@ syntax = "proto3";
 
 package sast.sastshopv2.user.v1;
 
-import "google/protobuf/timestamp.proto";
-import "sast/sastshopv2/user/v1/user_info.proto";
-
 message LoginRequest {
   string code = 1;
   optional string redirect_uri = 2;
