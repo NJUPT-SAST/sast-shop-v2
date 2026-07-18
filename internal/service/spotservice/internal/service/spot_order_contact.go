@@ -40,7 +40,7 @@ func getSpotOrderSellerContact(
 	deps spotOrderContactDependencies,
 ) (string, error) {
 	if userID <= 0 || req == nil || req.SpotOrderId <= 0 {
-		return "", connect.NewError(connect.CodeInvalidArgument, ErrInvalidCreateSpotOrdersRequest)
+		return "", connect.NewError(connect.CodeInvalidArgument, errors.New("invalid spot order seller contact request"))
 	}
 
 	record, err := deps.getOrderRecord(ctx, req.SpotOrderId)
