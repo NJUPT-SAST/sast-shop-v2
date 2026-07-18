@@ -26,10 +26,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve breaking check policy
+        id: breaking
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if grep -Fq "buf skip breaking" <<<"$(git log --format=%B "$PR_BASE_SHA..$PR_HEAD_SHA")"; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: bufbuild/buf-action@v1
         with:
           token: ${{ secrets.BUF_TOKEN }}
           breaking_against_registry: true
           pr_comment: true
-          # Skip breaking change check by adding "buf skip breaking" to the commit message
-          breaking: ${{ !contains(github.event.head_commit.message, 'buf skip breaking') }}
+          # Skip breaking change check when any PR commit contains "buf skip breaking".
+          breaking: ${{ github.event_name == 'pull_request' && steps.breaking.outputs.enabled == 'true' }}
