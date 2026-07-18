@@ -11,11 +11,11 @@ message LoginRequest {
   optional string device_id = 3;
 }
 
-message LoginMember{
+message LoginMember {
   int64 id = 1;
   string display_name = 2;
-  string avatar_url  = 3;
-  string role  = 4;
+  string avatar_url = 3;
+  string role = 4;
   string status = 5;
 }
 

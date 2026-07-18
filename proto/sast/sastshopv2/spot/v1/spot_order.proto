@@ -5,8 +5,8 @@ package sast.sastshopv2.spot.v1;
 import "google/protobuf/timestamp.proto";
 import "sast/sastshopv2/catalog/v1/product_template.proto";
 import "sast/sastshopv2/catalog/v1/store.proto";
-import "sast/sastshopv2/spot/v1/spot_order_status.proto";
 import "sast/sastshopv2/payment/v1/bill.proto";
+import "sast/sastshopv2/spot/v1/spot_order_status.proto";
 import "sast/sastshopv2/user/v1/user_info.proto";
 
 // 现货订单列表项，服务于买家/卖家订单列表

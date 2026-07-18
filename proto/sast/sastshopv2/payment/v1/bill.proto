@@ -2,9 +2,9 @@ syntax = "proto3";
 
 package sast.sastshopv2.payment.v1;
 
-import "sast/sastshopv2/user/v1/user_info.proto";
-import "sast/sastshopv2/payment/v1/channel.proto";
 import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/payment/v1/channel.proto";
+import "sast/sastshopv2/user/v1/user_info.proto";
 
 enum BillStatus {
   BILL_STATUS_UNSPECIFIED = 0;
