@@ -2,9 +2,10 @@ syntax = "proto3";
 
 package sast.sastshopv2.user.v1;
 
+import "buf/validate/validate.proto";
 import "sast/sastshopv2/user/v1/user_info.proto";
 
-message InternalUserInfo{
+message InternalUserInfo {
   int64 id = 1;
   string name = 2;
   string avatar_url = 3;
@@ -19,7 +20,18 @@ message GetUsersResponse {
   repeated UserInfo users = 1;
 }
 
+message GetUserContactOpenIDRequest {
+  int64 user_id = 1 [(buf.validate.field).int64 = {gt: 0}];
+}
+
+message GetUserContactOpenIDResponse {
+  string feishu_open_id = 1;
+}
+
 service UserInternalService {
   // 批量获取用户信息
   rpc GetUsers(GetUsersRequest) returns (GetUsersResponse);
+
+  // 仅供内部服务解析飞书会话标识
+  rpc GetUserContactOpenID(GetUserContactOpenIDRequest) returns (GetUserContactOpenIDResponse);
 }

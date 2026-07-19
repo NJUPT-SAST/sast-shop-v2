@@ -3,10 +3,10 @@ syntax = "proto3";
 package sast.sastshopv2.user.v1;
 
 enum UserErrorCode {
-    USER_ERROR_CODE_UNSPECIFIED = 0;
-    USER_ERROR_CODE_INTERNAL_ERROR = 2000;
+  USER_ERROR_CODE_UNSPECIFIED = 0;
+  USER_ERROR_CODE_INTERNAL_ERROR = 2000;
 }
 
 message UserError {
-    UserErrorCode code = 1;
+  UserErrorCode code = 1;
 }

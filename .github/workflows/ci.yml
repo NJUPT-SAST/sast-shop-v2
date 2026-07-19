@@ -58,7 +58,6 @@ jobs:
 
           # Check if shared lib changed — if so, all modules must run.
           if echo "$CHANGED" | grep -qE '^internal/pkg/|^\.golangci\.yml|^go\.work|^proto/|^buf\.gen\.yaml|^buf\.lock|^buf\.yaml'; then
-          if echo "$CHANGED" | grep -qE '^internal/pkg/|^\.golangci\.yml|^go\.work'; then
             PKG_CHANGED=true
           fi
           # Also run everything when CI config itself changes.
@@ -108,20 +107,11 @@ jobs:
             internal/service/errandservice/go.sum
 
       - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
 
       - name: Generate proto
-        run: buf generate
-
-      - name: Init gen module
-        run: |
-          cd gen
-          go mod init buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go
-          go mod tidy
-
-      - name: Create go.work
-        run: |
-          go work init
-          go work use ./internal/pkg ./internal/service/userservice ./internal/service/catalogservice ./internal/service/paymentservice ./internal/service/spotservice ./internal/service/errandservice
+        run: make proto
 
       - name: Lint
         uses: golangci/golangci-lint-action@v9
@@ -148,20 +138,11 @@ jobs:
           cache-dependency-path: ${{ matrix.module }}/go.sum
 
       - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
 
       - name: Generate proto
-        run: buf generate
-
-      - name: Init gen module
-        run: |
-          cd gen
-          go mod init buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go
-          go mod tidy
-
-      - name: Create go.work
-        run: |
-          go work init
-          go work use ./internal/pkg ./internal/service/userservice ./internal/service/catalogservice ./internal/service/paymentservice ./internal/service/spotservice ./internal/service/errandservice
+        run: make proto
 
       - name: Build
         working-directory: ${{ matrix.module }}
