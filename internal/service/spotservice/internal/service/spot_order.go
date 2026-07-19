@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -15,6 +13,7 @@ import (
 	spotv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/spot/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
@@ -37,8 +36,9 @@ var (
 )
 
 const (
-	defaultPageSize = 20
-	maxPageSize     = 100
+	defaultPageSize   = 20
+	maxPageSize       = 100
+	spotOrderNoPrefix = "SO"
 )
 
 func ListSpotOrder(
@@ -882,11 +882,7 @@ func checkedInt32(value int, fieldName string) (int32, error) {
 }
 
 func newSpotOrderNo() (string, error) {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	return "SO" + time.Now().UTC().Format("20060102150405") + hex.EncodeToString(b[:]), nil
+	return idgen.NewOrderNo(spotOrderNoPrefix)
 }
 
 func derefInt64(v *int64) int64 {

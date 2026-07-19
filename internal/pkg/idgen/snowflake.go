@@ -14,14 +14,14 @@ import (
 )
 
 const (
-	workerIDBits = 10   //工作节点ID，占10位，支持1024个节点
-	sequenceBits = 12	//序列号，占12位，每毫秒支持4096个ID
+	workerIDBits = 10 // 工作节点ID，占10位，支持1024个节点
+	sequenceBits = 12 // 序列号，占12位，每毫秒支持4096个ID
 
-	MaxWorkerID = 1<<workerIDBits - 1    //最大节点ID = 1023
+	MaxWorkerID = 1<<workerIDBits - 1 // 最大节点ID = 1023
 
 	workerIDShift  = sequenceBits
 	timestampShift = workerIDBits + sequenceBits
-	maxSequence    = 1<<sequenceBits - 1    // 允许的最大时钟回拨
+	maxSequence    = 1<<sequenceBits - 1 // 允许的最大时钟回拨
 
 	defaultEpochMillis = int64(1704067200000)
 	maxClockBackward   = 5 * time.Second
@@ -34,11 +34,11 @@ var (
 )
 
 type Snowflake struct {
-	mu          sync.Mutex  //互斥锁，保证并发安全
-	epochMillis int64	//起始时间戳
-	workerID    int64   //工作节点ID 
-	sequence    int64	//当前毫秒内的序列号
-	lastMillis  int64	//上次生成ID的时间戳
+	mu          sync.Mutex // 互斥锁，保证并发安全
+	epochMillis int64      // 起始时间戳
+	workerID    int64      // 工作节点ID
+	sequence    int64      // 当前毫秒内的序列号
+	lastMillis  int64      // 上次生成ID的时间戳
 }
 
 type OrderNoGenerator struct {
@@ -57,7 +57,8 @@ func NewSnowflake(workerID int64) (*Snowflake, error) {
 		lastMillis:  -1,
 	}, nil
 }
-//订单号生成器  prefix：订单号前缀
+
+// 订单号生成器  prefix：订单号前缀
 func NewOrderNoGenerator(prefix string, workerID int64) (*OrderNoGenerator, error) {
 	if prefix == "" {
 		return nil, fmt.Errorf("order number prefix is empty")
@@ -102,9 +103,9 @@ func (g *OrderNoGenerator) Next() (string, error) {
 func (s *Snowflake) NextID() (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	//时钟回拨检测
+	// 时钟回拨检测
 	nowMillis := currentMillis()
-	//大于5秒就报错，小于5秒等待恢复
+	// 大于5秒就报错，小于5秒等待恢复
 	if nowMillis < s.epochMillis {
 		return 0, fmt.Errorf("current time is before snowflake epoch")
 	}
@@ -138,7 +139,7 @@ func (s *Snowflake) NextID() (int64, error) {
 }
 
 func defaultGenerator() (*Snowflake, error) {
-	defaultSnowflakeOnce.Do(func() {   //只会在第一次调用时执行 //sync.Once.Do() 检测到已经执行过，直接跳过
+	defaultSnowflakeOnce.Do(func() { // 只会在第一次调用时执行 //sync.Once.Do() 检测到已经执行过，直接跳过
 		workerID, err := defaultWorkerID()
 		if err != nil {
 			defaultSnowflakeErr = err
@@ -160,7 +161,7 @@ func defaultWorkerID() (int64, error) {
 
 	raw := strings.TrimSpace(os.Getenv(config.IDGenWorkerIDEnvName))
 	if raw != "" {
-		//解析字符串为整数
+		// 解析字符串为整数
 		workerID, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
 			return 0, fmt.Errorf("parse %s: %w", config.IDGenWorkerIDEnvName, err)
@@ -180,7 +181,8 @@ func validateWorkerID(workerID int64, name string) error {
 	}
 	return nil
 }
-//基于主机名和进程PID
+
+// 基于主机名和进程PID
 func runtimeWorkerID() int64 {
 	h := fnv.New32a()
 	if hostname, err := os.Hostname(); err == nil {
@@ -188,11 +190,13 @@ func runtimeWorkerID() int64 {
 	}
 
 	var pid [4]byte
+	//nolint:gosec
 	binary.BigEndian.PutUint32(pid[:], uint32(os.Getpid()))
 	_, _ = h.Write(pid[:])
 
 	return int64(h.Sum32() & uint32(MaxWorkerID))
 }
+
 // 获取当前时间
 func currentMillis() int64 {
 	return time.Now().UnixMilli()

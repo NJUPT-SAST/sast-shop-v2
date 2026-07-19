@@ -392,14 +392,27 @@ func syncSelectedDemandStatus(
 		selectedItemIDs = append(selectedItemIDs, demandItemIDs(selectedRows)...)
 	}
 
-	demandIDsWithUnselectedItems, err := repository.LoadDemandIDsWithUnselectedItems(ctx, tx, demandIDs, selectedItemIDs)
+	demandIDsWithUnselectedItems, err := repository.LoadDemandIDsWithUnselectedItems(
+		ctx,
+		tx,
+		demandIDs,
+		selectedItemIDs,
+	)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to load demand ids with unselected items")
 		return newErrandInternalError("")
 	}
 
 	for demandID, selectedRows := range demandRows {
-		if err := syncSingleDemand(ctx, tx, taskID, demandID, selectedRows, demandIDsWithUnselectedItems, now); err != nil {
+		if err := syncSingleDemand(
+			ctx,
+			tx,
+			taskID,
+			demandID,
+			selectedRows,
+			demandIDsWithUnselectedItems,
+			now,
+		); err != nil {
 			return err
 		}
 	}
