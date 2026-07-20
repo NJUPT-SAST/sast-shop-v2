@@ -18,14 +18,10 @@ require (
 	cel.dev/expr v0.25.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
-	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/cel-go v0.28.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
-	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.41.0 // indirect
-	go.opentelemetry.io/otel/metric v1.41.0 // indirect
 	go.opentelemetry.io/otel/trace v1.41.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
@@ -38,7 +34,7 @@ require (
 )
 
 require (
-	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260607141353-2f726ec59732.1
+	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260718130453-2aa6c1385c4f.1
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
