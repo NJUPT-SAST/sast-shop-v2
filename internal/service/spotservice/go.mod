@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.20.0-20260607141353-2f726ec59732.1
-	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260607141353-2f726ec59732.1
+	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260718130453-2aa6c1385c4f.1
 	connectrpc.com/connect v1.20.0
 	github.com/NJUPT-SAST/sast-shop-v2/internal/pkg v0.0.0
 	github.com/labstack/echo/v5 v5.1.1

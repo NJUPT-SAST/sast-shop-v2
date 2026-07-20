@@ -2,8 +2,8 @@ buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-202604152011
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1/go.mod h1:tvtbpgaVXZX4g6Pn+AnzFycuRK3MOz5HJfEGeEllXYM=
 buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.20.0-20260607141353-2f726ec59732.1 h1:PxqjJ5iv8dq3QNz7sNdHo2RWmxH2qPInNouSq2IyDxE=
 buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.20.0-20260607141353-2f726ec59732.1/go.mod h1:fHsXyCIMp+PNMcoXAGu0GrtgcCIBtmeYkpxcBMDtik8=
-buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260607141353-2f726ec59732.1 h1:VjoaDXgSs9ZLMq92EYG7jHZPRffQd3jqj9A7m4L4o0w=
-buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260607141353-2f726ec59732.1/go.mod h1:aFm9mnorhJFXvjjh7GbevEuSVdVtd/KD4bgCogHCH40=
+buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260718130453-2aa6c1385c4f.1 h1:kcEOxDHrgEONfUilw0YMlEsQpj3aLu62jVuxZVLvMiw=
+buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260718130453-2aa6c1385c4f.1/go.mod h1:aFm9mnorhJFXvjjh7GbevEuSVdVtd/KD4bgCogHCH40=
 buf.build/go/protovalidate v1.2.0 h1:DQVrUWkmGTBij+kOYv/x2LLxwcLaGKMdzShj1/6/3H0=
 buf.build/go/protovalidate v1.2.0/go.mod h1:7rYiQEhqvAipoazpVNBBH2S2f8bjG4huMVy1V2Yofn4=
 cel.dev/expr v0.25.1 h1:1KrZg61W6TWSxuNZ37Xy49ps13NUovb66QLprthtwi4=
