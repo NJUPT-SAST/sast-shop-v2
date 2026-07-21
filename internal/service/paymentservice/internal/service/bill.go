@@ -10,6 +10,7 @@ import (
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/repository"
@@ -25,6 +26,8 @@ var (
 	ErrDuplicateBill       = errors.New("duplicate bill")
 )
 
+const paymentBillNoPrefix = "PAY"
+
 func CreateBill(
 	ctx context.Context,
 	payerId, payeeId int64,
@@ -36,8 +39,14 @@ func CreateBill(
 		return nil, ErrInvalidBillStatus
 	}
 
+	billNo, err := newPaymentBillNo()
+	if err != nil {
+		log.Error().Err(err).Msg("CreateBill: generate bill number failed")
+		return nil, fmt.Errorf("create bill: generate bill number: %w", err)
+	}
+
 	bill := &model.PaymentBill{
-		BillNo:      model.GenerateBillNo(),
+		BillNo:      billNo,
 		PayerID:     payerId,
 		PayeeID:     payeeId,
 		SourceType:  sourceType,
@@ -46,7 +55,7 @@ func CreateBill(
 		VerifyCode:  model.GenerateVerifyCode(),
 		Status:      model.PaymentBillStatusUnpaid,
 	}
-	err := repository.CreateBill(ctx, bill)
+	err = repository.CreateBill(ctx, bill)
 	if err != nil {
 		log.Error().Err(err).Msg("CreateBill: CreateBill failed")
 		return nil, fmt.Errorf("create bill: %w", err)
@@ -269,8 +278,14 @@ func CreateBillForOrder(
 		return PaymentBillToProto(ctx, bill)
 	}
 
+	billNo, err := newPaymentBillNo()
+	if err != nil {
+		log.Error().Err(err).Msg("CreateBillForOrder: generate bill number failed")
+		return nil, fmt.Errorf("create bill for order: generate bill number: %w", err)
+	}
+
 	bill = &model.PaymentBill{
-		BillNo:      model.GenerateBillNo(),
+		BillNo:      billNo,
 		PayerID:     payerID,
 		PayeeID:     payeeID,
 		SourceType:  &sourceType,
@@ -292,6 +307,10 @@ func CreateBillForOrder(
 		return PaymentBillToProto(ctx, existing)
 	}
 	return PaymentBillToProto(ctx, bill)
+}
+
+func newPaymentBillNo() (string, error) {
+	return idgen.NewOrderNo(paymentBillNoPrefix)
 }
 
 func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) error {
@@ -345,10 +364,12 @@ func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv
 		pb.ClosedAt = timestamppb.New(*bill.ClosedAt)
 	}
 
-	getUsersResp, err := client.UserInternalServiceClient.GetUsers(ctx, connect.NewRequest(
-		&userv1.GetUsersRequest{
-			UserIds: []int64{bill.PayerID, bill.PayeeID},
-		}),
+	getUsersResp, err := client.UserInternalServiceClient.GetUsers(
+		ctx, connect.NewRequest(
+			&userv1.GetUsersRequest{
+				UserIds: []int64{bill.PayerID, bill.PayeeID},
+			},
+		),
 	)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get user info for billId: %d", bill.ID)

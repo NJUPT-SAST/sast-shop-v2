@@ -69,15 +69,6 @@ const (
 	PaymentBillStatusClosed    PaymentBillStatus = "closed"
 )
 
-func GenerateBillNo() string {
-	ts := time.Now().Format("20060102150405")
-	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
-	if err != nil {
-		return "PAY" + ts + fmt.Sprintf("%06d", time.Now().UnixNano()%1_000_000)
-	}
-	return "PAY" + ts + fmt.Sprintf("%06d", n.Int64())
-}
-
 func GenerateVerifyCode() string {
 	n, err := rand.Int(rand.Reader, big.NewInt(9000))
 	if err != nil {
