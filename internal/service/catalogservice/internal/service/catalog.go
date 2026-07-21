@@ -63,6 +63,26 @@ func GetProductTemplate(ctx context.Context, id int64) (*catalogv1.ProductTempla
 	return productTemplateToProto(pt, barcode, imageURL), nil
 }
 
+// GetProductTemplates 按 ID 批量获取商品模板。
+func GetProductTemplates(ctx context.Context, ids []int64) ([]*catalogv1.ProductTemplate, error) {
+	pts, err := repository.ListProductTemplatesByIDs(ctx, ids)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to get product templates for ids: %v", ids)
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
+			CatalogError: &catalogv1.CatalogError{
+				Code: catalogv1.CatalogErrorCode_CATALOG_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+
+	result := make([]*catalogv1.ProductTemplate, 0, len(pts))
+	for _, pt := range pts {
+		barcode, imageURL := fillBarcodeAndImage(ctx, pt.ID)
+		result = append(result, productTemplateToProto(pt, barcode, imageURL))
+	}
+	return result, nil
+}
+
 // GetStore 按 ID 获取店铺。
 func GetStore(ctx context.Context, id int64) (*catalogv1.Store, error) {
 	store, err := repository.GetStoreByID(ctx, id)

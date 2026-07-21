@@ -5,6 +5,7 @@ import (
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/model"
+	"github.com/uptrace/bun"
 )
 
 // GetProductTemplateByID 按 ID 查询商品模板。
@@ -12,6 +13,21 @@ func GetProductTemplateByID(ctx context.Context, id int64) (*model.CatalogProduc
 	var pt model.CatalogProductTemplate
 	err := postgres.DB.NewSelect().Model(&pt).Where("id = ?", id).Scan(ctx)
 	return &pt, err
+}
+
+// ListProductTemplatesByIDs需要通过商品id渲染商品模板
+func ListProductTemplatesByIDs(ctx context.Context, ids []int64) ([]*model.CatalogProductTemplate, error) {
+	if len(ids) == 0 {
+		return []*model.CatalogProductTemplate{}, nil
+	}
+
+	var pts []*model.CatalogProductTemplate
+	err := postgres.DB.NewSelect().
+		Model(&pts).
+		Where("id IN (?)", bun.List(ids)).
+		Order("id ASC").
+		Scan(ctx)
+	return pts, err
 }
 
 // GetStoreByID 按 ID 查询店铺。

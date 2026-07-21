@@ -14,6 +14,8 @@ var (
 	Production  = Environment(constant.Prod)
 )
 
+const IDGenWorkerIDEnvName = "SAST_SHOP_IDGEN_WORKER_ID"
+
 type Config struct {
 	// Database configuration
 	DB_Username string `env:"DB_USERNAME" envDefault:"root"`
@@ -35,6 +37,9 @@ type Config struct {
 	Feishu_REDIRECT_URL string `env:"FEISHU_REDIRECT_URL" envDefault:"http://127.0.0.1:8080/api/v1/auth/feishu/callback"`
 	// App configuration
 	AppEnv Environment `env:"APP_ENV" envDefault:"development"`
+
+	// ID generator configuration
+	IDGen_WorkerID int64 `env:"SAST_SHOP_IDGEN_WORKER_ID" envDefault:"-1"`
 
 	// Service ports and urls
 	UserServiceURL     string `env:"USER_SERVICE_URL"     envDefault:"http://localhost"`

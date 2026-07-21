@@ -14,7 +14,8 @@ var DB *bun.DB
 
 func Init() {
 	cfg := config.AppConfig
-	dsn := fmt.Sprintf("postgresql://%s:%s@%s:%d/%s?sslmode=disable",
+	dsn := fmt.Sprintf(
+		"postgresql://%s:%s@%s:%d/%s?sslmode=disable",
 		cfg.DB_Username, cfg.DB_Password, cfg.DB_Host, cfg.DB_Port, cfg.DB_Name,
 	)
 	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))

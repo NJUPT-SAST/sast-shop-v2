@@ -6,6 +6,8 @@ import (
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/errand/v1/errandv1connect"
 	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
 	"connectrpc.com/connect"
+	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
 )
@@ -18,7 +20,17 @@ func (s *ErrandTaskServiceServer) CreateTask(
 	ctx context.Context,
 	r *connect.Request[errandv1.CreateTaskRequest],
 ) (*connect.Response[errandv1.CreateTaskResponse], error) {
-	return nil, errandError()
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	taskID, err := service.CreateTask(ctx, captainID, r.Msg)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&errandv1.CreateTaskResponse{
+		ErrandTaskId: taskID,
+	}), nil
 }
 
 func (s *ErrandTaskServiceServer) GetShoppingTaskDetail(

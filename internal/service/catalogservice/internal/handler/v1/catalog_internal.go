@@ -28,6 +28,19 @@ func (s *CatalogInternalServer) GetProductTemplate(
 	}), nil
 }
 
+func (s *CatalogInternalServer) GetProductTemplates(
+	ctx context.Context,
+	r *connect.Request[catalogv1.GetProductTemplatesRequest],
+) (*connect.Response[catalogv1.GetProductTemplatesResponse], error) {
+	pts, err := service.GetProductTemplates(ctx, r.Msg.ProductTemplateIds)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&catalogv1.GetProductTemplatesResponse{
+		ProductTemplates: pts,
+	}), nil
+}
+
 func (s *CatalogInternalServer) GetStore(
 	ctx context.Context,
 	r *connect.Request[catalogv1.GetStoreRequest],

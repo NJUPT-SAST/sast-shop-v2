@@ -13,6 +13,14 @@ message GetProductTemplateResponse {
   ProductTemplate product_template = 1;
 }
 
+message GetProductTemplatesRequest {
+  repeated int64 product_template_ids = 1;
+}
+
+message GetProductTemplatesResponse {
+  repeated ProductTemplate product_templates = 1;
+}
+
 message GetStoreRequest {
   int64 store_id = 1;
 }
@@ -24,6 +32,9 @@ message GetStoreResponse {
 service CatalogInternalService {
   // 读取商品模板快照，供 group-trade 创建现货 listing 或跑腿需求使用
   rpc GetProductTemplate(GetProductTemplateRequest) returns (GetProductTemplateResponse);
+
+  // Batch get product templates by product template IDs.
+  rpc GetProductTemplates(GetProductTemplatesRequest) returns (GetProductTemplatesResponse);
 
   // 读取店铺快照，供 group-trade 展示和校验店铺使用
   rpc GetStore(GetStoreRequest) returns (GetStoreResponse);
