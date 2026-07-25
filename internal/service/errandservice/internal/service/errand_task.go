@@ -518,9 +518,7 @@ func GetShoppingTaskDetail(
 	captainID int64,
 	req *errandv1.GetShoppingTaskDetailRequest,
 ) (*errandv1.GetShoppingTaskDetailResponse, error) {
-	if captainID <= 0 {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
+ 
 
 	if req == nil || req.ErrandTaskId <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
@@ -535,7 +533,7 @@ func GetShoppingTaskDetail(
 			Err(err).
 			Int64("errand_task_id", req.ErrandTaskId).
 			Int64("captain_id", captainID).
-			Msg("failde to load shopping task header")
+			Msg("failed to load shopping task header")
 		return nil, newErrandInternalError("")
 	}
 
@@ -909,9 +907,7 @@ func GetDistributingTaskDetail(
 	captainID int64,
 	req *errandv1.GetDistributingTaskDetailRequest,
 ) (*errandv1.GetDistributingTaskDetailResponse, error) {
-	if captainID <= 0 {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
+ 
 	if req == nil || req.ErrandTaskId <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
 	}
@@ -1775,9 +1771,7 @@ func GetCollectingPaymentDetail(
 	captainID int64,
 	req *errandv1.GetCollectingPaymentDetailRequest,
 ) (*errandv1.GetCollectingPaymentDetailResponse, error) {
-	if captainID <= 0 {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
+ 
 	if req == nil || req.ErrandTaskId <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
 	}
@@ -2171,9 +2165,6 @@ func GetErrandTaskList(
 	captainID int64,
 	req *errandv1.GetErrandTaskListRequest,
 ) (*errandv1.GetErrandTaskListResponse, error) {
-	if captainID <= 0 {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
 	if req == nil {
 		req = &errandv1.GetErrandTaskListRequest{}
 	}
