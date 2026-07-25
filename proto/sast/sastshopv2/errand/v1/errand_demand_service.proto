@@ -15,10 +15,7 @@ message CreateErrandDemandRequest {
   google.protobuf.Timestamp deadline = 2[
     (buf.validate.field).timestamp = {
       // this（当前字段值）必须大于 now（当前系统时间）
-      cel: {
-        expression: "this > now"
-        message: "截止日期不能早于或等于当前时间，请重新设置"
-      }
+      gt_now: true
     }
   ];
   // 买家一次提交的商品需求行
