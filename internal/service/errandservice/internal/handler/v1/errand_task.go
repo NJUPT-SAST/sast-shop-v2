@@ -37,7 +37,7 @@ func (s *ErrandTaskServiceServer) GetShoppingTaskDetail(
 	ctx context.Context,
 	r *connect.Request[errandv1.GetShoppingTaskDetailRequest],
 ) (*connect.Response[errandv1.GetShoppingTaskDetailResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +52,7 @@ func (s *ErrandTaskServiceServer) SaveShoppingTaskItem(
 	ctx context.Context,
 	r *connect.Request[errandv1.SaveShoppingTaskItemRequest],
 ) (*connect.Response[errandv1.SaveShoppingTaskItemResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func (s *ErrandTaskServiceServer) TransitionToPendingDistributing(
 	ctx context.Context,
 	r *connect.Request[errandv1.TransitionToPendingDistributingRequest],
 ) (*connect.Response[errandv1.TransitionToPendingDistributingResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (s *ErrandTaskServiceServer) GetDistributingTaskDetail(
 	ctx context.Context,
 	r *connect.Request[errandv1.GetDistributingTaskDetailRequest],
 ) (*connect.Response[errandv1.GetDistributingTaskDetailResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (s *ErrandTaskServiceServer) UpdateActualPrice(
 	ctx context.Context,
 	r *connect.Request[errandv1.UpdateActualPriceRequest],
 ) (*connect.Response[errandv1.UpdateActualPriceResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func (s *ErrandTaskServiceServer) TransitionToDistributing(
 	ctx context.Context,
 	r *connect.Request[errandv1.TransitionToDistributingRequest],
 ) (*connect.Response[errandv1.TransitionToDistributingResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (s *ErrandTaskServiceServer) SaveDistributingTaskAssignment(
 	ctx context.Context,
 	r *connect.Request[errandv1.SaveDistributingTaskAssignmentRequest],
 ) (*connect.Response[errandv1.SaveDistributingTaskAssignmentResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (s *ErrandTaskServiceServer) TransitionToCollectingPayment(
 	ctx context.Context,
 	r *connect.Request[errandv1.TransitionToCollectingPaymentRequest],
 ) (*connect.Response[errandv1.TransitionToCollectingPaymentResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (s *ErrandTaskServiceServer) GetCollectingPaymentDetail(
 	ctx context.Context,
 	r *connect.Request[errandv1.GetCollectingPaymentDetailRequest],
 ) (*connect.Response[errandv1.GetCollectingPaymentDetailResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (s *ErrandTaskServiceServer) TransitionToCompleted(
 	ctx context.Context,
 	r *connect.Request[errandv1.TransitionToCompletedRequest],
 ) (*connect.Response[errandv1.TransitionToCompletedResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func (s *ErrandTaskServiceServer) GetErrandTaskList(
 	ctx context.Context,
 	r *connect.Request[errandv1.GetErrandTaskListRequest],
 ) (*connect.Response[errandv1.GetErrandTaskListResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,7 @@ func (s *ErrandTaskServiceServer) CancelTask(
 	ctx context.Context,
 	r *connect.Request[errandv1.CancelTaskRequest],
 ) (*connect.Response[errandv1.CancelTaskResponse], error) {
-	captainID, err := captainIDFromContext(ctx)
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
