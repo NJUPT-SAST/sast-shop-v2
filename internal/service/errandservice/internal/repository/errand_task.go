@@ -184,6 +184,17 @@ func UpdateDemandItemsToShopping(ctx context.Context, db bun.IDB, itemIDs []int6
 }
 
 func CreateDemand(ctx context.Context, db bun.IDB, demand *model.ErrandDemand) error {
+	now := time.Now()
+	if demand.Status == "" {
+		demand.Status = model.ErrandDemandStatusOpen
+	}
+	if demand.CreatedAt.IsZero() {
+		demand.CreatedAt = now
+	}
+	if demand.UpdatedAt.IsZero() {
+		demand.UpdatedAt = now
+	}
+
 	_, err := db.NewInsert().
 		Model(demand).
 		Returning("id").

@@ -12,6 +12,7 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/repository"
 	"github.com/rs/zerolog/log"
+	"github.com/uptrace/bun"
 )
 
 // 业务哨兵错误，handler 层用 errors.Is 来分辨错误类型。
@@ -43,8 +44,6 @@ func CreateErrandDemand(
 	items []DemandItemDraft,
 ) (int64, error) {
 	// 1. 参数校验
-	
-
 
 	// 检查重复商品（同一个 product_template_id 不能出现两次）
 	productSet := make(map[int64]struct{})
@@ -64,35 +63,43 @@ func CreateErrandDemand(
 		return 0, err
 	}
 
-	// 3. 插入 errand_demand 主记录
-	demand := &model.ErrandDemand{
-		RequesterID: requesterID,
-		StoreID:     storeID,
-		Deadline:    deadline,
-	}
-	demandID, err := repository.CreateDemand(ctx, demand)
+	var demandID int64
+	err = repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		// 3. 插入 errand_demand 主记录
+		demand := &model.ErrandDemand{
+			RequesterID: requesterID,
+			StoreID:     storeID,
+			Deadline:    deadline,
+		}
+		if err := repository.CreateDemand(ctx, tx, demand); err != nil {
+			log.Error().Err(err).Msg("create demand failed")
+			return ErrInternal
+		}
+		demandID = demand.ID
+
+		// 4. 批量插入 errand_demand_item 明细
+		demandItems := make([]*model.ErrandDemandItem, 0, len(items))
+		for _, item := range items {
+			demandItems = append(demandItems, &model.ErrandDemandItem{
+				ErrandDemandID:          demandID,
+				RequesterID:             requesterID,
+				StoreID:                 storeID,
+				ProductTemplateID:       item.ProductTemplateID,
+				Quantity:                item.Quantity,
+				ServiceFeePerUnitCents:  item.ServiceFeePerUnitCents,
+				EstimatedUnitPriceCents: productMap[item.ProductTemplateID].PriceCents,
+			})
+		}
+
+		if err := repository.BatchCreateDemandItems(ctx, tx, demandItems); err != nil {
+			log.Error().Err(err).Msg("batch create demand items failed")
+			return ErrInternal
+		}
+
+		return nil
+	})
 	if err != nil {
-		log.Error().Err(err).Msg("create demand failed")
-		return 0, ErrInternal
-	}
-
-	// 4. 批量插入 errand_demand_item 明细
-	demandItems := make([]*model.ErrandDemandItem, 0, len(items))
-	for _, item := range items {
-		demandItems = append(demandItems, &model.ErrandDemandItem{
-			ErrandDemandID:          demandID,
-			RequesterID:             requesterID,
-			StoreID:                 storeID,
-			ProductTemplateID:       item.ProductTemplateID,
-			Quantity:                item.Quantity,
-			ServiceFeePerUnitCents:  item.ServiceFeePerUnitCents,
-			EstimatedUnitPriceCents: productMap[item.ProductTemplateID].PriceCents,
-		})
-	}
-
-	if err := repository.BatchCreateDemandItems(ctx, demandItems); err != nil {
-		log.Error().Err(err).Msg("batch create demand items failed")
-		return 0, ErrInternal
+		return 0, err
 	}
 
 	return demandID, nil
@@ -105,11 +112,30 @@ func validateProducts(
 	storeID int64,
 	items []DemandItemDraft,
 ) (map[int64]*catalogv1.ProductTemplate, error) {
-	productMap := make(map[int64]*catalogv1.ProductTemplate)
+	ids := make([]int64, 0, len(items))
 	for _, item := range items {
-		p, err := client.GetProductTemplate(ctx, item.ProductTemplateID)
-		if err != nil {
-			log.Error().Err(err).Int64("product_id", item.ProductTemplateID).Msg("get product template failed")
+		ids = append(ids, item.ProductTemplateID)
+	}
+
+	products, err := client.GetProductTemplates(ctx, ids)
+	if err != nil {
+		log.Error().Err(err).Interface("product_template_ids", ids).Msg("get product templates failed")
+		return nil, ErrProductInvalid
+	}
+
+	productMap := make(map[int64]*catalogv1.ProductTemplate, len(products))
+	for _, p := range products {
+		if p == nil {
+			log.Warn().Msg("catalog returned nil product template")
+			return nil, ErrProductInvalid
+		}
+		productMap[p.Id] = p
+	}
+
+	for _, item := range items {
+		p, ok := productMap[item.ProductTemplateID]
+		if !ok {
+			log.Warn().Int64("product_id", item.ProductTemplateID).Msg("product template not found")
 			return nil, ErrProductInvalid
 		}
 		// 校验商品是否属于当前店铺
@@ -124,7 +150,6 @@ func validateProducts(
 				Msg("product version mismatch")
 			return nil, ErrProductInvalid
 		}
-		productMap[p.Id] = p
 	}
 	return productMap, nil
 }

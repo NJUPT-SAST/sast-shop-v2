@@ -30,6 +30,20 @@ func GetProductTemplate(ctx context.Context, id int64) (*catalogv1.ProductTempla
 	return resp.Msg.ProductTemplate, nil
 }
 
+func GetProductTemplates(ctx context.Context, ids []int64) ([]*catalogv1.ProductTemplate, error) {
+	if len(ids) == 0 {
+		return []*catalogv1.ProductTemplate{}, nil
+	}
+
+	resp, err := CatalogInternalClient.GetProductTemplates(ctx, connect.NewRequest(&catalogv1.GetProductTemplatesRequest{
+		ProductTemplateIds: ids,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg.GetProductTemplates(), nil
+}
+
 func GetStore(ctx context.Context, id int64) (*catalogv1.Store, error) {
 	resp, err := CatalogInternalClient.GetStore(ctx, connect.NewRequest(&catalogv1.GetStoreRequest{
 		StoreId: id,

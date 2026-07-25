@@ -9,21 +9,7 @@ import (
 	"github.com/uptrace/bun"
 )
 
-func CreateDemand(ctx context.Context, demand *model.ErrandDemand) (int64, error) {
-	demand.Status = model.ErrandDemandStatusOpen
-	demand.CreatedAt = time.Now()
-	demand.UpdatedAt = time.Now()
-
-	_, err := postgres.DB.NewInsert().
-		Model(demand).
-		Exec(ctx)
-	if err != nil {
-		return 0, err
-	}
-	return demand.ID, nil
-}
-
-func BatchCreateDemandItems(ctx context.Context, items []*model.ErrandDemandItem) error {
+func BatchCreateDemandItems(ctx context.Context, db bun.IDB, items []*model.ErrandDemandItem) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -35,7 +21,7 @@ func BatchCreateDemandItems(ctx context.Context, items []*model.ErrandDemandItem
 		item.UpdatedAt = now
 	}
 
-	_, err := postgres.DB.NewInsert().
+	_, err := db.NewInsert().
 		Model(&items).
 		Exec(ctx)
 	return err
