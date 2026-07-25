@@ -56,10 +56,13 @@ func (s *ErrandTaskServiceServer) SaveShoppingTaskItem(
 	if err != nil {
 		return nil, err
 	}
-	if err := service.SaveShoppingTaskItem(ctx, captainID, r.Msg); err != nil {
+	updatedAt, err := service.SaveShoppingTaskItem(ctx, captainID, r.Msg)
+	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	return connect.NewResponse(&errandv1.SaveShoppingTaskItemResponse{}), nil
+	return connect.NewResponse(&errandv1.SaveShoppingTaskItemResponse{
+		ErrandTaskItemUpdatedAt: updatedAt,
+	}), nil
 }
 
 func (s *ErrandTaskServiceServer) TransitionToPendingDistributing(
@@ -70,10 +73,13 @@ func (s *ErrandTaskServiceServer) TransitionToPendingDistributing(
 	if err != nil {
 		return nil, err
 	}
-	if err := service.TransitionToPendingDistributing(ctx, captainID, r.Msg); err != nil {
+	updatedAt, err := service.TransitionToPendingDistributing(ctx, captainID, r.Msg)
+	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	return connect.NewResponse(&errandv1.TransitionToPendingDistributingResponse{}), nil
+	return connect.NewResponse(&errandv1.TransitionToPendingDistributingResponse{
+		UpdatedAt: updatedAt,
+	}), nil
 }
 
 func (s *ErrandTaskServiceServer) GetDistributingTaskDetail(
@@ -99,10 +105,13 @@ func (s *ErrandTaskServiceServer) UpdateActualPrice(
 	if err != nil {
 		return nil, err
 	}
-	if err := service.UpdateActualPrice(ctx, captainID, r.Msg); err != nil {
+	updatedAt, err := service.UpdateActualPrice(ctx, captainID, r.Msg)
+	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	return connect.NewResponse(&errandv1.UpdateActualPriceResponse{}), nil
+	return connect.NewResponse(&errandv1.UpdateActualPriceResponse{
+		ErrandTaskItemUpdatedAt: updatedAt,
+	}), nil
 }
 
 func (s *ErrandTaskServiceServer) TransitionToDistributing(
@@ -113,10 +122,13 @@ func (s *ErrandTaskServiceServer) TransitionToDistributing(
 	if err != nil {
 		return nil, err
 	}
-	if err := service.TransitionToDistributing(ctx, captainID, r.Msg); err != nil {
+	updatedAt, err := service.TransitionToDistributing(ctx, captainID, r.Msg)
+	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	return connect.NewResponse(&errandv1.TransitionToDistributingResponse{}), nil
+	return connect.NewResponse(&errandv1.TransitionToDistributingResponse{
+		UpdatedAt: updatedAt,
+	}), nil
 }
 
 func (s *ErrandTaskServiceServer) SaveDistributingTaskAssignment(
@@ -127,10 +139,13 @@ func (s *ErrandTaskServiceServer) SaveDistributingTaskAssignment(
 	if err != nil {
 		return nil, err
 	}
-	if err := service.SaveDistributingTaskAssignment(ctx, captainID, r.Msg); err != nil {
+	updatedAt, err := service.SaveDistributingTaskAssignment(ctx, captainID, r.Msg)
+	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	return connect.NewResponse(&errandv1.SaveDistributingTaskAssignmentResponse{}), nil
+	return connect.NewResponse(&errandv1.SaveDistributingTaskAssignmentResponse{
+		ErrandTaskAssignmentUpdatedAt: updatedAt,
+	}), nil
 }
 
 func (s *ErrandTaskServiceServer) TransitionToCollectingPayment(
@@ -141,10 +156,13 @@ func (s *ErrandTaskServiceServer) TransitionToCollectingPayment(
 	if err != nil {
 		return nil, err
 	}
-	if err := service.TransitionToCollectingPayment(ctx, captainID, r.Msg); err != nil {
+	updatedAt, err := service.TransitionToCollectingPayment(ctx, captainID, r.Msg)
+	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	return connect.NewResponse(&errandv1.TransitionToCollectingPaymentResponse{}), nil
+	return connect.NewResponse(&errandv1.TransitionToCollectingPaymentResponse{
+		UpdatedAt: updatedAt,
+	}), nil
 }
 
 func (s *ErrandTaskServiceServer) GetCollectingPaymentDetail(
@@ -170,10 +188,13 @@ func (s *ErrandTaskServiceServer) TransitionToCompleted(
 	if err != nil {
 		return nil, err
 	}
-	if err := service.TransitionToCompleted(ctx, captainID, r.Msg); err != nil {
+	updatedAt, err := service.TransitionToCompleted(ctx, captainID, r.Msg)
+	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	return connect.NewResponse(&errandv1.TransitionToCompletedResponse{}), nil
+	return connect.NewResponse(&errandv1.TransitionToCompletedResponse{
+		UpdatedAt: updatedAt,
+	}), nil
 }
 
 func (s *ErrandTaskServiceServer) GetErrandTaskList(
@@ -199,10 +220,13 @@ func (s *ErrandTaskServiceServer) CancelTask(
 	if err != nil {
 		return nil, err
 	}
-	if err := service.CancelTask(ctx, captainID, r.Msg); err != nil {
+	updatedAt, err := service.CancelTask(ctx, captainID, r.Msg)
+	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	return connect.NewResponse(&errandv1.CancelTaskResponse{}), nil
+	return connect.NewResponse(&errandv1.CancelTaskResponse{
+		UpdatedAt: updatedAt,
+	}), nil
 }
 
 func InitErrandTaskServiceHandler(e *echo.Echo, opts ...connect.HandlerOption) {

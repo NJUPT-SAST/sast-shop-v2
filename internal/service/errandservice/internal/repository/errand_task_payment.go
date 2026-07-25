@@ -49,27 +49,29 @@ func UpdateTaskToCollectingPayment(
 	taskID int64,
 	expectedUpdatedAt time.Time,
 	now time.Time,
-) error {
+) (time.Time, error) {
+	task := &model.ErrandTask{ID: taskID}
 	res, err := db.NewUpdate().
-		Model((*model.ErrandTask)(nil)).
+		Model(task).
 		Set("status = ?", model.ErrandTaskStatusCollectingPayment).
 		Set("distribution_completed_at = ?", now).
 		Set("updated_at = ?", now).
-		Where("id = ?", taskID).
+		WherePK().
 		Where("status = ?", model.ErrandTaskStatusDistributing).
 		Where("updated_at = ?", expectedUpdatedAt).
+		Returning("updated_at").
 		Exec(ctx)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if affected == 0 {
-		return sql.ErrNoRows
+		return time.Time{}, sql.ErrNoRows
 	}
-	return nil
+	return task.UpdatedAt, nil
 }
 
 func UpdateTaskRelatedDemandsToPendingPayment(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
@@ -171,6 +173,7 @@ type CollectingPaymentTaskHeaderRow struct {
 	TaskID            int64                  `bun:"task_id"`
 	PackagingFeeCents int32                  `bun:"packaging_fee_cents"`
 	Status            model.ErrandTaskStatus `bun:"status"`
+	UpdatedAt         time.Time              `bun:"updated_at"`
 }
 
 func GetCollectingPaymentTaskHeader(
@@ -184,6 +187,7 @@ func GetCollectingPaymentTaskHeader(
 		ColumnExpr("et.id AS task_id").
 		ColumnExpr("et.packaging_fee_cents AS packaging_fee_cents").
 		ColumnExpr("et.status AS status").
+		ColumnExpr("et.updated_at AS updated_at").
 		Where("et.id = ?", taskID).
 		Where("et.captain_id = ?", captainID).
 		Limit(1).
@@ -359,27 +363,29 @@ func UpdateTaskToCompleted(
 	taskID int64,
 	expectedUpdatedAt time.Time,
 	now time.Time,
-) error {
+) (time.Time, error) {
+	task := &model.ErrandTask{ID: taskID}
 	res, err := db.NewUpdate().
-		Model((*model.ErrandTask)(nil)).
+		Model(task).
 		Set("status = ?", model.ErrandTaskStatusCompleted).
 		Set("payment_completed_at = ?", now).
 		Set("updated_at = ?", now).
-		Where("id = ?", taskID).
+		WherePK().
 		Where("status = ?", model.ErrandTaskStatusCollectingPayment).
 		Where("updated_at = ?", expectedUpdatedAt).
+		Returning("updated_at").
 		Exec(ctx)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if affected == 0 {
-		return sql.ErrNoRows
+		return time.Time{}, sql.ErrNoRows
 	}
-	return nil
+	return task.UpdatedAt, nil
 }
 
 func UpdateTaskRelatedDemandsToCompleted(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
@@ -548,30 +554,32 @@ func UpdateTaskToCancelled(
 	taskID int64,
 	expectedUpdatedAt time.Time,
 	now time.Time,
-) error {
+) (time.Time, error) {
+	task := &model.ErrandTask{ID: taskID}
 	res, err := db.NewUpdate().
-		Model((*model.ErrandTask)(nil)).
+		Model(task).
 		Set("status = ?", model.ErrandTaskStatusCancelled).
 		Set("cancelled_at = ?", now).
 		Set("updated_at = ?", now).
-		Where("id = ?", taskID).
+		WherePK().
 		Where("updated_at = ?", expectedUpdatedAt).
 		Where("status NOT IN (?)", bun.List([]model.ErrandTaskStatus{
 			model.ErrandTaskStatusCompleted,
 			model.ErrandTaskStatusCancelled,
 		})).
+		Returning("updated_at").
 		Exec(ctx)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if affected == 0 {
-		return sql.ErrNoRows
+		return time.Time{}, sql.ErrNoRows
 	}
-	return nil
+	return task.UpdatedAt, nil
 }
 
 func UpdateTaskRelatedDemandsToCancelled(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {

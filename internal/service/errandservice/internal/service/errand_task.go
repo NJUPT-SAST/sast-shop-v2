@@ -71,7 +71,6 @@ func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRe
 	if captainID <= 0 {
 		return 0, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}
-
 	if req == nil || req.StoreId <= 0 || len(req.DemandItems) == 0 {
 		return 0, ErrInvalidDemandItem
 	}
@@ -518,7 +517,6 @@ func GetShoppingTaskDetail(
 	captainID int64,
 	req *errandv1.GetShoppingTaskDetailRequest,
 ) (*errandv1.GetShoppingTaskDetailResponse, error) {
- 
 
 	if req == nil || req.ErrandTaskId <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
@@ -556,10 +554,16 @@ func GetShoppingTaskDetail(
 		StoreId:      header.StoreID,
 		StoreName:    header.StoreName,
 		TaskItems:    taskItems,
+		UpdatedAt:    timestamppb.New(header.UpdatedAt),
 	}, nil
 }
 
 func shoppingTaskItemRowToProto(row repository.ShoppingTaskItemRow, storeID int64) *errandv1.ErrandTaskItem {
+	actualUnitPriceCents := int32(0)
+	if row.ActualUnitPriceCents != nil {
+		actualUnitPriceCents = *row.ActualUnitPriceCents
+	}
+
 	taskItem := &errandv1.ErrandTaskItem{
 		Id: row.TaskItemID,
 		ProductSnapshot: &catalogv1.ProductTemplate{
@@ -571,7 +575,7 @@ func shoppingTaskItemRowToProto(row repository.ShoppingTaskItemRow, storeID int6
 			MainImageUrl: row.ImageURLSnapshot,
 		},
 		RequiredQuantity:     row.RequiredQuantity,
-		ActualUnitPriceCents: *row.ActualUnitPriceCents,
+		ActualUnitPriceCents: actualUnitPriceCents,
 		UpdatedAt:            timestamppb.New(row.UpdatedAt),
 	}
 	if row.PurchasedQuantity != nil {
@@ -586,18 +590,24 @@ func shoppingTaskItemRowToProto(row repository.ShoppingTaskItemRow, storeID int6
 }
 
 // 更新采购中的跑腿任务商品项（采购中）
-func SaveShoppingTaskItem(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
+func SaveShoppingTaskItem(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.SaveShoppingTaskItemRequest,
+) (*timestamppb.Timestamp, error) {
 	if err := ValidateSaveRequest(ctx, captainID, req); err != nil {
-		return err
+		return nil, err
 	}
-	return executeSaveShoppingTask(ctx, captainID, req)
+	updatedAt, err := executeSaveShoppingTask(ctx, captainID, req)
+	if err != nil {
+		return nil, err
+	}
+	return timestamppb.New(updatedAt), nil
 }
 
 // 基础校验
 func ValidateSaveRequest(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
-	if captainID <= 0 {
-		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
+
 	if req == nil || req.ErrandTaskId <= 0 || req.ErrandTaskItemId <= 0 || req.ErrandTaskItemUpdatedAt == nil ||
 		!req.ErrandTaskItemUpdatedAt.IsValid() {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("incalid save shopping task item request"))
@@ -605,9 +615,10 @@ func ValidateSaveRequest(ctx context.Context, captainID int64, req *errandv1.Sav
 	return nil
 }
 
-func executeSaveShoppingTask(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
+func executeSaveShoppingTask(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) (time.Time, error) {
 	expectedUpdatedAt := req.ErrandTaskItemUpdatedAt.AsTime().UTC()
-	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+	var updatedAt time.Time
+	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		row, err := loadTaskItem(ctx, tx, req, captainID)
 		if err != nil {
 			return err
@@ -623,8 +634,13 @@ func executeSaveShoppingTask(ctx context.Context, captainID int64, req *errandv1
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid purchased quantity"))
 		}
 		// 更新 purchased_quantity、non_purchase_reason、handled_at、updated_at
-		return updateTaskItem(ctx, tx, req, expectedUpdatedAt, captainID)
+		updatedAt, err = updateTaskItem(ctx, tx, req, expectedUpdatedAt, captainID)
+		return err
 	})
+	if err != nil {
+		return time.Time{}, err
+	}
+	return updatedAt, nil
 }
 
 // 加载数据
@@ -656,14 +672,14 @@ func updateTaskItem(
 	req *errandv1.SaveShoppingTaskItemRequest,
 	expectedUpdatedAt time.Time,
 	captainID int64,
-) error {
+) (time.Time, error) {
 	nonPurchaseReason := ""
 	if req.NonPurchaseReason != nil {
 		nonPurchaseReason = req.GetNonPurchaseReason()
 	}
 	now := time.Now().UTC()
 	// 更新 purchased_quantity、non_purchase_reason、handled_at、updated_at
-	if err := repository.UpdateShoppingTaskItem(
+	updatedAt, err := repository.UpdateShoppingTaskItem(
 		ctx,
 		tx,
 		req.ErrandTaskItemId,
@@ -671,9 +687,10 @@ func updateTaskItem(
 		req.PurchasedQuantity,
 		nonPurchaseReason,
 		now,
-	); err != nil {
+	)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrConcurrencyConflict
+			return time.Time{}, ErrConcurrencyConflict
 		}
 		log.Error().
 			Err(err).
@@ -681,9 +698,9 @@ func updateTaskItem(
 			Int64("errand_task_id", req.ErrandTaskId).
 			Int64("errand_task_item_id", req.ErrandTaskItemId).
 			Msg("failed to load shopping task item")
-		return newErrandInternalError("")
+		return time.Time{}, newErrandInternalError("")
 	}
-	return nil
+	return updatedAt, nil
 }
 
 // 将 errand_task.status 更新为 pending_distributing，并将关联 demand.status 同步到 pending_distributing
@@ -691,21 +708,21 @@ func TransitionToPendingDistributing(
 	ctx context.Context,
 	captainID int64,
 	req *errandv1.TransitionToPendingDistributingRequest,
-) error {
+) (*timestamppb.Timestamp, error) {
 	if captainID <= 0 {
-		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}
 	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition"))
 	}
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
-	notificationRows, err := transitionTaskToPendingDistributing(ctx, captainID, req.ErrandTaskId, expectedUpdatedAt)
+	updatedAt, notificationRows, err := transitionTaskToPendingDistributing(ctx, captainID, req.ErrandTaskId, expectedUpdatedAt)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// 对 不采购和部分采购的购买人发送通知
 	sendNonPurchasedNotifications(ctx, req.ErrandTaskId, notificationRows)
-	return nil
+	return timestamppb.New(updatedAt), nil
 }
 
 // 在数据库事务中将指定的跑腿任务状态更新为“待分发”，并返回需要推送通知的未购买需求项列表。
@@ -713,23 +730,25 @@ func transitionTaskToPendingDistributing(
 	ctx context.Context,
 	captainID, taskID int64,
 	expectedUpdatedAt time.Time,
-) ([]repository.NonPurchasedDemandItemNotificationRow, error) {
+) (time.Time, []repository.NonPurchasedDemandItemNotificationRow, error) {
+	var updatedAt time.Time
 	var notificationRows []repository.NonPurchasedDemandItemNotificationRow
 
 	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		rows, err := executeTransitionToPendingDistributingTx(ctx, tx, captainID, taskID, expectedUpdatedAt)
+		taskUpdatedAt, rows, err := executeTransitionToPendingDistributingTx(ctx, tx, captainID, taskID, expectedUpdatedAt)
 		if err != nil {
 			return err
 		}
 
+		updatedAt = taskUpdatedAt
 		notificationRows = rows
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return time.Time{}, nil, err
 	}
 
-	return notificationRows, nil
+	return updatedAt, notificationRows, nil
 }
 
 func executeTransitionToPendingDistributingTx(
@@ -737,21 +756,26 @@ func executeTransitionToPendingDistributingTx(
 	tx bun.Tx,
 	captainID, taskID int64,
 	expectedUpdatedAt time.Time,
-) ([]repository.NonPurchasedDemandItemNotificationRow, error) {
+) (time.Time, []repository.NonPurchasedDemandItemNotificationRow, error) {
 	task, err := loadShoppingTaskForTransition(ctx, tx, captainID, taskID, expectedUpdatedAt)
 	if err != nil {
-		return nil, err
+		return time.Time{}, nil, err
 	}
 	if err := ensureTaskItemsHandledForTransition(ctx, tx, taskID); err != nil {
-		return nil, err
+		return time.Time{}, nil, err
 	}
 
 	now := time.Now().UTC()
-	if err := updatePendingDistributingStatus(ctx, tx, task.TaskID, expectedUpdatedAt, now); err != nil {
-		return nil, err
+	updatedAt, err := updatePendingDistributingStatus(ctx, tx, task.TaskID, expectedUpdatedAt, now)
+	if err != nil {
+		return time.Time{}, nil, err
 	}
 
-	return loadPendingDistributingNotifications(ctx, tx, taskID)
+	rows, err := loadPendingDistributingNotifications(ctx, tx, taskID)
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	return updatedAt, rows, nil
 }
 
 // 加载任务并校验状态，乐观锁
@@ -808,28 +832,27 @@ func updatePendingDistributingStatus(
 	tx bun.Tx,
 	taskID int64,
 	expectedUpdatedAt, now time.Time,
-) error {
-	// 更新demand主表状态
-	if err := repository.UpdateTaskToPendingDistributing(ctx, tx, taskID, expectedUpdatedAt, now); err != nil {
+) (time.Time, error) {
+	updatedAt, err := repository.UpdateTaskToPendingDistributing(ctx, tx, taskID, expectedUpdatedAt, now)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrConcurrencyConflict
+			return time.Time{}, ErrConcurrencyConflict
 		}
 		log.Error().
 			Err(err).
 			Int64("errand_task_id", taskID).
 			Msg("failed to update task to pending distributing")
-		return newErrandInternalError("")
+		return time.Time{}, newErrandInternalError("")
 	}
-	// 更新demandItem表状态
 	if err := repository.UpdateTaskRelatedDemandsToPendingDistributing(ctx, tx, taskID, now); err != nil {
 		log.Error().
 			Err(err).
 			Int64("errand_task_id", taskID).
 			Msg("failed to update related demand items to pending distributing")
-		return newErrandInternalError("")
+		return time.Time{}, newErrandInternalError("")
 	}
 
-	return nil
+	return updatedAt, nil
 }
 
 func loadPendingDistributingNotifications(
@@ -856,7 +879,7 @@ func sendNonPurchasedNotifications(
 ) {
 	grouped := make(map[int64][]repository.NonPurchasedDemandItemNotificationRow)
 	for _, row := range rows {
-		grouped[row.TaskItemID] = append(grouped[row.TaskItemID], row) // 按taskItemID分组，把统一任务下的demand聚合
+		grouped[row.TaskItemID] = append(grouped[row.TaskItemID], row) // 鎸塼askItemID鍒嗙粍锛屾妸缁熶竴浠诲姟涓嬬殑demand鑱氬悎
 	}
 
 	for _, itemRows := range grouped {
@@ -869,12 +892,12 @@ func sendNonPurchasedNotifications(
 				continue
 			}
 
-			statusText := "部分采购"
+			statusText := "partially purchased"
 			if purchasedForThisDemand == 0 {
-				statusText = "未采购"
+				statusText = "not purchased"
 			}
 			text := fmt.Sprintf(
-				"你的跑腿商品“%s”采购结果已更新：需求 %d 件，实际采购 %d 件，当前状态：%s。",
+				"Errand item %q updated: requested %d, purchased %d, status: %s.",
 				row.TitleSnapshot,
 				row.RequiredQuantity,
 				purchasedForThisDemand,
@@ -907,7 +930,7 @@ func GetDistributingTaskDetail(
 	captainID int64,
 	req *errandv1.GetDistributingTaskDetailRequest,
 ) (*errandv1.GetDistributingTaskDetailResponse, error) {
- 
+
 	if req == nil || req.ErrandTaskId <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
 	}
@@ -952,6 +975,7 @@ func GetDistributingTaskDetail(
 				ImageUrlSnapshot:     row.ImageURLSnapshot,
 				OriginUnitPriceCents: row.OriginUnitPriceCents,
 				ActualUnitPriceCents: actual,
+				UpdatedAt:            timestamppb.New(row.TaskItemUpdatedAt),
 				Requesters:           make([]*errandv1.DistributingRequestInfo, 0, 1),
 			}
 			itemByID[row.TaskItemID] = item
@@ -976,22 +1000,31 @@ func GetDistributingTaskDetail(
 		StoreName:         header.StoreName,
 		PackagingFeeCents: header.PackagingFeeCents,
 		DistributingItems: items,
+		UpdatedAt:         timestamppb.New(header.UpdatedAt),
 	}, nil
 }
 
 // 待分发阶段修改实际采购单价
-func UpdateActualPrice(ctx context.Context, captainID int64, req *errandv1.UpdateActualPriceRequest) error {
+func UpdateActualPrice(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.UpdateActualPriceRequest,
+) (*timestamppb.Timestamp, error) {
 	if captainID <= 0 {
-		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}
 	if req == nil || req.ErrandTaskId <= 0 || req.ErrandTaskItemId <= 0 ||
 		req.ErrandTaskItemUpdatedAt == nil || !req.ErrandTaskItemUpdatedAt.IsValid() ||
 		req.ActualUnitPriceCents < 0 {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid update actual price request"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid update actual price request"))
 	}
 
 	expectedUpdatedAt := req.ErrandTaskItemUpdatedAt.AsTime().UTC()
-	return updateActualPriceInTx(ctx, captainID, req, expectedUpdatedAt)
+	updatedAt, err := updateActualPriceInTx(ctx, captainID, req, expectedUpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return timestamppb.New(updatedAt), nil
 }
 
 func updateActualPriceInTx(
@@ -999,10 +1032,17 @@ func updateActualPriceInTx(
 	captainID int64,
 	req *errandv1.UpdateActualPriceRequest,
 	expectedUpdatedAt time.Time,
-) error {
-	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		return executeUpdateActualPriceTx(ctx, tx, captainID, req, expectedUpdatedAt)
+) (time.Time, error) {
+	var updatedAt time.Time
+	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		var err error
+		updatedAt, err = executeUpdateActualPriceTx(ctx, tx, captainID, req, expectedUpdatedAt)
+		return err
 	})
+	if err != nil {
+		return time.Time{}, err
+	}
+	return updatedAt, nil
 }
 
 func executeUpdateActualPriceTx(
@@ -1011,17 +1051,17 @@ func executeUpdateActualPriceTx(
 	captainID int64,
 	req *errandv1.UpdateActualPriceRequest,
 	expectedUpdatedAt time.Time,
-) error {
+) (time.Time, error) {
 	row, err := loadDistributingTaskItemForPriceUpdate(ctx, tx, captainID, req.ErrandTaskId, req.ErrandTaskItemId)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if err := validateActualPriceUpdate(row, expectedUpdatedAt, req.ActualUnitPriceCents); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	// 避免无意义的变更日志
 	if actualPriceUnchanged(row, req.ActualUnitPriceCents) {
-		return nil
+		return row.TaskItemUpdatedAt, nil
 	}
 	if err := createActualPriceChangeLog(
 		ctx,
@@ -1031,7 +1071,7 @@ func executeUpdateActualPriceTx(
 		row.ActualUnitPriceCents,
 		req.ActualUnitPriceCents,
 	); err != nil {
-		return err
+		return time.Time{}, err
 	}
 
 	return persistActualPrice(ctx, tx, captainID, req.ErrandTaskItemId, expectedUpdatedAt, req.ActualUnitPriceCents)
@@ -1125,28 +1165,29 @@ func persistActualPrice(
 	captainID, taskItemID int64,
 	expectedUpdatedAt time.Time,
 	actualUnitPriceCents int32,
-) error {
+) (time.Time, error) {
 	now := time.Now().UTC()
-	if err := repository.UpdateTaskItemActualPrice(
+	updatedAt, err := repository.UpdateTaskItemActualPrice(
 		ctx,
 		tx,
 		taskItemID,
 		expectedUpdatedAt,
 		actualUnitPriceCents,
 		now,
-	); err != nil {
+	)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrConcurrencyConflict
+			return time.Time{}, ErrConcurrencyConflict
 		}
 		log.Error().
 			Err(err).
 			Int64("errand_task_item_id", taskItemID).
 			Int64("captain_id", captainID).
 			Msg("failed to update actual price")
-		return newErrandInternalError("")
+		return time.Time{}, newErrandInternalError("")
 	}
 
-	return nil
+	return updatedAt, nil
 }
 
 // 将采购任务从待分发流转到分发中
@@ -1154,17 +1195,18 @@ func TransitionToDistributing(
 	ctx context.Context,
 	captainID int64,
 	req *errandv1.TransitionToDistributingRequest,
-) error {
+) (*timestamppb.Timestamp, error) {
 	if captainID <= 0 {
-		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}
 	if req == nil || req.ErrandTaskId <= 0 || req.PackagingFeeCents < 0 ||
 		req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition to distributing request"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition to distributing request"))
 	}
 
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
-	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+	var updatedAt time.Time
+	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		task, err := loadPendingDistributingTaskForTransition(
 			ctx,
 			tx,
@@ -1176,8 +1218,13 @@ func TransitionToDistributing(
 			return err
 		}
 
-		return updateDistributingStatus(ctx, tx, task.TaskID, expectedUpdatedAt, req.PackagingFeeCents)
+		updatedAt, err = updateDistributingStatus(ctx, tx, task.TaskID, expectedUpdatedAt, req.PackagingFeeCents)
+		return err
 	})
+	if err != nil {
+		return nil, err
+	}
+	return timestamppb.New(updatedAt), nil
 }
 
 // 加载数据，加锁
@@ -1219,41 +1266,42 @@ func updateDistributingStatus(
 	taskID int64,
 	expectedUpdatedAt time.Time,
 	packagingFeeCents int32,
-) error {
+) (time.Time, error) {
 	now := time.Now().UTC()
-	if err := repository.UpdateTaskToDistributing(
+	updatedAt, err := repository.UpdateTaskToDistributing(
 		ctx,
 		tx,
 		taskID,
 		expectedUpdatedAt,
 		packagingFeeCents,
 		now,
-	); err != nil {
+	)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrConcurrencyConflict
+			return time.Time{}, ErrConcurrencyConflict
 		}
 		log.Error().
 			Err(err).
 			Int64("errand_task_id", taskID).
 			Msg("failed to update task to distributing")
-		return newErrandInternalError("")
+		return time.Time{}, newErrandInternalError("")
 	}
 	if err := repository.UpdateTaskRelatedDemandsToDistributing(ctx, tx, taskID, now); err != nil {
 		log.Error().
 			Err(err).
 			Int64("errand_task_id", taskID).
 			Msg("failed to update related demands to distributing")
-		return newErrandInternalError("")
+		return time.Time{}, newErrandInternalError("")
 	}
 	if err := repository.UpdateTaskRelatedDemandItemsToDistributing(ctx, tx, taskID, now); err != nil {
 		log.Error().
 			Err(err).
 			Int64("errand_task_id", taskID).
 			Msg("failed to update related demand items to distributing")
-		return newErrandInternalError("")
+		return time.Time{}, newErrandInternalError("")
 	}
 
-	return nil
+	return updatedAt, nil
 }
 
 // 更新分发中的购买人分发结果（Phase 5 — 分发中）
@@ -1261,20 +1309,27 @@ func SaveDistributingTaskAssignment(
 	ctx context.Context,
 	captainID int64,
 	req *errandv1.SaveDistributingTaskAssignmentRequest,
-) error {
+) (*timestamppb.Timestamp, error) {
 	if captainID <= 0 {
-		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}
 	if req == nil || req.ErrandTaskItemId <= 0 || req.ErrandTaskAssignmentId <= 0 ||
 		req.DistributedQuantity < 0 ||
 		req.ErrandTaskAssignmentUpdatedAt == nil || !req.ErrandTaskAssignmentUpdatedAt.IsValid() {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid distributing task assignment request"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid distributing task assignment request"))
 	}
 
 	expectedUpdatedAt := req.ErrandTaskAssignmentUpdatedAt.AsTime().UTC()
-	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		return executeSaveDistributingTaskAssignmentTx(ctx, tx, captainID, req, expectedUpdatedAt)
+	var updatedAt time.Time
+	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		var err error
+		updatedAt, err = executeSaveDistributingTaskAssignmentTx(ctx, tx, captainID, req, expectedUpdatedAt)
+		return err
 	})
+	if err != nil {
+		return nil, err
+	}
+	return timestamppb.New(updatedAt), nil
 }
 
 func executeSaveDistributingTaskAssignmentTx(
@@ -1283,7 +1338,7 @@ func executeSaveDistributingTaskAssignmentTx(
 	captainID int64,
 	req *errandv1.SaveDistributingTaskAssignmentRequest,
 	expectedUpdatedAt time.Time,
-) error {
+) (time.Time, error) {
 	row, err := loadDistributingTaskAssignmentForUpdate(
 		ctx,
 		tx,
@@ -1292,7 +1347,7 @@ func executeSaveDistributingTaskAssignmentTx(
 		req.ErrandTaskAssignmentId,
 	)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if err := validateDistributingTaskAssignmentUpdate(
 		ctx,
@@ -1301,11 +1356,11 @@ func executeSaveDistributingTaskAssignmentTx(
 		req.DistributedQuantity,
 		expectedUpdatedAt,
 	); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	// 幂等性检查
 	if row.DistributedQuantity == req.DistributedQuantity {
-		return nil
+		return row.AssignmentUpdatedAt, nil
 	}
 	// 存数据库
 	return persistDistributingTaskAssignment(
@@ -1392,28 +1447,29 @@ func persistDistributingTaskAssignment(
 	captainID, assignmentID int64,
 	expectedUpdatedAt time.Time,
 	distributedQuantity int32,
-) error {
+) (time.Time, error) {
 	now := time.Now().UTC()
-	if err := repository.UpdateDistributingTaskAssignment(
+	updatedAt, err := repository.UpdateDistributingTaskAssignment(
 		ctx,
 		tx,
 		assignmentID,
 		expectedUpdatedAt,
 		distributedQuantity,
 		now,
-	); err != nil {
+	)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrConcurrencyConflict
+			return time.Time{}, ErrConcurrencyConflict
 		}
 		log.Error().
 			Err(err).
 			Int64("captain_id", captainID).
 			Int64("errand_task_assignment_id", assignmentID).
 			Msg("failed to update distributing task assignment")
-		return newErrandInternalError("")
+		return time.Time{}, newErrandInternalError("")
 	}
 
-	return nil
+	return updatedAt, nil
 }
 
 // 分发完成后流转到收款中，并创建支付账单
@@ -1421,18 +1477,19 @@ func TransitionToCollectingPayment(
 	ctx context.Context,
 	captainID int64,
 	req *errandv1.TransitionToCollectingPaymentRequest,
-) error {
+) (*timestamppb.Timestamp, error) {
 	if captainID <= 0 {
-		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}
 	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return connect.NewError(
+		return nil, connect.NewError(
 			connect.CodeInvalidArgument,
 			errors.New("invalid transition to collecting payment request"),
 		)
 	}
 
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
+	var updatedAt time.Time
 	if err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		task, err := loadDistributingTaskForCollectingPayment(
 			ctx,
@@ -1449,13 +1506,14 @@ func TransitionToCollectingPayment(
 		}
 
 		now := time.Now().UTC()
-		if err := repository.UpdateTaskToCollectingPayment(
+		updatedAt, err = repository.UpdateTaskToCollectingPayment(
 			ctx,
 			tx,
 			task.TaskID,
 			expectedUpdatedAt,
 			now,
-		); err != nil {
+		)
+		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrConcurrencyConflict
 			}
@@ -1482,10 +1540,13 @@ func TransitionToCollectingPayment(
 
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	}
 
-	return createPaymentBillsForTask(ctx, req.ErrandTaskId)
+	if err := createPaymentBillsForTask(ctx, req.ErrandTaskId); err != nil {
+		return nil, err
+	}
+	return timestamppb.New(updatedAt), nil
 }
 
 func loadDistributingTaskForCollectingPayment(
@@ -1771,7 +1832,7 @@ func GetCollectingPaymentDetail(
 	captainID int64,
 	req *errandv1.GetCollectingPaymentDetailRequest,
 ) (*errandv1.GetCollectingPaymentDetailResponse, error) {
- 
+
 	if req == nil || req.ErrandTaskId <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
 	}
@@ -1810,7 +1871,9 @@ func GetCollectingPaymentDetail(
 	}
 
 	return &errandv1.GetCollectingPaymentDetailResponse{
-		Bills: bills,
+		Bills:        bills,
+		ErrandTaskId: header.TaskID,
+		UpdatedAt:    timestamppb.New(header.UpdatedAt),
 	}, nil
 }
 
@@ -2056,16 +2119,17 @@ func TransitionToCompleted(
 	ctx context.Context,
 	captainID int64,
 	req *errandv1.TransitionToCompletedRequest,
-) error {
+) (*timestamppb.Timestamp, error) {
 	if captainID <= 0 {
-		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}
 	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition to completed request"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition to completed request"))
 	}
 
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
-	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+	var updatedAt time.Time
+	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		task, err := loadCollectingPaymentTaskForCompletion(ctx, tx, captainID, req.ErrandTaskId, expectedUpdatedAt)
 		if err != nil {
 			return err
@@ -2075,7 +2139,8 @@ func TransitionToCompleted(
 		}
 
 		now := time.Now().UTC()
-		if err := repository.UpdateTaskToCompleted(ctx, tx, task.TaskID, expectedUpdatedAt, now); err != nil {
+		updatedAt, err = repository.UpdateTaskToCompleted(ctx, tx, task.TaskID, expectedUpdatedAt, now)
+		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrConcurrencyConflict
 			}
@@ -2102,6 +2167,10 @@ func TransitionToCompleted(
 
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return timestamppb.New(updatedAt), nil
 }
 
 func loadCollectingPaymentTaskForCompletion(
@@ -2315,13 +2384,14 @@ func errandTaskListItemRowToProto(row repository.ErrandTaskListItemRow, storeID 
 // 取消未完成的跑腿任务
 func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRequest) error {
 	if captainID <= 0 {
-		return connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}
 	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid cancel task request"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid cancel task request"))
 	}
 
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
+	var updatedAt time.Time
 	var cancelledFromStatus model.ErrandTaskStatus
 	if err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		task, err := loadTaskForCancellation(ctx, tx, captainID, req.ErrandTaskId, expectedUpdatedAt)
@@ -2331,7 +2401,8 @@ func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRe
 		cancelledFromStatus = task.Status
 
 		now := time.Now().UTC()
-		if err := repository.UpdateTaskToCancelled(ctx, tx, task.TaskID, expectedUpdatedAt, now); err != nil {
+		updatedAt, err = repository.UpdateTaskToCancelled(ctx, tx, task.TaskID, expectedUpdatedAt, now)
+		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrConcurrencyConflict
 			}
@@ -2358,14 +2429,16 @@ func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRe
 
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	}
 
 	if cancelledFromStatus == model.ErrandTaskStatusCollectingPayment {
-		return cancelTaskPaymentBills(ctx, req.ErrandTaskId)
+		if err := cancelTaskPaymentBills(ctx, req.ErrandTaskId); err != nil {
+			return nil, err
+		}
 	}
 
-	return nil
+	return timestamppb.New(updatedAt), nil
 }
 
 func loadTaskForCancellation(

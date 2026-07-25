@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package sast.sastshopv2.errand.v1;
 
+import "google/protobuf/timestamp.proto";
 import "sast/sastshopv2/errand/v1/distributing_request_info.proto";
 
 message DistributingItem {
@@ -13,4 +14,5 @@ message DistributingItem {
   int32 origin_unit_price_cents = 6;
   int32 actual_unit_price_cents = 7;
   repeated DistributingRequestInfo requesters = 8;
+  google.protobuf.Timestamp updated_at = 9;
 }

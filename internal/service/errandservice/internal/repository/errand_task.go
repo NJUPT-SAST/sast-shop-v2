@@ -19,8 +19,8 @@ type SelectedDemandItemRow struct {
 	RequesterID            int64                        `bun:"requester_id"`
 	StoreID                int64                        `bun:"store_id"`
 	ProductTemplateID      int64                        `bun:"product_template_id"`
-	RequiredQuantity       int32                        `bun:"required_quantity"`          // 或 float64
-	ServiceFeePerUnitCents int32                        `bun:"service_fee_per_unit_cents"` // 单位：分
+	RequiredQuantity       int32                        `bun:"required_quantity"`          // 鎴?float64
+	ServiceFeePerUnitCents int32                        `bun:"service_fee_per_unit_cents"` // 鍗曚綅锛氬垎
 	Deadline               time.Time                    `bun:"deadline"`
 }
 
@@ -38,6 +38,7 @@ type ShoppingTaskHeaderRow struct {
 	StoreID   int64                  `bun:"store_id"`
 	StoreName string                 `bun:"store_name"`
 	Status    model.ErrandTaskStatus `bun:"status"`
+	UpdatedAt time.Time              `bun:"updated_at"`
 }
 
 type ShoppingTaskItemRow struct {
@@ -66,14 +67,14 @@ type ShoppingTaskItemForUpdateRow struct {
 }
 
 func RunInTx(ctx context.Context, fn func(ctx context.Context, tx bun.Tx) error) error {
-	return postgres.DB.RunInTx(ctx, &sql.TxOptions{}, fn) // 开启事务->执行fn->无错自动commit->fn返回error自动rollback
+	return postgres.DB.RunInTx(ctx, &sql.TxOptions{}, fn) // 寮€鍚簨鍔?>鎵цfn->鏃犻敊鑷姩commit->fn杩斿洖error鑷姩rollback
 }
 
 func LoadSelectedDemandItemsForUpdate(ctx context.Context, db bun.IDB, ids []int64) ([]SelectedDemandItemRow, error) {
 	rows := make([]SelectedDemandItemRow, 0, len(ids))
 	err := db.NewSelect().
 		TableExpr("errand.errand_demand_item as edi").
-		Join("join errand.errand_demand as ed on ed.id = edi.errand_demand_id"). // 内连接ed，一次查询即可获取需求项本身及其需求单的字段
+		Join("join errand.errand_demand as ed on ed.id = edi.errand_demand_id"). // 鍐呰繛鎺d锛屼竴娆℃煡璇㈠嵆鍙幏鍙栭渶姹傞」鏈韩鍙婂叾闇€姹傚崟鐨勫瓧娈?		ColumnExpr("edi.id AS demand_item_id").
 		ColumnExpr("edi.id AS demand_item_id").
 		ColumnExpr("edi.updated_at AS demand_item_updated_at").
 		ColumnExpr("edi.status AS demand_item_status").
@@ -239,6 +240,7 @@ func GetShoppingTaskHeader(ctx context.Context, db bun.IDB, taskID, captainID in
 		ColumnExpr("et.store_id as store_id").
 		ColumnExpr("coalesce(cs.name, '') as store_name").
 		ColumnExpr("et.status as status").
+		ColumnExpr("et.updated_at as updated_at").
 		Where("et.id = ?", taskID).
 		Where("et.captain_id = ?", captainID).
 		Limit(1).
@@ -309,28 +311,30 @@ func UpdateShoppingTaskItem(
 	purchasedQuantity int32,
 	nonPurchaseReason string,
 	now time.Time,
-) error {
+) (time.Time, error) {
+	taskItem := &model.ErrandTaskItem{ID: taskItemID}
 	res, err := db.NewUpdate().
-		Model((*model.ErrandTaskItem)(nil)).
+		Model(taskItem).
 		Set("purchased_quantity = ?", purchasedQuantity).
 		Set("non_purchase_reason = ?", nonPurchaseReason).
 		Set("handled_at = ?", now).
 		Set("updated_at = ?", now).
-		Where("id = ?", taskItemID).
+		WherePK().
 		Where("updated_at = ?", expectedUpdatedAt).
+		Returning("updated_at").
 		Exec(ctx)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	// 1. 行已删除。2. 乐观锁冲突
 	if affected == 0 {
-		return sql.ErrNoRows
+		return time.Time{}, sql.ErrNoRows
 	}
-	return nil
+	return taskItem.UpdatedAt, nil
 }
 
 type ErrandTaskForUpdateRow struct {
@@ -384,28 +388,30 @@ func UpdateTaskToPendingDistributing(
 	taskID int64,
 	expectedUpdatedAt time.Time,
 	now time.Time,
-) error {
+) (time.Time, error) {
+	task := &model.ErrandTask{ID: taskID}
 	res, err := db.NewUpdate().
-		Model((*model.ErrandTask)(nil)).
+		Model(task).
 		Set("status = ?", model.ErrandTaskStatusPendingDistributing).
 		Set("shopping_completed_at = ?", now).
 		Set("updated_at = ?", now).
-		Where("id = ?", taskID).
+		WherePK().
 		Where("status = ?", model.ErrandTaskStatusShopping).
 		Where("updated_at = ?", expectedUpdatedAt).
+		Returning("updated_at").
 		Exec(ctx)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	// 乐观锁冲突/当前状态不是采购中/任务不存在
 	if affected == 0 {
-		return sql.ErrNoRows
+		return time.Time{}, sql.ErrNoRows
 	}
-	return nil
+	return task.UpdatedAt, nil
 }
 
 func UpdateTaskRelatedDemandsToPendingDistributing(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
@@ -482,6 +488,7 @@ type DistributingTaskHeaderRow struct {
 	StoreName         string                 `bun:"store_name"`
 	PackagingFeeCents int32                  `bun:"packaging_fee_cents"`
 	Status            model.ErrandTaskStatus `bun:"status"`
+	UpdatedAt         time.Time              `bun:"updated_at"`
 }
 
 type DistributingTaskDetailRow struct {
@@ -500,6 +507,7 @@ type DistributingTaskDetailRow struct {
 	TaskAssignmentID        int64     `bun:"task_assignment_id"`
 	DemandItemID            int64     `bun:"demand_item_id"`
 	TaskAssignmentUpdatedAt time.Time `bun:"task_assignment_updated_at"`
+	TaskItemUpdatedAt       time.Time `bun:"task_item_updated_at"`
 }
 
 type DistributingTaskItemForUpdateRow struct {
@@ -525,6 +533,7 @@ func GetDistributingTaskHeader(
 		ColumnExpr("COALESCE(cs.name, '') AS store_name").
 		ColumnExpr("et.packaging_fee_cents AS packaging_fee_cents").
 		ColumnExpr("et.status AS status").
+		ColumnExpr("et.updated_at AS updated_at").
 		Where("et.id = ?", taskID).
 		Where("et.captain_id = ?", captainID).
 		Limit(1).
@@ -557,6 +566,7 @@ func ListDistributingTaskDetails(ctx context.Context, db bun.IDB, taskID int64) 
 		ColumnExpr("eta.id AS task_assignment_id").
 		ColumnExpr("edi.id AS demand_item_id").
 		ColumnExpr("eta.updated_at AS task_assignment_updated_at").
+		ColumnExpr("eti.updated_at AS task_item_updated_at").
 		Where("eti.task_id = ?", taskID).
 		OrderExpr("eti.deadline ASC, eti.id ASC, eta.id ASC").
 		Scan(ctx, &rows)
@@ -602,25 +612,27 @@ func UpdateTaskItemActualPrice(
 	expectedUpdatedAt time.Time,
 	actualUnitPriceCents int32,
 	now time.Time,
-) error {
+) (time.Time, error) {
+	taskItem := &model.ErrandTaskItem{ID: taskItemID}
 	res, err := db.NewUpdate().
-		Model((*model.ErrandTaskItem)(nil)).
+		Model(taskItem).
 		Set("actual_unit_price_cents = ?", actualUnitPriceCents).
 		Set("updated_at = ?", now).
-		Where("id = ?", taskItemID).
+		WherePK().
 		Where("updated_at = ?", expectedUpdatedAt).
+		Returning("updated_at").
 		Exec(ctx)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if affected == 0 {
-		return sql.ErrNoRows
+		return time.Time{}, sql.ErrNoRows
 	}
-	return nil
+	return taskItem.UpdatedAt, nil
 }
 
 type DistributingTaskAssignmentForUpdateRow struct {
@@ -641,27 +653,29 @@ func UpdateTaskToDistributing(
 	expectedUpdatedAt time.Time,
 	packagingFeeCents int32,
 	now time.Time,
-) error {
+) (time.Time, error) {
+	task := &model.ErrandTask{ID: taskID}
 	res, err := db.NewUpdate().
-		Model((*model.ErrandTask)(nil)).
+		Model(task).
 		Set("status = ?", model.ErrandTaskStatusDistributing).
 		Set("packaging_fee_cents = ?", packagingFeeCents).
 		Set("updated_at = ?", now).
-		Where("id = ?", taskID).
+		WherePK().
 		Where("status = ?", model.ErrandTaskStatusPendingDistributing).
 		Where("updated_at = ?", expectedUpdatedAt).
+		Returning("updated_at").
 		Exec(ctx)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if affected == 0 {
-		return sql.ErrNoRows
+		return time.Time{}, sql.ErrNoRows
 	}
-	return nil
+	return task.UpdatedAt, nil
 }
 
 func UpdateTaskRelatedDemandsToDistributing(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
@@ -745,23 +759,25 @@ func UpdateDistributingTaskAssignment(
 	expectedUpdatedAt time.Time,
 	distributedQuantity int32,
 	now time.Time,
-) error {
+) (time.Time, error) {
+	assignment := &model.ErrandTaskAssignment{ID: assignmentID}
 	res, err := db.NewUpdate().
-		Model((*model.ErrandTaskAssignment)(nil)).
+		Model(assignment).
 		Set("distributed_quantity = ?", distributedQuantity).
 		Set("updated_at = ?", now).
-		Where("id = ?", assignmentID).
+		WherePK().
 		Where("updated_at = ?", expectedUpdatedAt).
+		Returning("updated_at").
 		Exec(ctx)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if affected == 0 {
-		return sql.ErrNoRows
+		return time.Time{}, sql.ErrNoRows
 	}
-	return nil
+	return assignment.UpdatedAt, nil
 }

@@ -187,7 +187,7 @@ func validateCancelableSpotOrder(
 	if order.PurchaserID != userID {
 		return connect.NewError(connect.CodePermissionDenied, ErrSpotOrderPermissionDenied)
 	}
-	if !order.UpdatedAt.Equal(expectedUpdatedAt) {
+	if !order.UpdatedAt.UTC().Equal(expectedUpdatedAt.UTC()) {
 		return connect.NewError(connect.CodeAborted, ErrSpotOrderVersionConflict)
 	}
 	if order.Status != model.SpotOrderStatusPendingPayment {
@@ -278,27 +278,7 @@ func CompleteSpotOrder(
 	}
 
 	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		order, goods, err := lockOrderAndGoods(ctx, tx, req.SpotOrderId)
-		if err != nil {
-			return err
-		}
-		if goods.SellerID != userID {
-			return connect.NewError(connect.CodePermissionDenied, ErrSpotOrderPermissionDenied)
-		}
-		if !order.UpdatedAt.Equal(req.UpdatedAt.AsTime()) {
-			return connect.NewError(connect.CodeAborted, ErrSpotOrderVersionConflict)
-		}
-		if order.Status != model.SpotOrderStatusPaid {
-			return connect.NewError(connect.CodeFailedPrecondition, ErrInvalidSpotOrderStatus)
-		}
-		if _, err := repository.MarkSpotOrderCompleted(ctx, tx, order.ID); err != nil {
-			log.Error().
-				Err(err).
-				Int64("spot_order_id", order.ID).
-				Msg("failed to mark spot order completed")
-			return spotInternalError()
-		}
-		return nil
+		return completeSpotOrderInTx(ctx, tx, userID, req)
 	})
 	if err != nil {
 		return nil, err
@@ -317,6 +297,35 @@ func invalidCompleteSpotOrderRequest(userID int64, req *spotv1.CompleteSpotOrder
 		req.SpotOrderId <= 0 ||
 		req.UpdatedAt == nil ||
 		!req.UpdatedAt.IsValid()
+}
+
+func completeSpotOrderInTx(
+	ctx context.Context,
+	tx bun.Tx,
+	userID int64,
+	req *spotv1.CompleteSpotOrderRequest,
+) error {
+	order, goods, err := lockOrderAndGoods(ctx, tx, req.SpotOrderId)
+	if err != nil {
+		return err
+	}
+	if goods.SellerID != userID {
+		return connect.NewError(connect.CodePermissionDenied, ErrSpotOrderPermissionDenied)
+	}
+	if !order.UpdatedAt.UTC().Equal(req.UpdatedAt.AsTime().UTC()) {
+		return connect.NewError(connect.CodeAborted, ErrSpotOrderVersionConflict)
+	}
+	if order.Status != model.SpotOrderStatusPaid {
+		return connect.NewError(connect.CodeFailedPrecondition, ErrInvalidSpotOrderStatus)
+	}
+	if _, err := repository.MarkSpotOrderCompleted(ctx, tx, order.ID); err != nil {
+		log.Error().
+			Err(err).
+			Int64("spot_order_id", order.ID).
+			Msg("failed to mark spot order completed")
+		return spotInternalError()
+	}
+	return nil
 }
 
 func CreateSpotOrders(
@@ -679,6 +688,7 @@ func spotOrderToDetail(
 		PaidAt:           timeToProto(order.PaidAt),
 		CompletedAt:      timeToProto(order.CompletedAt),
 		CancelledAt:      timeToProto(order.CancelledAt),
+		UpdatedAt:        timestamppb.New(order.UpdatedAt),
 	}
 }
 
@@ -744,6 +754,7 @@ func spotOrderRecordToDetail(
 		PaidAt:           timeToProto(record.PaidAt),
 		CompletedAt:      timeToProto(record.CompletedAt),
 		CancelledAt:      timeToProto(record.CancelledAt),
+		UpdatedAt:        timestamppb.New(record.UpdatedAt),
 	}
 }
 
