@@ -93,47 +93,6 @@ func LoadSelectedDemandItemsForUpdate(ctx context.Context, db bun.IDB, ids []int
 	return rows, err
 }
 
-func LoadProductSnapshots(ctx context.Context, db bun.IDB, ids []int64) (map[int64]ProductSnapshotRow, error) {
-	// 前面productId没有校验过，可能为空（？
-	if len(ids) == 0 {
-		return map[int64]ProductSnapshotRow{}, nil
-	}
-
-	rows := make([]ProductSnapshotRow, 0, len(ids))
-
-	err := db.NewSelect().
-		TableExpr("catalog.catalog_product_template as cpt").
-		ColumnExpr("cpt.id as id").
-		ColumnExpr("cpt.title as title").
-		ColumnExpr("cpt.description as description").
-		ColumnExpr("cpt.price_cents as price_cents").
-		ColumnExpr("cpt.store_id as store_id").
-		ColumnExpr(
-			`  
-		coalesce(
-		(select cpi.image_url
-		from
-		catalog.catalog_product_image as cpi
-		where
-		cpi.product_template_id = cpt.id
-		order by
-		cpi.sort_order asc,cpi.id asc
-		limit 1),''
-		) as main_image_url
-	`,
-		). // 关联子查询，用于单条数据联表查询
-		Where("cpt.id IN (?)", bun.List(ids)).
-		Scan(ctx, &rows)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[int64]ProductSnapshotRow, len(rows))
-	for _, row := range rows {
-		result[row.ID] = row
-	}
-	return result, nil
-}
-
 func CreateTask(ctx context.Context, db bun.IDB, task *model.ErrandTask) error {
 	_, err := db.NewInsert().
 		Model(task).     // 使用Model(task)时，反射分析task的类型，自动生成表名，并插入task数据
@@ -162,31 +121,38 @@ func CreateTaskAssigniments(ctx context.Context, db bun.IDB, assignments []*mode
 	return err
 }
 
-func LoadDemandItemCounts(ctx context.Context, db bun.IDB, demandIDs []int64) (map[int64]int, error) {
+func LoadDemandIDsWithUnselectedItems(
+	ctx context.Context,
+	db bun.IDB,
+	demandIDs []int64,
+	selectedItemIDs []int64,
+) (map[int64]struct{}, error) {
 	if len(demandIDs) == 0 {
-		return map[int64]int{}, nil
+		return map[int64]struct{}{}, nil
 	}
 
-	type countRow struct {
+	type demandIDRow struct {
 		DemandID int64 `bun:"demand_id"`
-		Cnt      int   `bun:"cnt"` // 明细条数
 	}
 
-	var rows []countRow
-	err := db.NewSelect().
+	var rows []demandIDRow
+	query := db.NewSelect().
 		TableExpr("errand.errand_demand_item as edi").
-		ColumnExpr("edi.errand_demand_id AS demand_id").
-		ColumnExpr("count(*) as cnt").
-		Where("edi.errand_demand_id IN (?)", bun.List(demandIDs)).
-		GroupExpr("edi.errand_demand_id").
-		Scan(ctx, &rows)
+		ColumnExpr("DISTINCT edi.errand_demand_id AS demand_id").
+		Where("edi.errand_demand_id IN (?)", bun.List(demandIDs))
+
+	if len(selectedItemIDs) > 0 {
+		query = query.Where("edi.id NOT IN (?)", bun.List(selectedItemIDs))
+	}
+
+	err := query.Scan(ctx, &rows)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make(map[int64]int, len(rows))
+	result := make(map[int64]struct{}, len(rows))
 	for _, row := range rows {
-		result[row.DemandID] = row.Cnt
+		result[row.DemandID] = struct{}{}
 	}
 	return result, nil
 }

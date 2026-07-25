@@ -6,23 +6,29 @@ import (
 
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/payment/v1/paymentv1connect"
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/user/v1/userv1connect" 
+	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/catalog/v1/catalogv1connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/config"
 )
 
-var PaymentInternalServiceClient paymentv1connect.PaymentInternalServiceClient
-var UserInternalServiceClient userv1connect.UserInternalServiceClient
-func Init() {
-	PaymentInternalServiceClient = paymentv1connect.NewPaymentInternalServiceClient(
-		http.DefaultClient,
-		fmt.Sprintf("%s:%d", config.AppConfig.PaymentServiceURL, config.AppConfig.PaymentServicePort),
-	)
 
+
+var (
+	CatalogInternalServiceClient catalogv1connect.CatalogInternalServiceClient
+	UserInternalServiceClient    userv1connect.UserInternalServiceClient
+	PaymentInternalServiceClient paymentv1connect.PaymentInternalServiceClient
+)
+
+func Init() {
+	CatalogInternalServiceClient = catalogv1connect.NewCatalogInternalServiceClient(
+		http.DefaultClient,
+		fmt.Sprintf("%s:%d", config.AppConfig.CatalogServiceURL, config.AppConfig.CatalogServicePort),
+	)
 	UserInternalServiceClient = userv1connect.NewUserInternalServiceClient(
 		http.DefaultClient,
 		fmt.Sprintf("%s:%d", config.AppConfig.UserServiceURL, config.AppConfig.UserServicePort),
 	)
-
-
-
-	
+	PaymentInternalServiceClient = paymentv1connect.NewPaymentInternalServiceClient(
+		http.DefaultClient,
+		fmt.Sprintf("%s:%d", config.AppConfig.PaymentServiceURL, config.AppConfig.PaymentServicePort),
+	)
 }
