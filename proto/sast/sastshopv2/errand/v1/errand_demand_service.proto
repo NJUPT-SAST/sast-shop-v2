@@ -12,14 +12,12 @@ message CreateErrandDemandRequest {
   // 目标店铺 ID
   int64 store_id = 1;
   // 买家期望送达时间
-  google.protobuf.Timestamp deadline = 2[
-    (buf.validate.field).timestamp = {
-      // this（当前字段值）必须大于 now（当前系统时间）
-      gt_now: true
-    }
-  ];
+  google.protobuf.Timestamp deadline = 2 [(buf.validate.field).timestamp = {
+    // this（当前字段值）必须大于 now（当前系统时间）
+    gt_now: true
+  }];
   // 买家一次提交的商品需求行
-  repeated sast.sastshopv2.errand.v1.ErrandDemandItemDraft demand_items = 3[(buf.validate.field).repeated = {min_items: 1}];
+  repeated sast.sastshopv2.errand.v1.ErrandDemandItemDraft demand_items = 3 [(buf.validate.field).repeated = {min_items: 1}];
 }
 
 message CreateErrandDemandResponse {
