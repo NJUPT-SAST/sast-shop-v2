@@ -6,10 +6,9 @@ import (
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
+	"github.com/uptrace/bun"
 )
 
-// CreateDemand 插入一条 errand_demand，返回自增 ID。
-// service 层负责填充 RequesterID、StoreID、Deadline。
 func CreateDemand(ctx context.Context, demand *model.ErrandDemand) (int64, error) {
 	demand.Status = model.ErrandDemandStatusOpen
 	demand.CreatedAt = time.Now()
@@ -24,9 +23,6 @@ func CreateDemand(ctx context.Context, demand *model.ErrandDemand) (int64, error
 	return demand.ID, nil
 }
 
-// BatchCreateDemandItems 批量插入 errand_demand_item。
-// service 层负责填充 ErrandDemandID、RequesterID、StoreID、ProductTemplateID、
-// Quantity、ServiceFeePerUnitCents、EstimatedUnitPriceCents。
 func BatchCreateDemandItems(ctx context.Context, items []*model.ErrandDemandItem) error {
 	if len(items) == 0 {
 		return nil
@@ -45,8 +41,6 @@ func BatchCreateDemandItems(ctx context.Context, items []*model.ErrandDemandItem
 	return err
 }
 
-// DemandListAggregation 按店铺聚合的需求统计信息。
-// GetDemandList 用它返回每个店铺的汇总数据。
 type DemandListAggregation struct {
 	StoreID                   int64     `bun:"store_id"`
 	TotalOriginUnitPriceCents int32     `bun:"total_origin_unit_price_cents"`
@@ -54,9 +48,6 @@ type DemandListAggregation struct {
 	LatestUpdatedAt           time.Time `bun:"latest_updated_at"`
 }
 
-// GetDemandListByStore 按店铺聚合查询 open 状态的需求统计。
-// 返回每个店铺的总预估价格、总跑腿费、最后更新时间。
-// 按 latest_updated_at 倒序排列（最新的需求排前面）。
 func GetDemandListByStore(
 	ctx context.Context,
 	page, pageSize int32,
@@ -72,18 +63,11 @@ func GetDemandListByStore(
 		Group("store_id").
 		Order("latest_updated_at DESC")
 
-	// 如果有店铺名搜索，需要 JOIN catalog_store
-	// 但 catalog 在另一个服务，这里先跳过，service 层过滤
-	// 或者在这里 JOIN catalog.catalog_store，看你的设计
-	// 为简化，这里假设 service 层调 catalog 服务后再过滤
-
-	// 先查总数
 	totalCount, err := query.Count(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// 分页查询
 	offset := (page - 1) * pageSize
 	var results []*DemandListAggregation
 	err = query.
@@ -94,8 +78,6 @@ func GetDemandListByStore(
 	return results, totalCount, err
 }
 
-// GetDistinctRequestersByStore 查询某店铺下参与的买家 ID（去重）。
-// 用于获取买家头像，通常只取前 N 个。
 func GetDistinctRequestersByStore(
 	ctx context.Context,
 	storeID int64,
@@ -112,8 +94,6 @@ func GetDistinctRequestersByStore(
 	return requesterIDs, err
 }
 
-// GetOpenDemandItemsByStore 查询某店铺下所有 open 状态的 demand_item。
-// 按 product_template_id 和 updated_at 排序，方便 service 层分组聚合。
 func GetOpenDemandItemsByStore(
 	ctx context.Context,
 	storeID int64,
@@ -128,8 +108,6 @@ func GetOpenDemandItemsByStore(
 	return items, err
 }
 
-// GetDemandByID 根据 ID 查询单条 errand_demand。
-// service 层校验用，或者拼接响应时需要 demand 信息。
 func GetDemandByID(ctx context.Context, demandID int64) (*model.ErrandDemand, error) {
 	var demand model.ErrandDemand
 	err := postgres.DB.NewSelect().
@@ -137,4 +115,71 @@ func GetDemandByID(ctx context.Context, demandID int64) (*model.ErrandDemand, er
 		Where("id = ?", demandID).
 		Scan(ctx)
 	return &demand, err
+}
+
+func GetDemandsByRequester(
+	ctx context.Context,
+	requesterID int64,
+	storeID *int64,
+	status *model.ErrandDemandStatus,
+	page, pageSize int32,
+) ([]*model.ErrandDemand, int, error) {
+	query := postgres.DB.NewSelect().
+		Model((*model.ErrandDemand)(nil)).
+		Where("requester_id = ?", requesterID).
+		Order("created_at DESC")
+
+	if storeID != nil {
+		query.Where("store_id = ?", *storeID)
+	}
+	if status != nil {
+		query.Where("status = ?", *status)
+	}
+
+	totalCount, err := query.Count(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * pageSize
+	var demands []*model.ErrandDemand
+	err = query.
+		Limit(int(pageSize)).
+		Offset(int(offset)).
+		Scan(ctx, &demands)
+	return demands, totalCount, err
+}
+
+func GetDemandItemsByDemandIDs(ctx context.Context, demandIDs []int64) ([]*model.ErrandDemandItem, error) {
+	if len(demandIDs) == 0 {
+		return nil, nil
+	}
+	var items []*model.ErrandDemandItem
+	err := postgres.DB.NewSelect().
+		Model(&items).
+		Where("errand_demand_id IN (?)", bun.List(demandIDs)).
+		Order("product_template_id ASC").
+		Scan(ctx)
+	return items, err
+}
+
+func GetAssignmentsByDemandItemIDs(ctx context.Context, demandItemIDs []int64) ([]*model.ErrandTaskAssignment, error) {
+	if len(demandItemIDs) == 0 {
+		return nil, nil
+	}
+	var assignments []*model.ErrandTaskAssignment
+	err := postgres.DB.NewSelect().
+		Model(&assignments).
+		Where("demand_item_id IN (?)", bun.List(demandItemIDs)).
+		Scan(ctx)
+	return assignments, err
+}
+
+func GetTaskItemsByTaskID(ctx context.Context, taskID int64) ([]*model.ErrandTaskItem, error) {
+	var items []*model.ErrandTaskItem
+	err := postgres.DB.NewSelect().
+		Model(&items).
+		Where("task_id = ?", taskID).
+		Scan(ctx)
+	return items, err
 }
