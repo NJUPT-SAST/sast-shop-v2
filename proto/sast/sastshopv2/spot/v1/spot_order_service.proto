@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package sast.sastshopv2.spot.v1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 import "sast/sastshopv2/spot/v1/create_spot_order.proto";
 import "sast/sastshopv2/spot/v1/spot_goods_perspective.proto";
@@ -41,6 +42,14 @@ message GetSpotOrderDetailResponse {
   SpotOrderDetail spot_order_detail = 1;
 }
 
+message GetSpotOrderSellerContactRequest {
+  int64 spot_order_id = 1 [(buf.validate.field).int64 = {gt: 0}];
+}
+
+message GetSpotOrderSellerContactResponse {
+  string seller_feishu_open_id = 1;
+}
+
 message CancelSpotOrderRequest {
   int64 spot_order_id = 1;
   google.protobuf.Timestamp updated_at = 2;
@@ -68,6 +77,9 @@ service SpotOrderService {
 
   // 获取现货订单详情
   rpc GetSpotOrderDetail(GetSpotOrderDetailRequest) returns (GetSpotOrderDetailResponse);
+
+  // 订单买家获取该订单卖家的飞书会话标识
+  rpc GetSpotOrderSellerContact(GetSpotOrderSellerContactRequest) returns (GetSpotOrderSellerContactResponse);
 
   // 取消现货订单，并释放库存、取消关联账单
   rpc CancelSpotOrder(CancelSpotOrderRequest) returns (CancelSpotOrderResponse);

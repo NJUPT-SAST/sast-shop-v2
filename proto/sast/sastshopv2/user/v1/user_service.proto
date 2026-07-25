@@ -6,7 +6,7 @@ import "buf/validate/validate.proto";
 import "sast/sastshopv2/user/v1/user_info.proto";
 
 message GetUserInfoRequest {
-  int64 user_id = 1 [(buf.validate.field).int64 = { gt: 0 }];
+  int64 user_id = 1 [(buf.validate.field).int64 = {gt: 0}];
 }
 
 message GetUserInfoResponse {

@@ -1,6 +1,9 @@
 SERVICES := userservice catalogservice paymentservice spotservice errandservice
+WORKSPACE_MODULES := ./internal/pkg $(addprefix ./internal/service/,$(SERVICES))
+PROTOBUF_GEN_DIR := gen/protocolbuffers/go
+CONNECT_GEN_DIR := gen/connectrpc/go
 
-.PHONY: lint lint-fix build run-% proto migrate setup tidy
+.PHONY: lint lint-fix build run-% proto proto-lint proto-format migrate setup tidy
 
 # --- Development ---
 
@@ -19,6 +22,12 @@ build:
 
 proto:
 	buf generate
+	@test -f $(PROTOBUF_GEN_DIR)/go.mod || \
+		(cd $(PROTOBUF_GEN_DIR) && go mod init buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go)
+	@test -f $(CONNECT_GEN_DIR)/go.mod || \
+		(cd $(CONNECT_GEN_DIR) && go mod init buf.build/gen/go/sast/sast-shop-v2/connectrpc/go)
+	@test -f go.work || go work init
+	go work use $(WORKSPACE_MODULES) ./$(PROTOBUF_GEN_DIR) ./$(CONNECT_GEN_DIR)
 
 proto-lint:
 	buf lint

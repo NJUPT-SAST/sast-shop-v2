@@ -41,7 +41,7 @@ message DeleteAddressResponse {}
 
 message GetAddressRequest {
   // 非空则获取单个地址，空则获取全部地址
-  optional int64 address_id = 1; 
+  optional int64 address_id = 1;
 }
 
 message GetAddressResponse {
