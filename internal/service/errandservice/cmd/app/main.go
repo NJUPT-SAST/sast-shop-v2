@@ -21,7 +21,8 @@ func main() {
 	postgres.Init()
 	redis.Init(constant.ErrandServiceName)
 	feishu.Init()
-	client.Init()
+	client.InitCatalogClient()
+	client.InitUserClient()
 	e := echo.New()
 	v1.Init(e)
 	if err := e.Start(fmt.Sprintf(":%d", config.AppConfig.ErrandServicePort)); err != nil {
