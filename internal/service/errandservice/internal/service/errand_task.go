@@ -517,7 +517,6 @@ func GetShoppingTaskDetail(
 	captainID int64,
 	req *errandv1.GetShoppingTaskDetailRequest,
 ) (*errandv1.GetShoppingTaskDetailResponse, error) {
-
 	if req == nil || req.ErrandTaskId <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
 	}
@@ -607,7 +606,6 @@ func SaveShoppingTaskItem(
 
 // 基础校验
 func ValidateSaveRequest(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
-
 	if req == nil || req.ErrandTaskId <= 0 || req.ErrandTaskItemId <= 0 || req.ErrandTaskItemUpdatedAt == nil ||
 		!req.ErrandTaskItemUpdatedAt.IsValid() {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("incalid save shopping task item request"))
@@ -615,7 +613,11 @@ func ValidateSaveRequest(ctx context.Context, captainID int64, req *errandv1.Sav
 	return nil
 }
 
-func executeSaveShoppingTask(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) (time.Time, error) {
+func executeSaveShoppingTask(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.SaveShoppingTaskItemRequest,
+) (time.Time, error) {
 	expectedUpdatedAt := req.ErrandTaskItemUpdatedAt.AsTime().UTC()
 	var updatedAt time.Time
 	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
@@ -716,7 +718,12 @@ func TransitionToPendingDistributing(
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition"))
 	}
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
-	updatedAt, notificationRows, err := transitionTaskToPendingDistributing(ctx, captainID, req.ErrandTaskId, expectedUpdatedAt)
+	updatedAt, notificationRows, err := transitionTaskToPendingDistributing(
+		ctx,
+		captainID,
+		req.ErrandTaskId,
+		expectedUpdatedAt,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -735,7 +742,13 @@ func transitionTaskToPendingDistributing(
 	var notificationRows []repository.NonPurchasedDemandItemNotificationRow
 
 	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		taskUpdatedAt, rows, err := executeTransitionToPendingDistributingTx(ctx, tx, captainID, taskID, expectedUpdatedAt)
+		taskUpdatedAt, rows, err := executeTransitionToPendingDistributingTx(
+			ctx,
+			tx,
+			captainID,
+			taskID,
+			expectedUpdatedAt,
+		)
 		if err != nil {
 			return err
 		}
@@ -930,7 +943,6 @@ func GetDistributingTaskDetail(
 	captainID int64,
 	req *errandv1.GetDistributingTaskDetailRequest,
 ) (*errandv1.GetDistributingTaskDetailResponse, error) {
-
 	if req == nil || req.ErrandTaskId <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
 	}
@@ -1201,7 +1213,10 @@ func TransitionToDistributing(
 	}
 	if req == nil || req.ErrandTaskId <= 0 || req.PackagingFeeCents < 0 ||
 		req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition to distributing request"))
+		return nil, connect.NewError(
+			connect.CodeInvalidArgument,
+			errors.New("invalid transition to distributing request"),
+		)
 	}
 
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
@@ -1316,7 +1331,10 @@ func SaveDistributingTaskAssignment(
 	if req == nil || req.ErrandTaskItemId <= 0 || req.ErrandTaskAssignmentId <= 0 ||
 		req.DistributedQuantity < 0 ||
 		req.ErrandTaskAssignmentUpdatedAt == nil || !req.ErrandTaskAssignmentUpdatedAt.IsValid() {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid distributing task assignment request"))
+		return nil, connect.NewError(
+			connect.CodeInvalidArgument,
+			errors.New("invalid distributing task assignment request"),
+		)
 	}
 
 	expectedUpdatedAt := req.ErrandTaskAssignmentUpdatedAt.AsTime().UTC()
@@ -1832,7 +1850,6 @@ func GetCollectingPaymentDetail(
 	captainID int64,
 	req *errandv1.GetCollectingPaymentDetailRequest,
 ) (*errandv1.GetCollectingPaymentDetailResponse, error) {
-
 	if req == nil || req.ErrandTaskId <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
 	}
@@ -2382,7 +2399,7 @@ func errandTaskListItemRowToProto(row repository.ErrandTaskListItemRow, storeID 
 }
 
 // 取消未完成的跑腿任务
-func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRequest) error {
+func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRequest) (*timestamppb.Timestamp, error) {
 	if captainID <= 0 {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
 	}

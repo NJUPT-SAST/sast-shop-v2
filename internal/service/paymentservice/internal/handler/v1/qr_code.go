@@ -75,4 +75,3 @@ func InitQrCodeServiceHandler(e *echo.Echo, opts ...connect.HandlerOption) {
 	log.Debug().Msgf("QrCodeService API registered at path: %s", apiPath)
 	e.Any(apiPath+"*", echo.WrapHandler(apiHandler))
 }
-

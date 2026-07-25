@@ -51,7 +51,14 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderBrief(
 		status = &s
 	}
 
-	results, totalCount, err := service.GetBuyerOrderBriefList(ctx, requesterID, storeID, status, msg.Page, msg.PageSize)
+	results, totalCount, err := service.GetBuyerOrderBriefList(
+		ctx,
+		requesterID,
+		storeID,
+		status,
+		msg.Page,
+		msg.PageSize,
+	)
 	if err != nil {
 		log.Error().Err(err).Msg("GetBuyerOrderBriefList failed")
 		return nil, errandError()

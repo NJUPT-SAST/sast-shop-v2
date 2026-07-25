@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"net/http"
 
-	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/payment/v1/paymentv1connect"
-	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/user/v1/userv1connect" 
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/catalog/v1/catalogv1connect"
+	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/payment/v1/paymentv1connect"
+	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/user/v1/userv1connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/config"
 )
-
-
 
 var (
 	CatalogInternalServiceClient catalogv1connect.CatalogInternalServiceClient

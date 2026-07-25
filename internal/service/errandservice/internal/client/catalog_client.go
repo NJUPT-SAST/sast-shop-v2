@@ -35,9 +35,12 @@ func GetProductTemplates(ctx context.Context, ids []int64) ([]*catalogv1.Product
 		return []*catalogv1.ProductTemplate{}, nil
 	}
 
-	resp, err := CatalogInternalClient.GetProductTemplates(ctx, connect.NewRequest(&catalogv1.GetProductTemplatesRequest{
-		ProductTemplateIds: ids,
-	}))
+	resp, err := CatalogInternalClient.GetProductTemplates(
+		ctx,
+		connect.NewRequest(&catalogv1.GetProductTemplatesRequest{
+			ProductTemplateIds: ids,
+		}),
+	)
 	if err != nil {
 		return nil, err
 	}

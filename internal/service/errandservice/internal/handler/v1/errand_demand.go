@@ -189,6 +189,7 @@ func getUserIDFromContext(ctx context.Context) int64 {
 	}
 	return user.UserID
 }
+
 func InitErrandDemandServiceHandler(e *echo.Echo, opts ...connect.HandlerOption) {
 	apiPath, apiHandler := errandv1connect.NewErrandDemandServiceHandler(&ErrandDemandServiceServer{}, opts...)
 	log.Debug().Msgf("ErrandDemandService API registered at path: %s", apiPath)

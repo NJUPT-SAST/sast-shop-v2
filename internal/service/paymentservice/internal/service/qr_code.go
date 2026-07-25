@@ -31,7 +31,12 @@ func GetQrCode(ctx context.Context, ownerID int64) ([]*paymentv1.QrCode, error) 
 }
 
 // UpdateQrCode upserts a QR code for the given user and channel.
-func UpdateQrCode(ctx context.Context, ownerID int64, channel paymentv1.Channel, content string) (*paymentv1.QrCode, error) {
+func UpdateQrCode(
+	ctx context.Context,
+	ownerID int64,
+	channel paymentv1.Channel,
+	content string,
+) (*paymentv1.QrCode, error) {
 	ch, ok := model.ProtoChannelToModel(channel)
 	if !ok {
 		return nil, ErrInvalidChannel
