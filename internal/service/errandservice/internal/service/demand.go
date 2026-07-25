@@ -43,12 +43,8 @@ func CreateErrandDemand(
 	items []DemandItemDraft,
 ) (int64, error) {
 	// 1. 参数校验
-	if len(items) == 0 {
-		return 0, ErrEmptyDemandItems
-	}
-	if deadline.Before(time.Now()) {
-		return 0, ErrInvalidDeadline
-	}
+	
+
 
 	// 检查重复商品（同一个 product_template_id 不能出现两次）
 	productSet := make(map[int64]struct{})

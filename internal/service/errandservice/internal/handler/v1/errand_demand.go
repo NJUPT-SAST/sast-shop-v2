@@ -34,14 +34,6 @@ func (s *ErrandDemandServiceServer) CreateErrandDemand(
 	}
 
 	// 2. 参数基本校验（protovalidate 已做格式校验）
-	if msg.StoreId <= 0 {
-		log.Warn().Int64("store_id", msg.StoreId).Msg("invalid store_id")
-		return nil, errandError()
-	}
-	if len(msg.DemandItems) == 0 {
-		log.Warn().Msg("demand_items is empty")
-		return nil, errandError()
-	}
 
 	// 3. 转换 proto 到 service 层数据结构
 	deadline := msg.Deadline.AsTime()
