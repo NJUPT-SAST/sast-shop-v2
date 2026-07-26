@@ -307,7 +307,6 @@ func UpdateShoppingTaskItem(
 	ctx context.Context,
 	db bun.IDB,
 	taskItemID int64,
-	expectedUpdatedAt time.Time,
 	purchasedQuantity int32,
 	nonPurchaseReason string,
 	now time.Time,
@@ -320,7 +319,6 @@ func UpdateShoppingTaskItem(
 		Set("handled_at = ?", now).
 		Set("updated_at = ?", now).
 		WherePK().
-		Where("updated_at = ?", expectedUpdatedAt).
 		Returning("updated_at").
 		Exec(ctx)
 	if err != nil {
@@ -330,7 +328,7 @@ func UpdateShoppingTaskItem(
 	if err != nil {
 		return time.Time{}, err
 	}
-	// 1. 行已删除。2. 乐观锁冲突
+	// 主键未命中，通常表示任务条目已被删除。
 	if affected == 0 {
 		return time.Time{}, sql.ErrNoRows
 	}

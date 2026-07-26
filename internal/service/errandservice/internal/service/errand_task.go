@@ -655,14 +655,14 @@ func executeSaveShoppingTask(
 			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
 		}
 		// 基于 errand_task_item_updated_at 校验并发后
-		if !row.TaskItemUpdatedAt.UTC().Equal(expectedUpdatedAt) {
+		if !row.TaskItemUpdatedAt.UTC().Truncate(time.Second).Equal(expectedUpdatedAt.UTC().Truncate(time.Second)) {
 			return ErrConcurrencyConflict
 		}
 		if req.PurchasedQuantity < 0 || req.PurchasedQuantity > row.RequiredQuantity {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid purchased quantity"))
 		}
 		// 更新 purchased_quantity、non_purchase_reason、handled_at、updated_at
-		updatedAt, err = updateTaskItem(ctx, tx, req, expectedUpdatedAt, captainID)
+		updatedAt, err = updateTaskItem(ctx, tx, req, captainID)
 		return err
 	})
 	if err != nil {
@@ -698,7 +698,6 @@ func updateTaskItem(
 	ctx context.Context,
 	tx bun.Tx,
 	req *errandv1.SaveShoppingTaskItemRequest,
-	expectedUpdatedAt time.Time,
 	captainID int64,
 ) (time.Time, error) {
 	nonPurchaseReason := ""
@@ -711,7 +710,6 @@ func updateTaskItem(
 		ctx,
 		tx,
 		req.ErrandTaskItemId,
-		expectedUpdatedAt,
 		req.PurchasedQuantity,
 		nonPurchaseReason,
 		now,
