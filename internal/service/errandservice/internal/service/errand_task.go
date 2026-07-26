@@ -735,18 +735,13 @@ func TransitionToPendingDistributing(
 	captainID int64,
 	req *errandv1.TransitionToPendingDistributingRequest,
 ) (*timestamppb.Timestamp, error) {
-	if captainID <= 0 {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
-	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
+	if req == nil || req.ErrandTaskId <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition"))
 	}
-	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
 	updatedAt, notificationRows, err := transitionTaskToPendingDistributing(
 		ctx,
 		captainID,
 		req.ErrandTaskId,
-		expectedUpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -760,7 +755,6 @@ func TransitionToPendingDistributing(
 func transitionTaskToPendingDistributing(
 	ctx context.Context,
 	captainID, taskID int64,
-	expectedUpdatedAt time.Time,
 ) (time.Time, []repository.NonPurchasedDemandItemNotificationRow, error) {
 	var updatedAt time.Time
 	var notificationRows []repository.NonPurchasedDemandItemNotificationRow
@@ -771,7 +765,6 @@ func transitionTaskToPendingDistributing(
 			tx,
 			captainID,
 			taskID,
-			expectedUpdatedAt,
 		)
 		if err != nil {
 			return err
@@ -792,9 +785,8 @@ func executeTransitionToPendingDistributingTx(
 	ctx context.Context,
 	tx bun.Tx,
 	captainID, taskID int64,
-	expectedUpdatedAt time.Time,
 ) (time.Time, []repository.NonPurchasedDemandItemNotificationRow, error) {
-	task, err := loadShoppingTaskForTransition(ctx, tx, captainID, taskID, expectedUpdatedAt)
+	task, err := loadShoppingTaskForTransition(ctx, tx, captainID, taskID)
 	if err != nil {
 		return time.Time{}, nil, err
 	}
@@ -803,7 +795,7 @@ func executeTransitionToPendingDistributingTx(
 	}
 
 	now := time.Now().UTC()
-	updatedAt, err := updatePendingDistributingStatus(ctx, tx, task.TaskID, expectedUpdatedAt, now)
+	updatedAt, err := updatePendingDistributingStatus(ctx, tx, task.TaskID, now)
 	if err != nil {
 		return time.Time{}, nil, err
 	}
@@ -820,7 +812,6 @@ func loadShoppingTaskForTransition(
 	ctx context.Context,
 	tx bun.Tx,
 	captainID, taskID int64,
-	expectedUpdatedAt time.Time,
 ) (*repository.ErrandTaskForUpdateRow, error) {
 	task, err := repository.GetErrandTaskForUpdate(ctx, tx, taskID, captainID)
 	if err != nil {
@@ -836,9 +827,6 @@ func loadShoppingTaskForTransition(
 	}
 	if task.Status != model.ErrandTaskStatusShopping {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
-	}
-	if !task.UpdatedAt.UTC().Equal(expectedUpdatedAt) {
-		return nil, ErrConcurrencyConflict
 	}
 
 	return task, nil
@@ -868,9 +856,9 @@ func updatePendingDistributingStatus(
 	ctx context.Context,
 	tx bun.Tx,
 	taskID int64,
-	expectedUpdatedAt, now time.Time,
+	now time.Time,
 ) (time.Time, error) {
-	updatedAt, err := repository.UpdateTaskToPendingDistributing(ctx, tx, taskID, expectedUpdatedAt, now)
+	updatedAt, err := repository.UpdateTaskToPendingDistributing(ctx, tx, taskID, now)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return time.Time{}, ErrConcurrencyConflict

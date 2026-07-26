@@ -49,7 +49,8 @@ message SaveShoppingTaskItemResponse {
 
 message TransitionToPendingDistributingRequest {
   int64 errand_task_id = 1;
-  google.protobuf.Timestamp updated_at = 2;
+  reserved 2;
+  reserved "updated_at";
 }
 
 message TransitionToPendingDistributingResponse {

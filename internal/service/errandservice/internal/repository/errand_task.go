@@ -384,7 +384,6 @@ func UpdateTaskToPendingDistributing(
 	ctx context.Context,
 	db bun.IDB,
 	taskID int64,
-	expectedUpdatedAt time.Time,
 	now time.Time,
 ) (time.Time, error) {
 	task := &model.ErrandTask{ID: taskID}
@@ -395,7 +394,6 @@ func UpdateTaskToPendingDistributing(
 		Set("updated_at = ?", now).
 		WherePK().
 		Where("status = ?", model.ErrandTaskStatusShopping).
-		Where("updated_at = ?", expectedUpdatedAt).
 		Returning("updated_at").
 		Exec(ctx)
 	if err != nil {
