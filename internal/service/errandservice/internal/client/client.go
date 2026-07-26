@@ -21,10 +21,12 @@ func Init() {
 		http.DefaultClient,
 		fmt.Sprintf("%s:%d", config.AppConfig.CatalogServiceURL, config.AppConfig.CatalogServicePort),
 	)
+	CatalogInternalClient = CatalogInternalServiceClient
 	UserInternalServiceClient = userv1connect.NewUserInternalServiceClient(
 		http.DefaultClient,
 		fmt.Sprintf("%s:%d", config.AppConfig.UserServiceURL, config.AppConfig.UserServicePort),
 	)
+	UserInternalClient = UserInternalServiceClient
 	PaymentInternalServiceClient = paymentv1connect.NewPaymentInternalServiceClient(
 		http.DefaultClient,
 		fmt.Sprintf("%s:%d", config.AppConfig.PaymentServiceURL, config.AppConfig.PaymentServicePort),

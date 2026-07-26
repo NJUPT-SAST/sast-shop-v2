@@ -18,6 +18,7 @@ func InitUserClient() {
 		http.DefaultClient,
 		fmt.Sprintf("%s:%d", config.AppConfig.UserServiceURL, config.AppConfig.UserServicePort),
 	)
+	UserInternalServiceClient = UserInternalClient
 }
 
 func GetUsers(ctx context.Context, ids []int64) ([]*userv1.UserInfo, error) {

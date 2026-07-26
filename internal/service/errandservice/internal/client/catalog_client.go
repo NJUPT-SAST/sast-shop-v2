@@ -18,6 +18,7 @@ func InitCatalogClient() {
 		http.DefaultClient,
 		fmt.Sprintf("%s:%d", config.AppConfig.CatalogServiceURL, config.AppConfig.CatalogServicePort),
 	)
+	CatalogInternalServiceClient = CatalogInternalClient
 }
 
 func GetProductTemplate(ctx context.Context, id int64) (*catalogv1.ProductTemplate, error) {
