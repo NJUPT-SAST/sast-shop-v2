@@ -51,6 +51,19 @@ func (s *PaymentInternalServer) CancelBillBySource(
 	return connect.NewResponse(&paymentv1.CancelBillBySourceResponse{}), nil
 }
 
+func (s *PaymentInternalServer) BatchGetBills(
+	ctx context.Context,
+	r *connect.Request[paymentv1.BatchGetBillsRequest],
+) (*connect.Response[paymentv1.BatchGetBillsResponse], error) {
+	bills, err := service.BatchGetBills(ctx, r.Msg.GetBillIds())
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&paymentv1.BatchGetBillsResponse{
+		Bills: bills,
+	}), nil
+}
+
 func InitPaymentInternalServiceHandler(e *echo.Echo, opts ...connect.HandlerOption) {
 	apiPath, apiHandler := paymentv1connect.NewPaymentInternalServiceHandler(&PaymentInternalServer{}, opts...)
 	log.Debug().Msgf("PaymentInternalService API registered at path: %s", apiPath)

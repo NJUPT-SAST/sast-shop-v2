@@ -17,6 +17,20 @@ func GetBillByID(ctx context.Context, billID int64) (*model.PaymentBill, error) 
 	return &bill, err
 }
 
+func ListBillsByIDs(ctx context.Context, billIDs []int64) ([]*model.PaymentBill, error) {
+	if len(billIDs) == 0 {
+		return []*model.PaymentBill{}, nil
+	}
+
+	bills := make([]*model.PaymentBill, 0, len(billIDs))
+	err := postgres.DB.NewSelect().
+		Model(&bills).
+		Where("id IN (?)", bun.List(billIDs)).
+		OrderExpr("id ASC").
+		Scan(ctx)
+	return bills, err
+}
+
 func CreateBill(ctx context.Context, bill *model.PaymentBill) error {
 	_, err := postgres.DB.NewInsert().Model(bill).Returning("*").Exec(ctx)
 	return err

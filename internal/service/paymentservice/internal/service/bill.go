@@ -76,6 +76,20 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 	return PaymentBillToProto(ctx, paymentBill)
 }
 
+func BatchGetBills(ctx context.Context, billIDs []int64) ([]*paymentv1.Bill, error) {
+	billIDs = uniquePositiveInt64s(billIDs)
+	if len(billIDs) == 0 {
+		return []*paymentv1.Bill{}, nil
+	}
+
+	paymentBills, err := repository.ListBillsByIDs(ctx, billIDs)
+	if err != nil {
+		log.Error().Err(err).Interface("bill_ids", billIDs).Msg("BatchGetBills: ListBillsByIDs failed")
+		return nil, fmt.Errorf("batch get bills: %w", err)
+	}
+	return PaymentBillsToProto(ctx, paymentBills)
+}
+
 func PayBill(
 	ctx context.Context,
 	billId int64,
@@ -387,6 +401,51 @@ func notifyGroupTradePaymentConfirmed(ctx context.Context, bill *model.PaymentBi
 }
 
 func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv1.Bill, error) {
+	bills, err := PaymentBillsToProto(ctx, []*model.PaymentBill{bill})
+	if err != nil {
+		return nil, err
+	}
+	if len(bills) == 0 {
+		return nil, nil
+	}
+	return bills[0], nil
+}
+
+func PaymentBillsToProto(ctx context.Context, bills []*model.PaymentBill) ([]*paymentv1.Bill, error) {
+	result := make([]*paymentv1.Bill, 0, len(bills))
+	userIDs := make([]int64, 0, len(bills)*2)
+	seenUserIDs := make(map[int64]struct{}, len(bills)*2)
+
+	for _, bill := range bills {
+		pb, err := paymentBillToProtoWithoutUsers(bill)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, pb)
+
+		if _, ok := seenUserIDs[bill.PayerID]; !ok {
+			seenUserIDs[bill.PayerID] = struct{}{}
+			userIDs = append(userIDs, bill.PayerID)
+		}
+		if _, ok := seenUserIDs[bill.PayeeID]; !ok {
+			seenUserIDs[bill.PayeeID] = struct{}{}
+			userIDs = append(userIDs, bill.PayeeID)
+		}
+	}
+
+	userByID := loadUsersByID(ctx, userIDs)
+	for i, bill := range bills {
+		result[i].Payer = userByID[bill.PayerID]
+		result[i].Payee = userByID[bill.PayeeID]
+		if result[i].Payer == nil || result[i].Payee == nil {
+			log.Error().Msgf("Failed to map user info for billId: %d", bill.ID)
+		}
+	}
+
+	return result, nil
+}
+
+func paymentBillToProtoWithoutUsers(bill *model.PaymentBill) (*paymentv1.Bill, error) {
 	status, ok := model.ModelStatusToProto(bill.Status)
 	if !ok {
 		return nil, ErrInvalidBillStatus
@@ -428,26 +487,45 @@ func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv
 		pb.ClosedAt = timestamppb.New(*bill.ClosedAt)
 	}
 
+	return pb, nil
+}
+
+func loadUsersByID(ctx context.Context, userIDs []int64) map[int64]*userv1.UserInfo {
+	userByID := make(map[int64]*userv1.UserInfo, len(userIDs))
+	if len(userIDs) == 0 {
+		return userByID
+	}
+
 	getUsersResp, err := client.UserInternalServiceClient.GetUsers(
 		ctx, connect.NewRequest(
 			&userv1.GetUsersRequest{
-				UserIds: []int64{bill.PayerID, bill.PayeeID},
+				UserIds: userIDs,
 			},
 		),
 	)
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to get user info for billId: %d", bill.ID)
-		return pb, nil
+		log.Error().Err(err).Interface("user_ids", userIDs).Msg("Failed to get user info for bills")
+		return userByID
 	}
-	userByID := make(map[int64]*userv1.UserInfo, len(getUsersResp.Msg.Users))
 	for _, u := range getUsersResp.Msg.Users {
 		userByID[u.Id] = u
 	}
-	pb.Payer = userByID[bill.PayerID]
-	pb.Payee = userByID[bill.PayeeID]
-	if pb.Payer == nil || pb.Payee == nil {
-		log.Error().Msgf("Failed to map user info for billId: %d", bill.ID)
-	}
+	return userByID
+}
 
-	return pb, nil
+// 筛选出所有正数并去重
+func uniquePositiveInt64s(values []int64) []int64 {
+	result := make([]int64, 0, len(values))
+	seen := make(map[int64]struct{}, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }

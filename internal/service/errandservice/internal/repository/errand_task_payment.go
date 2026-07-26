@@ -199,34 +199,21 @@ func GetCollectingPaymentTaskHeader(
 }
 
 type CollectingPaymentDetailRow struct {
-	DemandItemID           int64      `bun:"demand_item_id"`
-	TitleSnapshot          string     `bun:"title_snapshot"`
-	RequiredQuantity       int32      `bun:"required_quantity"`
-	PurchasedQuantity      int32      `bun:"purchased_quantity"`
-	DistributedQuantity    int32      `bun:"distributed_quantity"`
-	ActualUnitPriceCents   int32      `bun:"actual_unit_price_cents"`
-	ServiceFeePerUnitCents int32      `bun:"service_fee_per_unit_cents"`
-	NonPurchaseReason      string     `bun:"non_purchase_reason"`
-	PaymentBillID          *int64     `bun:"payment_bill_id"`
-	BillNo                 string     `bun:"bill_no"`
-	BillStatus             string     `bun:"bill_status"`
-	BillAmountCents        *int32     `bun:"bill_amount_cents"`
-	VerifyCode             string     `bun:"verify_code"`
-	PaymentChannel         *string    `bun:"payment_channel"`
-	SerialNumber           *string    `bun:"serial_number"`
-	SubmittedAt            *time.Time `bun:"submitted_at"`
-	CompletedAt            *time.Time `bun:"completed_at"`
-	ClosedAt               *time.Time `bun:"closed_at"`
-	BillCreatedAt          *time.Time `bun:"bill_created_at"`
-	BillUpdatedAt          *time.Time `bun:"bill_updated_at"`
-	SourceType             *string    `bun:"source_type"`
-	SourceID               *int64     `bun:"source_id"`
-	PayerID                int64      `bun:"payer_id"`
-	PayerName              string     `bun:"payer_name"`
-	PayerAvatarURL         string     `bun:"payer_avatar_url"`
-	PayeeID                int64      `bun:"payee_id"`
-	PayeeName              string     `bun:"payee_name"`
-	PayeeAvatarURL         string     `bun:"payee_avatar_url"`
+	DemandItemID           int64  `bun:"demand_item_id"`
+	TitleSnapshot          string `bun:"title_snapshot"`
+	RequiredQuantity       int32  `bun:"required_quantity"`
+	PurchasedQuantity      int32  `bun:"purchased_quantity"`
+	DistributedQuantity    int32  `bun:"distributed_quantity"`
+	ActualUnitPriceCents   int32  `bun:"actual_unit_price_cents"`
+	ServiceFeePerUnitCents int32  `bun:"service_fee_per_unit_cents"`
+	NonPurchaseReason      string `bun:"non_purchase_reason"`
+	PaymentBillID          *int64 `bun:"payment_bill_id"`
+	PayerID                int64  `bun:"payer_id"`
+	PayerName              string `bun:"payer_name"`
+	PayerAvatarURL         string `bun:"payer_avatar_url"`
+	PayeeID                int64  `bun:"payee_id"`
+	PayeeName              string `bun:"payee_name"`
+	PayeeAvatarURL         string `bun:"payee_avatar_url"`
 }
 
 func ListCollectingPaymentDetails(ctx context.Context, db bun.IDB, taskID int64) ([]CollectingPaymentDetailRow, error) {
@@ -236,7 +223,6 @@ func ListCollectingPaymentDetails(ctx context.Context, db bun.IDB, taskID int64)
 		Join("JOIN errand.errand_task AS et ON et.id = eta.task_id").
 		Join("JOIN errand.errand_task_item AS eti ON eti.id = eta.task_item_id").
 		Join("JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id").
-		Join("LEFT JOIN payment.payment_bill AS pb ON pb.id = eta.payment_bill_id").
 		Join(`LEFT JOIN "user".user_account AS payer ON payer.id = eta.purchaser_id`).
 		Join(`LEFT JOIN "user".user_account AS payee ON payee.id = et.captain_id`).
 		ColumnExpr("edi.id AS demand_item_id").
@@ -247,20 +233,7 @@ func ListCollectingPaymentDetails(ctx context.Context, db bun.IDB, taskID int64)
 		ColumnExpr("COALESCE(eti.actual_unit_price_cents, 0) AS actual_unit_price_cents").
 		ColumnExpr("eta.service_fee_per_unit_cents AS service_fee_per_unit_cents").
 		ColumnExpr("eti.non_purchase_reason AS non_purchase_reason").
-		ColumnExpr("pb.id AS payment_bill_id").
-		ColumnExpr("COALESCE(pb.bill_no, '') AS bill_no").
-		ColumnExpr("COALESCE(pb.status::text, '') AS bill_status").
-		ColumnExpr("pb.amount_cents AS bill_amount_cents").
-		ColumnExpr("COALESCE(pb.verify_code, '') AS verify_code").
-		ColumnExpr("pb.channel::text AS payment_channel").
-		ColumnExpr("pb.serial_number AS serial_number").
-		ColumnExpr("pb.submitted_at AS submitted_at").
-		ColumnExpr("pb.completed_at AS completed_at").
-		ColumnExpr("pb.closed_at AS closed_at").
-		ColumnExpr("pb.created_at AS bill_created_at").
-		ColumnExpr("pb.updated_at AS bill_updated_at").
-		ColumnExpr("pb.source_type AS source_type").
-		ColumnExpr("pb.source_id AS source_id").
+		ColumnExpr("eta.payment_bill_id AS payment_bill_id").
 		ColumnExpr("eta.purchaser_id AS payer_id").
 		ColumnExpr("COALESCE(payer.display_name, '') AS payer_name").
 		ColumnExpr("COALESCE(payer.avatar_url, '') AS payer_avatar_url").
@@ -426,27 +399,29 @@ func UpdateTaskRelatedDemandItemsToCompleted(ctx context.Context, db bun.IDB, ta
 	return err
 }
 
-type TaskPaymentSummaryRow struct {
-	PayerCount          int64 `bun:"payer_count"`
-	IncompleteBillCount int64 `bun:"incomplete_bill_count"`
+type TaskPaymentBillRefRow struct {
+	PayerID          int64  `bun:"payer_id"`
+	PaymentBillID    *int64 `bun:"payment_bill_id"`
+	AssignmentCount  int64  `bun:"assignment_count"`
+	MissingBillCount int64  `bun:"missing_bill_count"`
+	BillIDCount      int64  `bun:"bill_id_count"`
 }
 
-func GetTaskPaymentSummary(ctx context.Context, db bun.IDB, taskID int64) (*TaskPaymentSummaryRow, error) {
-	var row TaskPaymentSummaryRow
+func ListTaskPaymentBillRefs(ctx context.Context, db bun.IDB, taskID int64) ([]TaskPaymentBillRefRow, error) {
+	rows := make([]TaskPaymentBillRefRow, 0)
 	err := db.NewSelect().
 		TableExpr("errand.errand_task_assignment AS eta").
-		Join("LEFT JOIN payment.payment_bill AS pb ON pb.id = eta.payment_bill_id").
-		ColumnExpr("COUNT(DISTINCT eta.purchaser_id) AS payer_count").
-		ColumnExpr(`COUNT(DISTINCT eta.purchaser_id) FILTER (
-			WHERE pb.id IS NULL OR pb.status <> ?
-		) AS incomplete_bill_count`, "completed").
+		ColumnExpr("eta.purchaser_id AS payer_id").
+		ColumnExpr("MAX(eta.payment_bill_id) AS payment_bill_id").
+		ColumnExpr("COUNT(*) AS assignment_count").
+		ColumnExpr("COUNT(*) FILTER (WHERE eta.payment_bill_id IS NULL) AS missing_bill_count").
+		ColumnExpr("COUNT(DISTINCT eta.payment_bill_id) FILTER (WHERE eta.payment_bill_id IS NOT NULL) AS bill_id_count").
 		Where("eta.task_id = ?", taskID).
 		Where("eta.distributed_quantity > 0").
-		Scan(ctx, &row)
-	if err != nil {
-		return nil, err
-	}
-	return &row, nil
+		GroupExpr("eta.purchaser_id").
+		OrderExpr("eta.purchaser_id ASC").
+		Scan(ctx, &rows)
+	return rows, err
 }
 
 type ErrandTaskListRow struct {

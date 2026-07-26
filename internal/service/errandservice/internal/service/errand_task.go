@@ -11,7 +11,6 @@ import (
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
-	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/feishu"
@@ -1882,7 +1881,12 @@ func GetCollectingPaymentDetail(
 		return nil, newErrandInternalError("")
 	}
 
-	bills, err := buildCollectingPaymentBills(header, rows)
+	paymentBillsByID, err := loadPaymentBillsByID(ctx, collectingPaymentBillIDs(rows))
+	if err != nil {
+		return nil, err
+	}
+
+	bills, err := buildCollectingPaymentBills(header, rows, paymentBillsByID)
 	if err != nil {
 		return nil, err
 	}
@@ -1897,10 +1901,11 @@ func GetCollectingPaymentDetail(
 func buildCollectingPaymentBills(
 	header *repository.CollectingPaymentTaskHeaderRow,
 	rows []repository.CollectingPaymentDetailRow,
+	paymentBillsByID map[int64]*paymentv1.Bill,
 ) ([]*errandv1.CollectingPaymentBillDetail, error) {
 	type billGroup struct {
-		rows    []repository.CollectingPaymentDetailRow
-		billRow *repository.CollectingPaymentDetailRow
+		rows []repository.CollectingPaymentDetailRow
+		bill *paymentv1.Bill
 	}
 	// 按付款人分组
 	groups := make(map[int64]*billGroup)
@@ -1914,8 +1919,8 @@ func buildCollectingPaymentBills(
 			payerIDs = append(payerIDs, row.PayerID)
 		}
 		group.rows = append(group.rows, *row)
-		if group.billRow == nil && row.PaymentBillID != nil {
-			group.billRow = row
+		if group.bill == nil && row.PaymentBillID != nil {
+			group.bill = paymentBillsByID[*row.PaymentBillID]
 		}
 	}
 
@@ -1997,14 +2002,59 @@ func buildCollectingPaymentBills(
 			PackagingFeeShareCents: totalAmounts[2],
 			TotalAmountCents:       totalAmounts[3],
 		}
-		if group.billRow != nil {
-			billDetail.PaymentStatus = collectingPaymentBillStatusToProto(group.billRow.BillStatus)
-			billDetail.Bill = collectingPaymentBillToProto(group.billRow)
+		if group.bill != nil {
+			billDetail.PaymentStatus = group.bill.Status
+			billDetail.Bill = group.bill
 		}
 		bills = append(bills, billDetail)
 	}
 
 	return bills, nil
+}
+
+func collectingPaymentBillIDs(rows []repository.CollectingPaymentDetailRow) []int64 {
+	billIDs := make([]int64, 0)
+	seen := make(map[int64]struct{})
+	for _, row := range rows {
+		if row.PaymentBillID == nil || *row.PaymentBillID <= 0 {
+			continue
+		}
+		if _, ok := seen[*row.PaymentBillID]; ok {
+			continue
+		}
+		seen[*row.PaymentBillID] = struct{}{}
+		billIDs = append(billIDs, *row.PaymentBillID)
+	}
+	return billIDs
+}
+
+func loadPaymentBillsByID(ctx context.Context, billIDs []int64) (map[int64]*paymentv1.Bill, error) {
+	billsByID := make(map[int64]*paymentv1.Bill, len(billIDs))
+	if len(billIDs) == 0 {
+		return billsByID, nil
+	}
+	if client.PaymentInternalServiceClient == nil {
+		log.Error().Interface("bill_ids", billIDs).Msg("payment internal service client is not initialized")
+		return nil, newErrandInternalError("")
+	}
+
+	resp, err := client.PaymentInternalServiceClient.BatchGetBills(
+		ctx,
+		connect.NewRequest(&paymentv1.BatchGetBillsRequest{
+			BillIds: billIDs,
+		}),
+	)
+	if err != nil {
+		log.Error().Err(err).Interface("bill_ids", billIDs).Msg("failed to batch get payment bills")
+		return nil, newErrandInternalError("")
+	}
+	for _, bill := range resp.Msg.GetBills() {
+		if bill == nil || bill.Id <= 0 {
+			continue
+		}
+		billsByID[bill.Id] = bill
+	}
+	return billsByID, nil
 }
 
 func ceilDivide(value, divisor int32) int32 {
@@ -2040,95 +2090,6 @@ func safeInt32FromInt64Values(values ...int64) ([]int32, error) {
 		result[i] = converted
 	}
 	return result, nil
-}
-
-func collectingPaymentBillStatusToProto(status string) paymentv1.BillStatus {
-	switch status {
-	case "unpaid":
-		return paymentv1.BillStatus_BILL_STATUS_UNPAID
-	case "submitted":
-		return paymentv1.BillStatus_BILL_STATUS_SUBMITTED
-	case "completed":
-		return paymentv1.BillStatus_BILL_STATUS_COMPLETED
-	case "closed":
-		return paymentv1.BillStatus_BILL_STATUS_CLOSED
-	default:
-		return paymentv1.BillStatus_BILL_STATUS_UNSPECIFIED
-	}
-}
-
-func collectingPaymentChannelToProto(channel string) paymentv1.Channel {
-	switch channel {
-	case "wechat":
-		return paymentv1.Channel_CHANNEL_WECHAT
-	case "alipay":
-		return paymentv1.Channel_CHANNEL_ALIPAY
-	default:
-		return paymentv1.Channel_CHANNEL_UNSPECIFIED
-	}
-}
-
-func collectingPaymentBillToProto(row *repository.CollectingPaymentDetailRow) *paymentv1.Bill {
-	if row == nil || row.PaymentBillID == nil {
-		return nil
-	}
-
-	bill := &paymentv1.Bill{
-		Id:     *row.PaymentBillID,
-		BillNo: row.BillNo,
-		Payer: &userv1.UserInfo{
-			Id:        row.PayerID,
-			Name:      row.PayerName,
-			AvatarUrl: row.PayerAvatarURL,
-		},
-		Payee: &userv1.UserInfo{
-			Id:        row.PayeeID,
-			Name:      row.PayeeName,
-			AvatarUrl: row.PayeeAvatarURL,
-		},
-		Status:     collectingPaymentBillStatusToProto(row.BillStatus),
-		VerifyCode: row.VerifyCode,
-		Channel:    collectingPaymentChannelToProto(stringValue(row.PaymentChannel)),
-		CreatedAt:  timestamppb.New(timeValue(row.BillCreatedAt)),
-		UpdatedAt:  timestamppb.New(timeValue(row.BillUpdatedAt)),
-	}
-	if row.BillAmountCents != nil {
-		bill.AmountCents = *row.BillAmountCents
-	}
-	if row.SerialNumber != nil && *row.SerialNumber != "" {
-		bill.SerialNumber = row.SerialNumber
-	}
-	if row.SubmittedAt != nil {
-		bill.SubmittedAt = timestamppb.New(*row.SubmittedAt)
-	}
-	if row.CompletedAt != nil {
-		bill.CompletedAt = timestamppb.New(*row.CompletedAt)
-	}
-	if row.ClosedAt != nil {
-		bill.ClosedAt = timestamppb.New(*row.ClosedAt)
-	}
-	if row.SourceType != nil {
-		bill.SourceType = row.SourceType
-	}
-	if row.SourceID != nil {
-		bill.SourceId = row.SourceID
-	}
-
-	return bill
-}
-
-func stringValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func timeValue(value *time.Time) time.Time {
-	if value == nil {
-		return time.Time{}
-	}
-	return *value
 }
 
 // 所有账单确认后将采购任务标记为完成
@@ -2221,20 +2182,36 @@ func loadCollectingPaymentTaskForCompletion(
 	return task, nil
 }
 
-func ensureTaskPaymentsCompleted(ctx context.Context, tx bun.Tx, taskID int64) error {
-	summary, err := repository.GetTaskPaymentSummary(ctx, tx, taskID)
+func ensureTaskPaymentsCompleted(ctx context.Context, db bun.IDB, taskID int64) error {
+	billRefs, err := repository.ListTaskPaymentBillRefs(ctx, db, taskID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Int64("errand_task_id", taskID).
-			Msg("failed to load task payment summary")
+			Msg("failed to load task payment bill refs")
 		return newErrandInternalError("")
 	}
-	if summary.PayerCount == 0 {
+	if len(billRefs) == 0 {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task has no payment payer"))
 	}
-	if summary.IncompleteBillCount > 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task payments are not completed"))
+
+	billIDs := make([]int64, 0, len(billRefs))
+	for _, ref := range billRefs {
+		if ref.MissingBillCount > 0 || ref.BillIDCount != 1 || ref.PaymentBillID == nil {
+			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task payments are not completed"))
+		}
+		billIDs = append(billIDs, *ref.PaymentBillID)
+	}
+
+	paymentBillsByID, err := loadPaymentBillsByID(ctx, billIDs)
+	if err != nil {
+		return err
+	}
+	for _, billID := range billIDs {
+		bill := paymentBillsByID[billID]
+		if bill == nil || bill.Status != paymentv1.BillStatus_BILL_STATUS_COMPLETED {
+			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task payments are not completed"))
+		}
 	}
 
 	return nil
