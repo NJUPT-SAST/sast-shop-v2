@@ -75,7 +75,6 @@ func LoadSelectedDemandItemsForUpdate(ctx context.Context, db bun.IDB, ids []int
 	err := db.NewSelect().
 		TableExpr("errand.errand_demand_item as edi").
 		Join("join errand.errand_demand as ed on ed.id = edi.errand_demand_id").
-		// 鍐呰繛鎺d锛屼竴娆℃煡璇㈠嵆鍙幏鍙栭渶姹傞」鏈韩鍙婂叾闇€姹傚崟鐨勫瓧娈?		ColumnExpr("edi.id AS demand_item_id").
 		ColumnExpr("edi.id AS demand_item_id").
 		ColumnExpr("edi.updated_at AS demand_item_updated_at").
 		ColumnExpr("edi.status AS demand_item_status").

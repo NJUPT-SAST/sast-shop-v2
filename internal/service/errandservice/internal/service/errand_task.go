@@ -160,8 +160,31 @@ func loadCreateTaskData(
 	productIDsSet := make(map[int64]struct{}, len(rows))             // 收集商品id，去重后批量加载商品快照
 
 	for _, row := range rows {
+		expectedUpdatedAt, ok := selection.SelectedUpdatedAt[row.DemandItemID]
+		if !ok {
+			err := fmt.Errorf("missing updated_at for demand_item_id %d", row.DemandItemID)
+			log.Error().
+				Err(err).
+				Int64("demand_item_id", row.DemandItemID).
+				Msg("expected updated_at not found in selection map")
+			return nil, err
+		}
 		// 校验其仍处于 open 状态，并基于 updated_at 做并发校验
-		if err := validateSelectedDemandItemRow(row, storeID, selection.SelectedUpdatedAt, now); err != nil {
+		// 校验每一行，失败时记录详细日志
+		if err := validateSelectedDemandItemRow(row, storeID, expectedUpdatedAt, now); err != nil {
+			// 结构化日志，包含所有关键字段
+			log.Error().
+				Err(err).
+				Int64("demand_item_id", row.DemandItemID).
+				Int64("demand_id", row.DemandID).
+				Int64("db_store_id", row.StoreID).
+				Int64("request_store_id", storeID).
+				Time("db_updated_at", row.DemandItemUpdatedAt).
+				Time("expected_updated_at", expectedUpdatedAt).
+				Str("demand_item_status", string(row.DemandItemStatus)).
+				Str("demand_status", string(row.DemandStatus)).
+				Time("deadline", row.Deadline).
+				Time("current_time", now)
 			return nil, err
 		}
 
@@ -185,7 +208,7 @@ func loadCreateTaskData(
 func validateSelectedDemandItemRow(
 	row repository.SelectedDemandItemRow,
 	storeID int64,
-	selectedUpdatedAt map[int64]time.Time,
+	selectedUpdatedAt time.Time,
 	now time.Time,
 ) error {
 	if row.StoreID != storeID {
@@ -194,7 +217,7 @@ func validateSelectedDemandItemRow(
 	if row.DemandStatus != model.ErrandDemandStatusOpen || row.DemandItemStatus != model.ErrandDemandItemStatusOpen {
 		return ErrDemandItemNotOpen
 	}
-	if !row.DemandItemUpdatedAt.UTC().Equal(selectedUpdatedAt[row.DemandItemID]) {
+	if !sameUpdatedAtSecond(row.DemandItemUpdatedAt, selectedUpdatedAt) {
 		return ErrConcurrencyConflict
 	}
 	if !row.Deadline.After(now) {
@@ -202,6 +225,10 @@ func validateSelectedDemandItemRow(
 	}
 
 	return nil
+}
+
+func sameUpdatedAtSecond(dbUpdatedAt, selectedUpdatedAt time.Time) bool {
+	return dbUpdatedAt.UTC().Truncate(time.Second).Equal(selectedUpdatedAt.UTC().Truncate(time.Second))
 }
 
 func loadValidatedSnapshots(
