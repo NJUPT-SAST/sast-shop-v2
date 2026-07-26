@@ -70,9 +70,6 @@ const (
 )
 
 func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRequest) (int64, error) {
-	if captainID <= 0 {
-		return 0, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
 	if req == nil || req.StoreId <= 0 || len(req.DemandItems) == 0 {
 		return 0, ErrInvalidDemandItem
 	}
@@ -1073,9 +1070,6 @@ func UpdateActualPrice(
 	captainID int64,
 	req *errandv1.UpdateActualPriceRequest,
 ) (*timestamppb.Timestamp, error) {
-	if captainID <= 0 {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
 	if req == nil || req.ErrandTaskId <= 0 || req.ErrandTaskItemId <= 0 ||
 		req.ErrandTaskItemUpdatedAt == nil || !req.ErrandTaskItemUpdatedAt.IsValid() ||
 		req.ActualUnitPriceCents < 0 {
@@ -1259,9 +1253,6 @@ func TransitionToDistributing(
 	captainID int64,
 	req *errandv1.TransitionToDistributingRequest,
 ) (*timestamppb.Timestamp, error) {
-	if captainID <= 0 {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
 	if req == nil || req.ErrandTaskId <= 0 || req.PackagingFeeCents < 0 ||
 		req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
 		return nil, connect.NewError(
@@ -1376,9 +1367,6 @@ func SaveDistributingTaskAssignment(
 	captainID int64,
 	req *errandv1.SaveDistributingTaskAssignmentRequest,
 ) (*timestamppb.Timestamp, error) {
-	if captainID <= 0 {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
 	if req == nil || req.ErrandTaskItemId <= 0 || req.ErrandTaskAssignmentId <= 0 ||
 		req.DistributedQuantity < 0 ||
 		req.ErrandTaskAssignmentUpdatedAt == nil || !req.ErrandTaskAssignmentUpdatedAt.IsValid() {
@@ -1547,9 +1535,6 @@ func TransitionToCollectingPayment(
 	captainID int64,
 	req *errandv1.TransitionToCollectingPaymentRequest,
 ) (*timestamppb.Timestamp, error) {
-	if captainID <= 0 {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
 	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
 		return nil, connect.NewError(
 			connect.CodeInvalidArgument,
@@ -2150,9 +2135,6 @@ func TransitionToCompleted(
 	captainID int64,
 	req *errandv1.TransitionToCompletedRequest,
 ) (*timestamppb.Timestamp, error) {
-	if captainID <= 0 {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
 	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition to completed request"))
 	}
@@ -2429,9 +2411,6 @@ func errandTaskListItemRowToProto(row repository.ErrandTaskListItemRow, storeID 
 
 // 取消未完成的跑腿任务
 func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRequest) (*timestamppb.Timestamp, error) {
-	if captainID <= 0 {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing captain id"))
-	}
 	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid cancel task request"))
 	}
