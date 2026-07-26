@@ -32,3 +32,32 @@ func TestValidateSelectedDemandItemRowComparesUpdatedAtBySecond(t *testing.T) {
 		t.Fatalf("validateSelectedDemandItemRow() error = %v, want %v", err, ErrConcurrencyConflict)
 	}
 }
+
+func TestIsValidShoppingTaskItemPurchasedQuantityAllowsUndo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		purchasedQuantity int32
+		requiredQuantity  int32
+		want              bool
+	}{
+		{name: "undo", purchasedQuantity: -1, requiredQuantity: 10, want: true},
+		{name: "zero", purchasedQuantity: 0, requiredQuantity: 10, want: true},
+		{name: "required quantity", purchasedQuantity: 10, requiredQuantity: 10, want: true},
+		{name: "less than undo sentinel", purchasedQuantity: -2, requiredQuantity: 10, want: false},
+		{name: "exceeds required quantity", purchasedQuantity: 11, requiredQuantity: 10, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := isValidShoppingTaskItemPurchasedQuantity(tt.purchasedQuantity, tt.requiredQuantity)
+			if got != tt.want {
+				t.Fatalf("isValidShoppingTaskItemPurchasedQuantity(%d, %d) = %v, want %v",
+					tt.purchasedQuantity, tt.requiredQuantity, got, tt.want)
+			}
+		})
+	}
+}

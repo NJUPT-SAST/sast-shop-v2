@@ -64,7 +64,10 @@ var (
 	ErrDemandItemNotOpen   = errors.New("demand item not open") // 任务已关闭
 )
 
-const errandTaskNoPrefix = "ET"
+const (
+	errandTaskNoPrefix                    = "ET"
+	undoShoppingTaskItemPurchasedQuantity = -1
+)
 
 func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRequest) (int64, error) {
 	if captainID <= 0 {
@@ -658,7 +661,7 @@ func executeSaveShoppingTask(
 		if !row.TaskItemUpdatedAt.UTC().Truncate(time.Second).Equal(expectedUpdatedAt.UTC().Truncate(time.Second)) {
 			return ErrConcurrencyConflict
 		}
-		if req.PurchasedQuantity < 0 || req.PurchasedQuantity > row.RequiredQuantity {
+		if !isValidShoppingTaskItemPurchasedQuantity(req.PurchasedQuantity, row.RequiredQuantity) {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid purchased quantity"))
 		}
 		// 更新 purchased_quantity、non_purchase_reason、handled_at、updated_at
@@ -694,12 +697,21 @@ func loadTaskItem(
 	return row, nil
 }
 
+func isValidShoppingTaskItemPurchasedQuantity(purchasedQuantity, requiredQuantity int32) bool {
+	return purchasedQuantity == undoShoppingTaskItemPurchasedQuantity ||
+		(purchasedQuantity >= 0 && purchasedQuantity <= requiredQuantity)
+}
+
 func updateTaskItem(
 	ctx context.Context,
 	tx bun.Tx,
 	req *errandv1.SaveShoppingTaskItemRequest,
 	captainID int64,
 ) (time.Time, error) {
+	if req.PurchasedQuantity == undoShoppingTaskItemPurchasedQuantity {
+		return undoTaskItemHandling(ctx, tx, req, captainID)
+	}
+
 	nonPurchaseReason := ""
 	if req.NonPurchaseReason != nil {
 		nonPurchaseReason = req.GetNonPurchaseReason()
@@ -723,7 +735,34 @@ func updateTaskItem(
 			Int64("captain_id", captainID).
 			Int64("errand_task_id", req.ErrandTaskId).
 			Int64("errand_task_item_id", req.ErrandTaskItemId).
-			Msg("failed to load shopping task item")
+			Msg("failed to update shopping task item")
+		return time.Time{}, newErrandInternalError("")
+	}
+	return updatedAt, nil
+}
+
+func undoTaskItemHandling(
+	ctx context.Context,
+	tx bun.Tx,
+	req *errandv1.SaveShoppingTaskItemRequest,
+	captainID int64,
+) (time.Time, error) {
+	updatedAt, err := repository.UndoShoppingTaskItemHandling(
+		ctx,
+		tx,
+		req.ErrandTaskItemId,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, ErrConcurrencyConflict
+		}
+		log.Error().
+			Err(err).
+			Int64("captain_id", captainID).
+			Int64("errand_task_id", req.ErrandTaskId).
+			Int64("errand_task_item_id", req.ErrandTaskItemId).
+			Msg("failed to undo shopping task item handling")
 		return time.Time{}, newErrandInternalError("")
 	}
 	return updatedAt, nil

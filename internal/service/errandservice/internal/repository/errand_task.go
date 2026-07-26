@@ -335,6 +335,35 @@ func UpdateShoppingTaskItem(
 	return taskItem.UpdatedAt, nil
 }
 
+func UndoShoppingTaskItemHandling(
+	ctx context.Context,
+	db bun.IDB,
+	taskItemID int64,
+	now time.Time,
+) (time.Time, error) {
+	taskItem := &model.ErrandTaskItem{ID: taskItemID}
+	res, err := db.NewUpdate().
+		Model(taskItem).
+		Set("purchased_quantity = NULL").
+		Set("non_purchase_reason = ''").
+		Set("handled_at = NULL").
+		Set("updated_at = ?", now).
+		WherePK().
+		Returning("updated_at").
+		Exec(ctx)
+	if err != nil {
+		return time.Time{}, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return time.Time{}, err
+	}
+	if affected == 0 {
+		return time.Time{}, sql.ErrNoRows
+	}
+	return taskItem.UpdatedAt, nil
+}
+
 type ErrandTaskForUpdateRow struct {
 	TaskID    int64                  `bun:"task_id"`
 	CaptainID int64                  `bun:"captain_id"`
