@@ -32,6 +32,16 @@ message GetShoppingTaskDetailResponse {
   string store_name = 3;
   repeated ErrandTaskItem task_items = 4;
   google.protobuf.Timestamp updated_at = 5;
+  // Count of product rows with purchased_quantity > 0.
+  int32 actual_product_kind_count = 6;
+  // Sum of purchased quantities across handled product rows.
+  int32 actual_product_quantity = 7;
+  // Current actual product amount in cents.
+  int32 product_amount_cents = 8;
+  // Current service fee amount in cents after allocating purchased quantities to demand rows.
+  int32 service_fee_amount_cents = 9;
+  // product_amount_cents + service_fee_amount_cents.
+  int32 estimated_total_amount_cents = 10;
 }
 
 message SaveShoppingTaskItemRequest {

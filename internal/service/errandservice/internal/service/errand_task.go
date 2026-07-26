@@ -569,18 +569,112 @@ func GetShoppingTaskDetail(
 		log.Error().Err(err).Int64("errand_task_id", header.TaskID).Msg("failed to load shopping task items")
 		return nil, newErrandInternalError("")
 	}
+	feeRows, err := repository.ListShoppingTaskDemandFeeRows(ctx, postgres.DB, header.TaskID)
+	if err != nil {
+		log.Error().Err(err).Int64("errand_task_id", header.TaskID).Msg("failed to load shopping task fee rows")
+		return nil, newErrandInternalError("")
+	}
+	preview, err := buildShoppingTaskSettlementPreview(itemRows, feeRows)
+	if err != nil {
+		return nil, err
+	}
+
 	taskItems := make([]*errandv1.ErrandTaskItem, 0, len(itemRows))
 	for _, row := range itemRows {
 		taskItems = append(taskItems, shoppingTaskItemRowToProto(row, header.StoreID))
 	}
 
 	return &errandv1.GetShoppingTaskDetailResponse{
-		ErrandTaskId: header.TaskID,
-		StoreId:      header.StoreID,
-		StoreName:    header.StoreName,
-		TaskItems:    taskItems,
-		UpdatedAt:    timestamppb.New(header.UpdatedAt),
+		ErrandTaskId:              header.TaskID,
+		StoreId:                   header.StoreID,
+		StoreName:                 header.StoreName,
+		TaskItems:                 taskItems,
+		UpdatedAt:                 timestamppb.New(header.UpdatedAt),
+		ActualProductKindCount:    preview.ActualProductKindCount,
+		ActualProductQuantity:     preview.ActualProductQuantity,
+		ProductAmountCents:        preview.ProductAmountCents,
+		ServiceFeeAmountCents:     preview.ServiceFeeAmountCents,
+		EstimatedTotalAmountCents: preview.EstimatedTotalAmountCents,
 	}, nil
+}
+
+type shoppingTaskSettlementPreview struct {
+	ActualProductKindCount    int32
+	ActualProductQuantity     int32
+	ProductAmountCents        int32
+	ServiceFeeAmountCents     int32
+	EstimatedTotalAmountCents int32
+}
+
+func buildShoppingTaskSettlementPreview(
+	itemRows []repository.ShoppingTaskItemRow,
+	feeRows []repository.ShoppingTaskDemandFeeRow,
+) (*shoppingTaskSettlementPreview, error) {
+	feeRowsByTaskItemID := make(map[int64][]repository.ShoppingTaskDemandFeeRow)
+	for _, row := range feeRows {
+		feeRowsByTaskItemID[row.TaskItemID] = append(feeRowsByTaskItemID[row.TaskItemID], row)
+	}
+
+	var kindCount int64
+	var quantity int64
+	var productAmountCents int64
+	var serviceFeeAmountCents int64
+	for _, row := range itemRows {
+		purchasedQuantity := int32(0)
+		if row.PurchasedQuantity != nil && *row.PurchasedQuantity > 0 {
+			purchasedQuantity = *row.PurchasedQuantity
+		}
+		if purchasedQuantity == 0 {
+			continue
+		}
+
+		kindCount++
+		quantity += int64(purchasedQuantity)
+		if row.ActualUnitPriceCents != nil {
+			productAmountCents += int64(*row.ActualUnitPriceCents) * int64(purchasedQuantity)
+		}
+		serviceFeeAmountCents += allocateShoppingTaskServiceFee(
+			purchasedQuantity,
+			feeRowsByTaskItemID[row.TaskItemID],
+		)
+	}
+
+	estimatedTotalAmountCents := productAmountCents + serviceFeeAmountCents
+	amounts, err := safeInt32FromInt64Values(
+		kindCount,
+		quantity,
+		productAmountCents,
+		serviceFeeAmountCents,
+		estimatedTotalAmountCents,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &shoppingTaskSettlementPreview{
+		ActualProductKindCount:    amounts[0],
+		ActualProductQuantity:     amounts[1],
+		ProductAmountCents:        amounts[2],
+		ServiceFeeAmountCents:     amounts[3],
+		EstimatedTotalAmountCents: amounts[4],
+	}, nil
+}
+
+func allocateShoppingTaskServiceFee(
+	purchasedQuantity int32,
+	feeRows []repository.ShoppingTaskDemandFeeRow,
+) int64 {
+	remaining := purchasedQuantity
+	var amountCents int64
+	for _, row := range feeRows {
+		if remaining <= 0 {
+			break
+		}
+		quantity := minInt32(remaining, row.RequiredQuantity)
+		remaining -= quantity
+		amountCents += int64(quantity) * int64(row.ServiceFeePerUnitCents)
+	}
+	return amountCents
 }
 
 func shoppingTaskItemRowToProto(row repository.ShoppingTaskItemRow, storeID int64) *errandv1.ErrandTaskItem {

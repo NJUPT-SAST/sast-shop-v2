@@ -29,6 +29,12 @@ message BuyerErrandOrderProductItem {
   int32 subtotal_cents = 8;
   // 对应的买家需求行 ID
   int64 errand_demand_item_id = 9;
+  // Actual product amount for this line in cents.
+  int32 product_amount_cents = 10;
+  // Service fee amount for this line in cents.
+  int32 service_fee_amount_cents = 11;
+  // Packaging fee share assigned to this line in cents.
+  int32 packaging_fee_share_cents = 12;
 }
 
 // 买家跑腿订单列表项
@@ -82,4 +88,12 @@ message BuyerErrandOrderDetail {
   google.protobuf.Timestamp payment_completed_at = 16;
   // 订单取消时间
   google.protobuf.Timestamp cancelled_at = 17;
+  // Actual product amount included in the payable amount.
+  int32 product_amount_cents = 18;
+  // Service fee amount included in the payable amount.
+  int32 service_fee_amount_cents = 19;
+  // Buyer's packaging fee share in cents.
+  int32 packaging_fee_share_cents = 20;
+  // product_amount_cents + service_fee_amount_cents + packaging_fee_share_cents.
+  int32 total_amount_cents = 21;
 }

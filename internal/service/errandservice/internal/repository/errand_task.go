@@ -55,6 +55,13 @@ type ShoppingTaskItemRow struct {
 	UpdatedAt            time.Time `bun:"updated_at"`
 }
 
+type ShoppingTaskDemandFeeRow struct {
+	TaskItemID             int64 `bun:"task_item_id"`
+	DemandItemID           int64 `bun:"demand_item_id"`
+	RequiredQuantity       int32 `bun:"required_quantity"`
+	ServiceFeePerUnitCents int32 `bun:"service_fee_per_unit_cents"`
+}
+
 type ShoppingTaskItemForUpdateRow struct {
 	TaskID            int64                  `bun:"task_id"`
 	TaskStatus        model.ErrandTaskStatus `bun:"task_status"`
@@ -271,6 +278,21 @@ func ListShoppingTaskItems(ctx context.Context, db bun.IDB, taskID int64) ([]Sho
 		OrderExpr("eti.deadline asc, eti.id asc").
 		Scan(ctx, &rows)
 
+	return rows, err
+}
+
+func ListShoppingTaskDemandFeeRows(ctx context.Context, db bun.IDB, taskID int64) ([]ShoppingTaskDemandFeeRow, error) {
+	rows := make([]ShoppingTaskDemandFeeRow, 0)
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_assignment AS eta").
+		Join("JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id").
+		ColumnExpr("eta.task_item_id AS task_item_id").
+		ColumnExpr("eta.demand_item_id AS demand_item_id").
+		ColumnExpr("edi.quantity AS required_quantity").
+		ColumnExpr("eta.service_fee_per_unit_cents AS service_fee_per_unit_cents").
+		Where("eta.task_id = ?", taskID).
+		OrderExpr("eta.task_item_id ASC, eta.id ASC").
+		Scan(ctx, &rows)
 	return rows, err
 }
 

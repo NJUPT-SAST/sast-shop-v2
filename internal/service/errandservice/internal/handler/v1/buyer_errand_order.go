@@ -119,17 +119,25 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderDetail(
 		if pi.ActualUnitPriceCents != nil {
 			actualPrice = *pi.ActualUnitPriceCents
 		}
+		var nonPurchaseReason *string
+		if pi.NonPurchaseReason != "" {
+			reason := pi.NonPurchaseReason
+			nonPurchaseReason = &reason
+		}
 
 		productItems = append(productItems, &errandv1.BuyerErrandOrderProductItem{
 			ProductTemplate:        pi.ProductTemplate,
 			ActualUnitPriceCents:   actualPrice,
 			RequiredQuantity:       pi.RequiredQuantity,
 			PurchasedQuantity:      pi.PurchasedQuantity,
-			NonPurchaseReason:      &pi.NonPurchaseReason,
+			NonPurchaseReason:      nonPurchaseReason,
 			DistributedQuantity:    &pi.DistributedQuantity,
 			ServiceFeePerUnitCents: pi.ServiceFeePerUnitCents,
-			SubtotalCents:          0,
+			SubtotalCents:          pi.SubtotalCents,
 			ErrandDemandItemId:     pi.ErrandDemandItemID,
+			ProductAmountCents:     pi.ProductAmountCents,
+			ServiceFeeAmountCents:  pi.ServiceFeeAmountCents,
+			PackagingFeeShareCents: pi.PackagingFeeShareCents,
 		})
 	}
 
@@ -144,7 +152,12 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderDetail(
 		TotalActualAmountCents: detail.TotalActualAmountCents,
 		TotalServiceFeeCents:   detail.TotalServiceFeeCents,
 		CaptainInfo:            detail.CaptainInfo,
+		Bill:                   detail.Bill,
 		Deadline:               timestamppb.New(detail.Deadline),
+		ProductAmountCents:     detail.ProductAmountCents,
+		ServiceFeeAmountCents:  detail.ServiceFeeAmountCents,
+		PackagingFeeShareCents: detail.PackagingFeeShareCents,
+		TotalAmountCents:       detail.TotalAmountCents,
 	}
 
 	if detail.ShoppingStartAt != nil {

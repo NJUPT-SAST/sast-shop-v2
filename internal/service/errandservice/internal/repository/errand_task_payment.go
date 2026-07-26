@@ -140,6 +140,21 @@ func ListTaskPaymentBillAssignments(
 	return rows, err
 }
 
+func CountTaskPaymentPayers(ctx context.Context, db bun.IDB, taskID int64) (int64, error) {
+	type payerCountRow struct {
+		PayerCount int64 `bun:"payer_count"`
+	}
+
+	var row payerCountRow
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_assignment AS eta").
+		ColumnExpr("COUNT(DISTINCT eta.purchaser_id) AS payer_count").
+		Where("eta.task_id = ?", taskID).
+		Where("eta.distributed_quantity > 0").
+		Scan(ctx, &row)
+	return row.PayerCount, err
+}
+
 func UpdateTaskAssignmentPaymentBillIDByPayer(
 	ctx context.Context,
 	db bun.IDB,
