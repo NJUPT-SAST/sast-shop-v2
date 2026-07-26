@@ -1131,7 +1131,7 @@ func executeUpdateActualPriceTx(
 		return time.Time{}, err
 	}
 
-	return persistActualPrice(ctx, tx, captainID, req.ErrandTaskItemId, expectedUpdatedAt, req.ActualUnitPriceCents)
+	return persistActualPrice(ctx, tx, captainID, req.ErrandTaskItemId, row.TaskItemUpdatedAt, req.ActualUnitPriceCents)
 }
 
 // 加载taskItem数据
@@ -1169,9 +1169,10 @@ func validateActualPriceUpdate(
 			errors.New("task is not in pending distributing status"),
 		)
 	}
-	if !row.TaskItemUpdatedAt.UTC().Equal(expectedUpdatedAt) {
+	if !sameUpdatedAtSecond(row.TaskItemUpdatedAt, expectedUpdatedAt) {
 		return ErrConcurrencyConflict
 	}
+
 	if row.PurchasedQuantity == nil {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task item has not been handled"))
 	}

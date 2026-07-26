@@ -33,6 +33,28 @@ func TestValidateSelectedDemandItemRowComparesUpdatedAtBySecond(t *testing.T) {
 	}
 }
 
+func TestValidateActualPriceUpdateComparesUpdatedAtBySecond(t *testing.T) {
+	t.Parallel()
+
+	shanghai := time.FixedZone("Asia/Shanghai", 8*60*60)
+	purchasedQuantity := int32(1)
+	row := &repository.DistributingTaskItemForUpdateRow{
+		TaskStatus:        model.ErrandTaskStatusPendingDistributing,
+		PurchasedQuantity: &purchasedQuantity,
+		TaskItemUpdatedAt: time.Date(2026, 7, 26, 20, 8, 57, 276123000, shanghai),
+	}
+	expectedUpdatedAt := time.Date(2026, 7, 26, 12, 8, 57, 276000000, time.UTC)
+
+	if err := validateActualPriceUpdate(row, expectedUpdatedAt, 20000); err != nil {
+		t.Fatalf("validateActualPriceUpdate() error = %v", err)
+	}
+
+	row.TaskItemUpdatedAt = time.Date(2026, 7, 26, 20, 8, 58, 0, shanghai)
+	if err := validateActualPriceUpdate(row, expectedUpdatedAt, 20000); !errors.Is(err, ErrConcurrencyConflict) {
+		t.Fatalf("validateActualPriceUpdate() error = %v, want %v", err, ErrConcurrencyConflict)
+	}
+}
+
 func TestIsValidShoppingTaskItemPurchasedQuantityAllowsUndo(t *testing.T) {
 	t.Parallel()
 
