@@ -16,7 +16,7 @@ require (
 replace github.com/NJUPT-SAST/sast-shop-v2/internal/pkg => ../../pkg
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260709200747-435963d16310.1 // indirect
 	buf.build/go/protovalidate v1.2.0 // indirect
 	cel.dev/expr v0.25.1 // indirect
 	connectrpc.com/validate v0.6.0 // indirect

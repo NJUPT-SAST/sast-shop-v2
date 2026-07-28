@@ -655,7 +655,7 @@ func executeSaveShoppingTask(
 			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
 		}
 		// 基于 errand_task_item_updated_at 校验并发后
-		if !row.TaskItemUpdatedAt.UTC().Truncate(time.Second).Equal(expectedUpdatedAt.UTC().Truncate(time.Second)) {
+		if !sameUpdatedAtSecond(row.TaskItemUpdatedAt, expectedUpdatedAt) {
 			return ErrConcurrencyConflict
 		}
 		if !isValidShoppingTaskItemPurchasedQuantity(req.PurchasedQuantity, row.RequiredQuantity) {
@@ -1163,10 +1163,11 @@ func validateActualPriceUpdate(
 	expectedUpdatedAt time.Time,
 	actualUnitPriceCents int32,
 ) error {
-	if row.TaskStatus != model.ErrandTaskStatusPendingDistributing {
+	if row.TaskStatus != model.ErrandTaskStatusPendingDistributing &&
+		row.TaskStatus != model.ErrandTaskStatusDistributing {
 		return connect.NewError(
 			connect.CodeFailedPrecondition,
-			errors.New("task is not in pending distributing status"),
+			errors.New("task is not in distributing flow"),
 		)
 	}
 	if !sameUpdatedAtSecond(row.TaskItemUpdatedAt, expectedUpdatedAt) {
@@ -1221,7 +1222,7 @@ func persistActualPrice(
 	ctx context.Context,
 	tx bun.Tx,
 	captainID, taskItemID int64,
-	expectedUpdatedAt time.Time,
+	currentUpdatedAt time.Time,
 	actualUnitPriceCents int32,
 ) (time.Time, error) {
 	now := time.Now().UTC()
@@ -1229,7 +1230,7 @@ func persistActualPrice(
 		ctx,
 		tx,
 		taskItemID,
-		expectedUpdatedAt,
+		currentUpdatedAt,
 		actualUnitPriceCents,
 		now,
 	)
@@ -1276,7 +1277,7 @@ func TransitionToDistributing(
 			return err
 		}
 
-		updatedAt, err = updateDistributingStatus(ctx, tx, task.TaskID, expectedUpdatedAt, req.PackagingFeeCents)
+		updatedAt, err = updateDistributingStatus(ctx, tx, task.TaskID, task.UpdatedAt, req.PackagingFeeCents)
 		return err
 	})
 	if err != nil {
@@ -1310,7 +1311,7 @@ func loadPendingDistributingTaskForTransition(
 			errors.New("task is not in pending distributing status"),
 		)
 	}
-	if !task.UpdatedAt.UTC().Equal(expectedUpdatedAt) {
+	if !sameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
 
@@ -1322,7 +1323,7 @@ func updateDistributingStatus(
 	ctx context.Context,
 	tx bun.Tx,
 	taskID int64,
-	expectedUpdatedAt time.Time,
+	currentUpdatedAt time.Time,
 	packagingFeeCents int32,
 ) (time.Time, error) {
 	now := time.Now().UTC()
@@ -1330,18 +1331,19 @@ func updateDistributingStatus(
 		ctx,
 		tx,
 		taskID,
-		expectedUpdatedAt,
+		currentUpdatedAt,
 		packagingFeeCents,
 		now,
 	)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return time.Time{}, ErrConcurrencyConflict
-		}
 		log.Error().
 			Err(err).
 			Int64("errand_task_id", taskID).
 			Msg("failed to update task to distributing")
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, ErrConcurrencyConflict
+		}
+
 		return time.Time{}, newErrandInternalError("")
 	}
 	if err := repository.UpdateTaskRelatedDemandsToDistributing(ctx, tx, taskID, now); err != nil {
@@ -1426,7 +1428,7 @@ func executeSaveDistributingTaskAssignmentTx(
 		tx,
 		captainID,
 		req.ErrandTaskAssignmentId,
-		expectedUpdatedAt,
+		row.AssignmentUpdatedAt,
 		req.DistributedQuantity,
 	)
 }
@@ -1465,7 +1467,7 @@ func validateDistributingTaskAssignmentUpdate(
 	if row.TaskStatus != model.ErrandTaskStatusDistributing {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in distributing status"))
 	}
-	if !row.AssignmentUpdatedAt.UTC().Equal(expectedUpdatedAt) {
+	if !sameUpdatedAtSecond(row.AssignmentUpdatedAt, expectedUpdatedAt) {
 		return ErrConcurrencyConflict
 	}
 	if row.PurchasedQuantity == nil {
@@ -1503,7 +1505,7 @@ func persistDistributingTaskAssignment(
 	ctx context.Context,
 	tx bun.Tx,
 	captainID, assignmentID int64,
-	expectedUpdatedAt time.Time,
+	currentUpdatedAt time.Time,
 	distributedQuantity int32,
 ) (time.Time, error) {
 	now := time.Now().UTC()
@@ -1511,7 +1513,7 @@ func persistDistributingTaskAssignment(
 		ctx,
 		tx,
 		assignmentID,
-		expectedUpdatedAt,
+		currentUpdatedAt,
 		distributedQuantity,
 		now,
 	)
@@ -1565,7 +1567,7 @@ func TransitionToCollectingPayment(
 			ctx,
 			tx,
 			task.TaskID,
-			expectedUpdatedAt,
+			task.UpdatedAt,
 			now,
 		)
 		if err != nil {
@@ -1628,7 +1630,12 @@ func loadDistributingTaskForCollectingPayment(
 			errors.New("task is not in distributing status"),
 		)
 	}
-	if !task.UpdatedAt.UTC().Equal(expectedUpdatedAt) {
+	if !sameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
+		log.Error().
+			Err(err).
+			Time("task.UpdatedAt", task.UpdatedAt).
+			Time("expectedUpdatedAt", expectedUpdatedAt).
+			Msg("time is not same")
 		return nil, ErrConcurrencyConflict
 	}
 
@@ -2152,7 +2159,7 @@ func TransitionToCompleted(
 		}
 
 		now := time.Now().UTC()
-		updatedAt, err = repository.UpdateTaskToCompleted(ctx, tx, task.TaskID, expectedUpdatedAt, now)
+		updatedAt, err = repository.UpdateTaskToCompleted(ctx, tx, task.TaskID, task.UpdatedAt, now)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrConcurrencyConflict
@@ -2210,7 +2217,7 @@ func loadCollectingPaymentTaskForCompletion(
 			errors.New("task is not in collecting payment status"),
 		)
 	}
-	if !task.UpdatedAt.UTC().Equal(expectedUpdatedAt) {
+	if !sameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
 
@@ -2427,7 +2434,7 @@ func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRe
 		cancelledFromStatus = task.Status
 
 		now := time.Now().UTC()
-		updatedAt, err = repository.UpdateTaskToCancelled(ctx, tx, task.TaskID, expectedUpdatedAt, now)
+		updatedAt, err = repository.UpdateTaskToCancelled(ctx, tx, task.TaskID, task.UpdatedAt, now)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrConcurrencyConflict
@@ -2488,7 +2495,7 @@ func loadTaskForCancellation(
 	if task.Status == model.ErrandTaskStatusCompleted || task.Status == model.ErrandTaskStatusCancelled {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("task cannot be cancelled"))
 	}
-	if !task.UpdatedAt.UTC().Equal(expectedUpdatedAt) {
+	if !sameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
 

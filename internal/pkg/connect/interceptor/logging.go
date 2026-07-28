@@ -14,10 +14,10 @@ func ValidationLogging(logger zerolog.Logger) connect.UnaryInterceptorFunc {
 			resp, err := next(ctx, req)
 			if connect.CodeOf(err) == connect.CodeInvalidArgument {
 				logger.Warn().
-    Err(err).
-    Str("procedure", req.Spec().Procedure).
-    Str("peer", req.Peer().Addr). // 从 ctx 提取
-    Msg("RPC request validation failed")
+					Err(err).
+					Str("procedure", req.Spec().Procedure).
+					Str("peer", req.Peer().Addr). // 从 ctx 提取
+					Msg("RPC request validation failed")
 			}
 			return resp, err
 		}

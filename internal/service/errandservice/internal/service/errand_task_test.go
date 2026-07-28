@@ -55,6 +55,22 @@ func TestValidateActualPriceUpdateComparesUpdatedAtBySecond(t *testing.T) {
 	}
 }
 
+func TestValidateActualPriceUpdateAllowsDistributingStatus(t *testing.T) {
+	t.Parallel()
+
+	purchasedQuantity := int32(1)
+	updatedAt := time.Date(2026, 7, 26, 12, 8, 57, 0, time.UTC)
+	row := &repository.DistributingTaskItemForUpdateRow{
+		TaskStatus:        model.ErrandTaskStatusDistributing,
+		PurchasedQuantity: &purchasedQuantity,
+		TaskItemUpdatedAt: updatedAt,
+	}
+
+	if err := validateActualPriceUpdate(row, updatedAt, 20000); err != nil {
+		t.Fatalf("validateActualPriceUpdate() error = %v", err)
+	}
+}
+
 func TestIsValidShoppingTaskItemPurchasedQuantityAllowsUndo(t *testing.T) {
 	t.Parallel()
 

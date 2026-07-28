@@ -59,7 +59,7 @@ func CreateErrandDemand(
 
 	// 2. 逐个调用 catalog 服务校验商品：存在性、归属、版本
 	productMap, err := validateProducts(ctx, storeID, items)
-		if err != nil {
+	if err != nil {
 		return 0, err
 	}
 
@@ -146,17 +146,17 @@ func validateProducts(
 		}
 		// 校验版本号（防止买家看到的是已过期的商品信息）
 		// 截断到毫秒，忽略纳秒差异
-serverUpdated := p.UpdatedAt.AsTime().Truncate(time.Millisecond)
-clientUpdated := item.UpdatedAt.Truncate(time.Millisecond)
+		serverUpdated := p.UpdatedAt.AsTime().Truncate(time.Millisecond)
+		clientUpdated := item.UpdatedAt.Truncate(time.Millisecond)
 
-if !serverUpdated.Equal(clientUpdated) {
-    log.Warn().
-        Int64("product_id", item.ProductTemplateID).
-        Time("server_updated_at", serverUpdated).
-        Time("client_updated_at", clientUpdated).
-        Msg("product version mismatch")
-    return nil, ErrProductInvalid
-}
+		if !serverUpdated.Equal(clientUpdated) {
+			log.Warn().
+				Int64("product_id", item.ProductTemplateID).
+				Time("server_updated_at", serverUpdated).
+				Time("client_updated_at", clientUpdated).
+				Msg("product version mismatch")
+			return nil, ErrProductInvalid
+		}
 	}
 	return productMap, nil
 }
