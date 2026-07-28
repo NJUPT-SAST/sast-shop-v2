@@ -42,6 +42,5 @@ service PaymentInternalService {
   // 按业务来源取消账单，用于订单或任务取消后的账单作废
   rpc CancelBillBySource(CancelBillBySourceRequest) returns (CancelBillBySourceResponse);
 
- 
   rpc BatchGetBills(BatchGetBillsRequest) returns (BatchGetBillsResponse);
 }
