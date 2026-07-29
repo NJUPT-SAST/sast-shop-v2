@@ -6,6 +6,7 @@ import (
 
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/repository"
@@ -240,7 +241,7 @@ func loadTaskInfo(ctx context.Context, taskID *int64) (map[int64]*model.ErrandTa
 	if taskID == nil {
 		return nil, nil
 	}
-	task, err := repository.GetTaskByID(ctx, *taskID)
+	task, err := repository.GetTaskByID(ctx, postgres.DB, *taskID)
 	if err != nil {
 		log.Warn().Err(err).Int64("task_id", *taskID).Msg("get task failed")
 		return nil, nil
