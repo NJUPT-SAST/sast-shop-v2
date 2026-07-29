@@ -492,3 +492,5 @@ CREATE TABLE payment_confirmation_log (
 );
 COMMENT ON TABLE payment_confirmation_log IS '支付确认日志，记录账单状态变更';
 COMMENT ON COLUMN payment_confirmation_log.operator_id IS '操作人用户 ID（跨服务引用）';
+
+

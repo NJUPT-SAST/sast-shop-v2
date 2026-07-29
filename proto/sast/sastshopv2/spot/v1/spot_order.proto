@@ -55,4 +55,5 @@ message SpotOrderDetail {
   optional google.protobuf.Timestamp completed_at = 14;
   // 订单取消时间
   optional google.protobuf.Timestamp cancelled_at = 15;
+  google.protobuf.Timestamp updated_at = 16;
 }

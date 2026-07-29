@@ -5,11 +5,9 @@ import (
 	"errors"
 	"strings"
 
-	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
-	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/repository"
 	"github.com/rs/zerolog/log"
@@ -88,12 +86,4 @@ func resolveUserContactOpenID(ctx context.Context, userID int64) (string, error)
 		return "", errandInternalError()
 	}
 	return response.Msg.FeishuOpenId, nil
-}
-
-func errandInternalError() error {
-	return rpcerror.NewInternalError(&commonv1.BusinessError_ErrandError{
-		ErrandError: &errandv1.ErrandError{
-			Code: errandv1.ErrandErrorCode_ERRAND_ERROR_CODE_INTERNAL_ERROR,
-		},
-	}, "")
 }

@@ -95,3 +95,12 @@ func extractToken(req connect.AnyRequest) string {
 	}
 	return auth
 }
+
+// UserIDFromContext retrieves the authenticated user's ID from context.
+func UserIDFromContext(ctx context.Context) (int64, error) {
+	user, ok := UserFromContext(ctx)
+	if !ok || user == nil || user.UserID <= 0 {
+		return 0, connect.NewError(connect.CodeUnauthenticated, errors.New("missing authenticated user"))
+	}
+	return user.UserID, nil
+}

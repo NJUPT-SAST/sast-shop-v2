@@ -25,6 +25,14 @@ message CancelBillBySourceRequest {
 
 message CancelBillBySourceResponse {}
 
+message BatchGetBillsRequest {
+  repeated int64 bill_ids = 1;
+}
+
+message BatchGetBillsResponse {
+  repeated Bill bills = 1;
+}
+
 service PaymentInternalService {
   // 为订单或任务创建支付账单，按 source_type + source_id + payer_id 幂等
   // 现货使用 source_type = "spot_order"、source_id = spot_order.id
@@ -33,4 +41,6 @@ service PaymentInternalService {
 
   // 按业务来源取消账单，用于订单或任务取消后的账单作废
   rpc CancelBillBySource(CancelBillBySourceRequest) returns (CancelBillBySourceResponse);
+
+  rpc BatchGetBills(BatchGetBillsRequest) returns (BatchGetBillsResponse);
 }
