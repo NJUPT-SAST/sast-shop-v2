@@ -10,6 +10,10 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/service"
 )
 
+func permissionDeniedError() *connect.Error {
+	return connect.NewError(connect.CodePermissionDenied, errors.New("only admin can perform this action"))
+}
+
 func catalogError() *connect.Error {
 	return rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
 		CatalogError: &catalogv1.CatalogError{

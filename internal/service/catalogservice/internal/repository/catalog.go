@@ -15,7 +15,7 @@ func GetProductTemplateByID(ctx context.Context, id int64) (*model.CatalogProduc
 	return &pt, err
 }
 
-// ListProductTemplatesByIDs需要通过商品id渲染商品模板
+// ListProductTemplatesByIDs 通过商品 ID 列表批量查询商品模板。
 func ListProductTemplatesByIDs(ctx context.Context, ids []int64) ([]*model.CatalogProductTemplate, error) {
 	if len(ids) == 0 {
 		return []*model.CatalogProductTemplate{}, nil
@@ -37,6 +37,13 @@ func GetStoreByID(ctx context.Context, id int64) (*model.CatalogStore, error) {
 	return &store, err
 }
 
+// GetStoreByIDForUpdate 按 ID 查询店铺并加行锁（SELECT ... FOR UPDATE），须在事务内调用。
+func GetStoreByIDForUpdate(ctx context.Context, db bun.IDB, id int64) (*model.CatalogStore, error) {
+	var store model.CatalogStore
+	err := db.NewSelect().Model(&store).Where("id = ?", id).For("UPDATE").Scan(ctx)
+	return &store, err
+}
+
 // ListStores 查询所有店铺。
 func ListStores(ctx context.Context) ([]*model.CatalogStore, error) {
 	var stores []*model.CatalogStore
@@ -51,8 +58,8 @@ func CreateStore(ctx context.Context, store *model.CatalogStore) error {
 }
 
 // UpdateStore 部分更新店铺，updates 为需要更新的列名→值映射。
-func UpdateStore(ctx context.Context, id int64, updates map[string]any) error {
-	_, err := postgres.DB.NewUpdate().
+func UpdateStore(ctx context.Context, db bun.IDB, id int64, updates map[string]any) error {
+	_, err := db.NewUpdate().
 		Model(&updates).
 		TableExpr("catalog.catalog_store").
 		Where("id = ?", id).
