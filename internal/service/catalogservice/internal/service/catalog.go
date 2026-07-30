@@ -7,6 +7,7 @@ import (
 
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/repository"
@@ -143,12 +144,28 @@ func CreateStore(
 }
 
 // UpdateStore 部分更新店铺，updateMask 指定要更新的字段。
+// 整个读-改-写在一个数据库事务中完成，读取时使用 SELECT ... FOR UPDATE 防止并发写冲突。
 func UpdateStore(
 	ctx context.Context,
 	store *catalogv1.Store,
 	updateMask []string,
 ) (*catalogv1.Store, error) {
-	existing, err := repository.GetStoreByID(ctx, store.Id)
+	tx, err := postgres.DB.BeginTx(ctx, nil)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to begin transaction for store update: %d", store.Id)
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
+			CatalogError: &catalogv1.CatalogError{
+				Code: catalogv1.CatalogErrorCode_CATALOG_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			log.Debug().Err(err).Msg("rollback after commit, expected")
+		}
+	}()
+
+	existing, err := repository.GetStoreByIDForUpdate(ctx, tx, store.Id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrStoreNotFound
@@ -166,8 +183,17 @@ func UpdateStore(
 		return storeToProto(existing), nil
 	}
 
-	if err := repository.UpdateStore(ctx, store.Id, updates); err != nil {
+	if err := repository.UpdateStore(ctx, tx, store.Id, updates); err != nil {
 		log.Error().Err(err).Msgf("Failed to update store: %d", store.Id)
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
+			CatalogError: &catalogv1.CatalogError{
+				Code: catalogv1.CatalogErrorCode_CATALOG_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "")
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Error().Err(err).Msgf("Failed to commit transaction for store update: %d", store.Id)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
 			CatalogError: &catalogv1.CatalogError{
 				Code: catalogv1.CatalogErrorCode_CATALOG_ERROR_CODE_INTERNAL_ERROR,
