@@ -159,7 +159,7 @@ func UpdateStore(
 			},
 		}, "")
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	existing, err := repository.GetStoreByIDForUpdate(ctx, tx, store.Id)
 	if err != nil {
