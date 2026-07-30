@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"time"
 
+	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/repository"
@@ -25,6 +27,8 @@ var (
 	ErrDuplicateBill       = errors.New("duplicate bill")
 )
 
+const paymentBillNoPrefix = "PAY"
+
 func CreateBill(
 	ctx context.Context,
 	payerId, payeeId int64,
@@ -36,8 +40,14 @@ func CreateBill(
 		return nil, ErrInvalidBillStatus
 	}
 
+	billNo, err := newPaymentBillNo()
+	if err != nil {
+		log.Error().Err(err).Msg("CreateBill: generate bill number failed")
+		return nil, fmt.Errorf("create bill: generate bill number: %w", err)
+	}
+
 	bill := &model.PaymentBill{
-		BillNo:      model.GenerateBillNo(),
+		BillNo:      billNo,
 		PayerID:     payerId,
 		PayeeID:     payeeId,
 		SourceType:  sourceType,
@@ -46,7 +56,7 @@ func CreateBill(
 		VerifyCode:  model.GenerateVerifyCode(),
 		Status:      model.PaymentBillStatusUnpaid,
 	}
-	err := repository.CreateBill(ctx, bill)
+	err = repository.CreateBill(ctx, bill)
 	if err != nil {
 		log.Error().Err(err).Msg("CreateBill: CreateBill failed")
 		return nil, fmt.Errorf("create bill: %w", err)
@@ -64,6 +74,20 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 		return nil, fmt.Errorf("get bill: %w", err)
 	}
 	return PaymentBillToProto(ctx, paymentBill)
+}
+
+func BatchGetBills(ctx context.Context, billIDs []int64) ([]*paymentv1.Bill, error) {
+	billIDs = uniquePositiveInt64s(billIDs)
+	if len(billIDs) == 0 {
+		return []*paymentv1.Bill{}, nil
+	}
+
+	paymentBills, err := repository.ListBillsByIDs(ctx, billIDs)
+	if err != nil {
+		log.Error().Err(err).Interface("bill_ids", billIDs).Msg("BatchGetBills: ListBillsByIDs failed")
+		return nil, fmt.Errorf("batch get bills: %w", err)
+	}
+	return PaymentBillsToProto(ctx, paymentBills)
 }
 
 func PayBill(
@@ -152,6 +176,8 @@ func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time)
 	bill.Status = model.PaymentBillStatusCompleted
 	bill.CompletedAt = &completedAt
 	bill.UpdatedAt = updatedAt
+
+	notifyGroupTradePaymentConfirmed(ctx, bill)
 
 	return PaymentBillToProto(ctx, bill)
 }
@@ -260,17 +286,30 @@ func CreateBillForOrder(
 	payerID, payeeID int64,
 	amountCents int32,
 ) (*paymentv1.Bill, error) {
+	if sourceType == "" || sourceID <= 0 || payerID <= 0 || payeeID <= 0 || amountCents < 0 || payerID == payeeID {
+		return nil, ErrInvalidBillStatus
+	}
+
 	bill, err := repository.GetBillBySource(ctx, sourceType, sourceID, payerID)
 	if err != nil {
 		log.Error().Err(err).Msg("CreateBillForOrder: GetBillBySource failed")
 		return nil, fmt.Errorf("create bill for order: get bill by source: %w", err)
 	}
 	if bill != nil {
+		if bill.PayeeID != payeeID || bill.AmountCents != amountCents {
+			return nil, ErrDuplicateBill
+		}
 		return PaymentBillToProto(ctx, bill)
 	}
 
+	billNo, err := newPaymentBillNo()
+	if err != nil {
+		log.Error().Err(err).Msg("CreateBillForOrder: generate bill number failed")
+		return nil, fmt.Errorf("create bill for order: generate bill number: %w", err)
+	}
+
 	bill = &model.PaymentBill{
-		BillNo:      model.GenerateBillNo(),
+		BillNo:      billNo,
 		PayerID:     payerID,
 		PayeeID:     payeeID,
 		SourceType:  &sourceType,
@@ -294,6 +333,10 @@ func CreateBillForOrder(
 	return PaymentBillToProto(ctx, bill)
 }
 
+func newPaymentBillNo() (string, error) {
+	return idgen.NewOrderNo(paymentBillNoPrefix)
+}
+
 func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) error {
 	_, err := repository.CancelBillBySource(ctx, sourceType, sourceID, payerID)
 	if err != nil {
@@ -303,7 +346,106 @@ func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, 
 	return nil
 }
 
+func notifyGroupTradePaymentConfirmed(ctx context.Context, bill *model.PaymentBill) {
+	if bill.SourceType == nil || bill.SourceID == nil || *bill.SourceType != "errand_task" {
+		return
+	}
+	if client.GroupTradeInternalServiceClient == nil {
+		log.Error().Int64("bill_id", bill.ID).Msg("group trade internal service client is not initialized")
+		return
+	}
+
+	if _, err := client.GroupTradeInternalServiceClient.OnPaymentConfirmed(
+		ctx,
+		connect.NewRequest(&errandv1.OnPaymentConfirmedRequest{
+			SourceType: *bill.SourceType,
+			SourceId:   *bill.SourceID,
+			PayerId:    bill.PayerID,
+		}),
+	); err != nil {
+		log.Error().
+			Err(err).
+			Int64("bill_id", bill.ID).
+			Int64("source_id", *bill.SourceID).
+			Int64("payer_id", bill.PayerID).
+			Msg("failed to notify group trade payment confirmed")
+		return
+	}
+
+	incompleteCount, err := repository.CountIncompleteBillsBySource(ctx, *bill.SourceType, *bill.SourceID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Int64("bill_id", bill.ID).
+			Int64("source_id", *bill.SourceID).
+			Msg("failed to count incomplete bills by source")
+		return
+	}
+	if incompleteCount > 0 {
+		return
+	}
+
+	if _, err := client.GroupTradeInternalServiceClient.OnAllPaymentsConfirmed(
+		ctx,
+		connect.NewRequest(&errandv1.OnAllPaymentsConfirmedRequest{
+			SourceType: *bill.SourceType,
+			SourceId:   *bill.SourceID,
+		}),
+	); err != nil {
+		log.Error().
+			Err(err).
+			Int64("bill_id", bill.ID).
+			Int64("source_id", *bill.SourceID).
+			Msg("failed to notify group trade all payments confirmed")
+	}
+}
+
 func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv1.Bill, error) {
+	bills, err := PaymentBillsToProto(ctx, []*model.PaymentBill{bill})
+	if err != nil {
+		return nil, err
+	}
+	if len(bills) == 0 {
+		return nil, nil
+	}
+	return bills[0], nil
+}
+
+func PaymentBillsToProto(ctx context.Context, bills []*model.PaymentBill) ([]*paymentv1.Bill, error) {
+	result := make([]*paymentv1.Bill, 0, len(bills))
+	userIDs := make([]int64, 0, len(bills)*2)
+	seenUserIDs := make(map[int64]struct{}, len(bills)*2)
+
+	for _, bill := range bills {
+		pb, err := paymentBillToProtoWithoutUsers(bill)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, pb)
+
+		if _, ok := seenUserIDs[bill.PayerID]; !ok {
+			seenUserIDs[bill.PayerID] = struct{}{}
+			userIDs = append(userIDs, bill.PayerID)
+		}
+		if _, ok := seenUserIDs[bill.PayeeID]; !ok {
+			seenUserIDs[bill.PayeeID] = struct{}{}
+			userIDs = append(userIDs, bill.PayeeID)
+		}
+	}
+
+	userByID := loadUsersByID(ctx, userIDs)
+	for i, bill := range bills {
+		result[i].Payer = userByID[bill.PayerID]
+		result[i].Payee = userByID[bill.PayeeID]
+		if result[i].Payer == nil || result[i].Payee == nil {
+			log.Error().Msgf("Failed to map user info for billId: %d", bill.ID)
+		}
+	}
+
+	return result, nil
+}
+
+func paymentBillToProtoWithoutUsers(bill *model.PaymentBill) (*paymentv1.Bill, error) {
 	status, ok := model.ModelStatusToProto(bill.Status)
 	if !ok {
 		return nil, ErrInvalidBillStatus
@@ -345,24 +487,45 @@ func PaymentBillToProto(ctx context.Context, bill *model.PaymentBill) (*paymentv
 		pb.ClosedAt = timestamppb.New(*bill.ClosedAt)
 	}
 
-	getUsersResp, err := client.UserInternalServiceClient.GetUsers(ctx, connect.NewRequest(
-		&userv1.GetUsersRequest{
-			UserIds: []int64{bill.PayerID, bill.PayeeID},
-		}),
+	return pb, nil
+}
+
+func loadUsersByID(ctx context.Context, userIDs []int64) map[int64]*userv1.UserInfo {
+	userByID := make(map[int64]*userv1.UserInfo, len(userIDs))
+	if len(userIDs) == 0 {
+		return userByID
+	}
+
+	getUsersResp, err := client.UserInternalServiceClient.GetUsers(
+		ctx, connect.NewRequest(
+			&userv1.GetUsersRequest{
+				UserIds: userIDs,
+			},
+		),
 	)
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to get user info for billId: %d", bill.ID)
-		return pb, nil
+		log.Error().Err(err).Interface("user_ids", userIDs).Msg("Failed to get user info for bills")
+		return userByID
 	}
-	userByID := make(map[int64]*userv1.UserInfo, len(getUsersResp.Msg.Users))
 	for _, u := range getUsersResp.Msg.Users {
 		userByID[u.Id] = u
 	}
-	pb.Payer = userByID[bill.PayerID]
-	pb.Payee = userByID[bill.PayeeID]
-	if pb.Payer == nil || pb.Payee == nil {
-		log.Error().Msgf("Failed to map user info for billId: %d", bill.ID)
-	}
+	return userByID
+}
 
-	return pb, nil
+// 筛选出所有正数并去重
+func uniquePositiveInt64s(values []int64) []int64 {
+	result := make([]int64, 0, len(values))
+	seen := make(map[int64]struct{}, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }

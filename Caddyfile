@@ -1,0 +1,7 @@
+:6661 {
+  reverse_proxy /sast.sastshopv2.user.v1.* 127.0.0.1:1323
+  reverse_proxy /sast.sastshopv2.catalog.v1.* 127.0.0.1:1324
+  reverse_proxy /sast.sastshopv2.payment.v1.* 127.0.0.1:1325
+  reverse_proxy /sast.sastshopv2.spot.v1.* 127.0.0.1:1326
+  reverse_proxy /sast.sastshopv2.errand.v1.* 127.0.0.1:1327
+}

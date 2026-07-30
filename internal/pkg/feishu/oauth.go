@@ -49,9 +49,10 @@ func RefreshUserToken(ctx context.Context, refreshToken string) (*OAuthToken, er
 		return nil, err
 	}
 
-	resp, err := client.SDK.AccessToken.Refresh(ctx, refreshtoken.NewTokenRequestBuilder().
-		RefreshToken(refreshToken).
-		Build(),
+	resp, err := client.SDK.AccessToken.Refresh(
+		ctx, refreshtoken.NewTokenRequestBuilder().
+			RefreshToken(refreshToken).
+			Build(),
 	)
 	if err != nil {
 		return nil, mapFeishuError(err)

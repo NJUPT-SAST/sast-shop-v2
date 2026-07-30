@@ -15,6 +15,21 @@ func GetProductTemplateByID(ctx context.Context, id int64) (*model.CatalogProduc
 	return &pt, err
 }
 
+// ListProductTemplatesByIDs 通过商品 ID 列表批量查询商品模板。
+func ListProductTemplatesByIDs(ctx context.Context, ids []int64) ([]*model.CatalogProductTemplate, error) {
+	if len(ids) == 0 {
+		return []*model.CatalogProductTemplate{}, nil
+	}
+
+	var pts []*model.CatalogProductTemplate
+	err := postgres.DB.NewSelect().
+		Model(&pts).
+		Where("id IN (?)", bun.List(ids)).
+		Order("id ASC").
+		Scan(ctx)
+	return pts, err
+}
+
 // GetStoreByID 按 ID 查询店铺。
 func GetStoreByID(ctx context.Context, id int64) (*model.CatalogStore, error) {
 	var store model.CatalogStore

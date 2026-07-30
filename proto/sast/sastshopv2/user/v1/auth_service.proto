@@ -2,20 +2,17 @@ syntax = "proto3";
 
 package sast.sastshopv2.user.v1;
 
-import "google/protobuf/timestamp.proto";
-import "sast/sastshopv2/user/v1/user_info.proto";
-
 message LoginRequest {
   string code = 1;
   optional string redirect_uri = 2;
   optional string device_id = 3;
 }
 
-message LoginMember{
+message LoginMember {
   int64 id = 1;
   string display_name = 2;
-  string avatar_url  = 3;
-  string role  = 4;
+  string avatar_url = 3;
+  string role = 4;
   string status = 5;
 }
 

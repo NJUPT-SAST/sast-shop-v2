@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package sast.sastshopv2.errand.v1;
 
+import "buf/validate/validate.proto";
 import "sast/sastshopv2/errand/v1/buyer_errand_order.proto";
 import "sast/sastshopv2/errand/v1/errand_demand_status.proto";
 
@@ -29,10 +30,21 @@ message GetBuyerErrandOrderDetailResponse {
   BuyerErrandOrderDetail order = 1;
 }
 
+message GetBuyerErrandOrderCaptainContactRequest {
+  int64 errand_demand_id = 1 [(buf.validate.field).int64 = {gt: 0}];
+}
+
+message GetBuyerErrandOrderCaptainContactResponse {
+  string captain_feishu_open_id = 1;
+}
+
 service BuyerErrandOrderService {
   // 获取当前买家的跑腿订单列表
   rpc GetBuyerErrandOrderBrief(GetBuyerErrandOrderBriefRequest) returns (GetBuyerErrandOrderBriefResponse);
 
   // 获取当前买家的跑腿订单详情
   rpc GetBuyerErrandOrderDetail(GetBuyerErrandOrderDetailRequest) returns (GetBuyerErrandOrderDetailResponse);
+
+  // 需求发起人获取已接单团长的飞书会话标识
+  rpc GetBuyerErrandOrderCaptainContact(GetBuyerErrandOrderCaptainContactRequest) returns (GetBuyerErrandOrderCaptainContactResponse);
 }

@@ -38,10 +38,11 @@ func SendTextByOpenID(ctx context.Context, openID string, text string, bizKey st
 		bodyBuilder.Uuid(bizKey)
 	}
 
-	resp, err := client.SDK.Im.Message.Create(ctx, larkim.NewCreateMessageReqBuilder().
-		ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeOpenId).
-		Body(bodyBuilder.Build()).
-		Build(),
+	resp, err := client.SDK.Im.Message.Create(
+		ctx, larkim.NewCreateMessageReqBuilder().
+			ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeOpenId).
+			Body(bodyBuilder.Build()).
+			Build(),
 	)
 	if err != nil {
 		return nil, mapFeishuError(err)

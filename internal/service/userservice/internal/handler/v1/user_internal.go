@@ -45,6 +45,20 @@ func (s *UserInternalServer) GetUsers(
 	}), nil
 }
 
+func (s *UserInternalServer) GetUserContactOpenID(
+	ctx context.Context,
+	r *connect.Request[userv1.GetUserContactOpenIDRequest],
+) (*connect.Response[userv1.GetUserContactOpenIDResponse], error) {
+	user, err := service.GetUserInfo(ctx, r.Msg.UserId)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&userv1.GetUserContactOpenIDResponse{
+		FeishuOpenId: user.FeishuOpenID,
+	}), nil
+}
+
 func InitUserInternalHandler(e *echo.Echo, opts ...connect.HandlerOption) {
 	apiPath, apiHandler := userv1connect.NewUserInternalServiceHandler(&UserInternalServer{}, opts...)
 	log.Debug().Msgf("UserInternalService API registered at path: %s", apiPath)
