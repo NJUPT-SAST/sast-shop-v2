@@ -11,6 +11,6 @@ message ErrandTaskItem {
   int32 required_quantity = 3;
   optional int32 purchased_quantity = 4;
   optional string non_purchase_reason = 5;
-  int32 actual_unit_price_cents = 6;
+  optional int32 actual_unit_price_cents = 6;
   google.protobuf.Timestamp updated_at = 7;
 }

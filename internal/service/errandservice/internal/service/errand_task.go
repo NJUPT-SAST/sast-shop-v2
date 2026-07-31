@@ -584,11 +584,6 @@ func GetShoppingTaskDetail(
 }
 
 func shoppingTaskItemRowToProto(row repository.ShoppingTaskItemRow, storeID int64) *errandv1.ErrandTaskItem {
-	actualUnitPriceCents := int32(0)
-	if row.ActualUnitPriceCents != nil {
-		actualUnitPriceCents = *row.ActualUnitPriceCents
-	}
-
 	taskItem := &errandv1.ErrandTaskItem{
 		Id: row.TaskItemID,
 		ProductSnapshot: &catalogv1.ProductTemplate{
@@ -599,9 +594,12 @@ func shoppingTaskItemRowToProto(row repository.ShoppingTaskItemRow, storeID int6
 			StoreId:      storeID,
 			MainImageUrl: row.ImageURLSnapshot,
 		},
-		RequiredQuantity:     row.RequiredQuantity,
-		ActualUnitPriceCents: actualUnitPriceCents,
-		UpdatedAt:            timestamppb.New(row.UpdatedAt),
+		RequiredQuantity: row.RequiredQuantity,
+		UpdatedAt:        timestamppb.New(row.UpdatedAt),
+	}
+	if row.ActualUnitPriceCents != nil {
+		actualUnitPriceCents := *row.ActualUnitPriceCents
+		taskItem.ActualUnitPriceCents = &actualUnitPriceCents
 	}
 	if row.PurchasedQuantity != nil {
 		purchasedQuantity := *row.PurchasedQuantity
@@ -1023,10 +1021,6 @@ func GetDistributingTaskDetail(
 	for _, row := range rows {
 		item := itemByID[row.TaskItemID]
 		if item == nil {
-			actual := int32(0)
-			if row.ActualUnitPriceCents != nil {
-				actual = *row.ActualUnitPriceCents
-			}
 			item = &errandv1.DistributingItem{
 				ErrandTaskItemId:     row.TaskItemID,
 				ProductTemplateId:    row.ProductTemplateID,
@@ -1034,9 +1028,12 @@ func GetDistributingTaskDetail(
 				DescriptionSnapshot:  row.DescriptionSnapshot,
 				ImageUrlSnapshot:     row.ImageURLSnapshot,
 				OriginUnitPriceCents: row.OriginUnitPriceCents,
-				ActualUnitPriceCents: actual,
 				UpdatedAt:            timestamppb.New(row.TaskItemUpdatedAt),
 				Requesters:           make([]*errandv1.DistributingRequestInfo, 0, 1),
+			}
+			if row.ActualUnitPriceCents != nil {
+				actual := *row.ActualUnitPriceCents
+				item.ActualUnitPriceCents = &actual
 			}
 			itemByID[row.TaskItemID] = item
 			items = append(items, item)
@@ -1277,6 +1274,10 @@ func TransitionToDistributing(
 			return err
 		}
 
+		if err := ensureTaskItemsPriced(ctx, tx, task.TaskID); err != nil {
+			return err
+		}
+
 		updatedAt, err = updateDistributingStatus(ctx, tx, task.TaskID, task.UpdatedAt, req.PackagingFeeCents)
 		return err
 	})
@@ -1316,6 +1317,23 @@ func loadPendingDistributingTaskForTransition(
 	}
 
 	return task, nil
+}
+
+// 校验所有采购项已填实际单价
+func ensureTaskItemsPriced(ctx context.Context, tx bun.Tx, taskID int64) error {
+	summary, err := repository.GetTaskDistributionSummary(ctx, tx, taskID)
+	if err != nil {
+		log.Error().Err(err).Int64("errand_task_id", taskID).
+			Msg("failed to load task distribution summary")
+		return newErrandInternalError("")
+	}
+	if summary.UnhandledCount > 0 {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unhandled shopping items"))
+	}
+	if summary.UnpricedCount > 0 {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unpriced distributing items"))
+	}
+	return nil
 }
 
 // 更新 errand_task.packaging_fee_cents，并将 task 与关联 demand 状态同步为 distributing
@@ -1545,65 +1563,95 @@ func TransitionToCollectingPayment(
 		)
 	}
 
+	// 先通过 RPC 创建账单（事务外，失败则任务状态不变）
+	billDrafts, err := createPaymentBillsViaRPC(ctx, req.ErrandTaskId)
+	if err != nil {
+		return nil, err
+	}
+
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
+
+	// 全部为团长自购，无需收款，直接完成
+	if len(billDrafts) == 0 {
+		return completeTaskWithoutBills(ctx, captainID, req.ErrandTaskId, expectedUpdatedAt)
+	}
+
 	var updatedAt time.Time
 	if err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		task, err := loadDistributingTaskForCollectingPayment(
-			ctx,
-			tx,
-			captainID,
-			req.ErrandTaskId,
-			expectedUpdatedAt,
-		)
-		if err != nil {
-			return err
-		}
-		if err := ensureTaskDistributionCompleted(ctx, tx, task.TaskID); err != nil {
-			return err
-		}
-
-		now := time.Now().UTC()
-		updatedAt, err = repository.UpdateTaskToCollectingPayment(
-			ctx,
-			tx,
-			task.TaskID,
-			task.UpdatedAt,
-			now,
-		)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrConcurrencyConflict
-			}
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", task.TaskID).
-				Msg("failed to update task to collecting payment")
-			return newErrandInternalError("")
-		}
-		if err := repository.UpdateTaskRelatedDemandsToPendingPayment(ctx, tx, task.TaskID, now); err != nil {
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", task.TaskID).
-				Msg("failed to update related demands to pending payment")
-			return newErrandInternalError("")
-		}
-		if err := repository.UpdateTaskRelatedDemandItemsToPendingPayment(ctx, tx, task.TaskID, now); err != nil {
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", task.TaskID).
-				Msg("failed to update related demand items to pending payment")
-			return newErrandInternalError("")
-		}
-
-		return nil
+		updatedAt, err = transitionToCollectingPaymentTx(ctx, tx, captainID, req.ErrandTaskId, expectedUpdatedAt, billDrafts)
+		return err
 	}); err != nil {
 		return nil, err
 	}
-
-	if err := createPaymentBillsForTask(ctx, req.ErrandTaskId); err != nil {
-		return nil, err
-	}
 	return timestamppb.New(updatedAt), nil
+}
+
+func transitionToCollectingPaymentTx(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID, taskID int64,
+	expectedUpdatedAt time.Time,
+	billDrafts []boundBillDraft,
+) (time.Time, error) {
+	task, err := loadDistributingTaskForCollectingPayment(
+		ctx,
+		tx,
+		captainID,
+		taskID,
+		expectedUpdatedAt,
+	)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if err := ensureTaskDistributionCompleted(ctx, tx, task.TaskID); err != nil {
+		return time.Time{}, err
+	}
+
+	now := time.Now().UTC()
+	updatedAt, err := repository.UpdateTaskToCollectingPayment(
+		ctx,
+		tx,
+		task.TaskID,
+		task.UpdatedAt,
+		now,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, ErrConcurrencyConflict
+		}
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", task.TaskID).
+			Msg("failed to update task to collecting payment")
+		return time.Time{}, newErrandInternalError("")
+	}
+	// 将 bill.id 写入 assignment.payment_bill_id（与状态变更在同一事务内）
+	for _, draft := range billDrafts {
+		if err := repository.UpdateTaskAssignmentPaymentBillIDByPayer(
+			ctx, tx, task.TaskID, draft.PayerID, draft.BillID, now,
+		); err != nil {
+			log.Error().Err(err).Int64("errand_task_id", task.TaskID).
+				Int64("payer_id", draft.PayerID).Int64("payment_bill_id", draft.BillID).
+				Msg("failed to bind payment bill to errand task assignments")
+			return time.Time{}, newErrandInternalError("")
+		}
+	}
+	if err := repository.UpdateTaskRelatedDemandsToPendingPayment(ctx, tx, task.TaskID, now); err != nil {
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", task.TaskID).
+			Msg("failed to update related demands to pending payment")
+		return time.Time{}, newErrandInternalError("")
+	}
+	if err := repository.UpdateTaskRelatedDemandItemsToPendingPayment(ctx, tx, task.TaskID, now); err != nil {
+		log.Error().
+			Err(err).
+			Int64("errand_task_id", task.TaskID).
+			Msg("failed to update related demand items to pending payment")
+		return time.Time{}, newErrandInternalError("")
+	}
+
+	return updatedAt, nil
 }
 
 func loadDistributingTaskForCollectingPayment(
@@ -1758,32 +1806,39 @@ type taskPaymentBillDraft struct {
 	AmountCents int32
 }
 
+type boundBillDraft struct {
+	PayerID int64
+	BillID  int64
+}
+
 // 生成支付订单，放在事务外，订单创建失败不影响状态转换
-func createPaymentBillsForTask(ctx context.Context, taskID int64) error {
-	// 检查支付服务客户端
+// createPaymentBillsViaRPC 仅通过 RPC 创建账单并返回含 bill_id 的草案，
+// 不写入数据库。DB 写入（绑定 assignment.payment_bill_id）由调用方在事务内完成。
+func createPaymentBillsViaRPC(ctx context.Context, taskID int64) ([]boundBillDraft, error) {
 	if client.PaymentInternalServiceClient == nil {
 		log.Error().Int64("errand_task_id", taskID).Msg("payment internal service client is not initialized")
-		return newErrandInternalError("")
+		return nil, newErrandInternalError("")
 	}
-	// 分配查询数据
 	rows, err := repository.ListTaskPaymentBillAssignments(ctx, postgres.DB, taskID)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Int64("errand_task_id", taskID).
+		log.Error().Err(err).Int64("errand_task_id", taskID).
 			Msg("failed to load errand task payment bill assignments")
-		return newErrandInternalError("")
+		return nil, newErrandInternalError("")
 	}
 	if len(rows) == 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task has no payment assignments"))
+		return nil, nil // 全部自购或没有分配，无需生成账单
 	}
-	// 构建账单草稿
 	drafts, err := buildTaskPaymentBillDrafts(rows)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	results := make([]boundBillDraft, 0, len(drafts))
 	for _, draft := range drafts {
-		// 调用支付服务创建账单
+		// 团长给自己分配的商品，自己付给自己，不需要生成支付账单
+		if draft.PayerID == draft.PayeeID {
+			continue
+		}
 		resp, err := client.PaymentInternalServiceClient.CreateBillForOrder(
 			ctx,
 			connect.NewRequest(&paymentv1.CreateBillForOrderRequest{
@@ -1795,43 +1850,67 @@ func createPaymentBillsForTask(ctx context.Context, taskID int64) error {
 			}),
 		)
 		if err != nil {
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", taskID).
-				Int64("payer_id", draft.PayerID).
-				Msg("failed to create errand task payment bill")
-			return newErrandInternalError("")
+			log.Error().Err(err).Int64("errand_task_id", taskID).
+				Int64("payer_id", draft.PayerID).Msg("failed to create errand task payment bill")
+			return nil, newErrandInternalError("")
 		}
 		if resp.Msg == nil || resp.Msg.Bill == nil || resp.Msg.Bill.Id <= 0 {
-			log.Error().
-				Int64("errand_task_id", taskID).
-				Int64("payer_id", draft.PayerID).
-				Msg("payment service returned empty bill")
-			return newErrandInternalError("")
+			log.Error().Int64("errand_task_id", taskID).
+				Int64("payer_id", draft.PayerID).Msg("payment service returned empty bill")
+			return nil, newErrandInternalError("")
 		}
-		// 将返回的 bill.id 写入该 payer 在当前 task 下对应的 errand_task_assignment.payment_bill_id
-		if err := repository.UpdateTaskAssignmentPaymentBillIDByPayer(
-			ctx,
-			postgres.DB,
-			taskID,
-			draft.PayerID,
-			resp.Msg.Bill.Id,
-			time.Now().UTC(),
-		); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return newErrandInternalError("payment assignment missing")
-			}
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", taskID).
-				Int64("payer_id", draft.PayerID).
-				Int64("payment_bill_id", resp.Msg.Bill.Id).
-				Msg("failed to bind payment bill to errand task assignments")
-			return newErrandInternalError("")
-		}
+		results = append(results, boundBillDraft{
+			PayerID: draft.PayerID,
+			BillID:  resp.Msg.Bill.Id,
+		})
 	}
+	return results, nil
+}
 
-	return nil
+// 全部自购时跳过收款阶段，直接完成任务及关联需求
+func completeTaskWithoutBills(
+	ctx context.Context,
+	captainID int64,
+	taskID int64,
+	expectedUpdatedAt time.Time,
+) (*timestamppb.Timestamp, error) {
+	var updatedAt time.Time
+	if err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		task, err := loadDistributingTaskForCollectingPayment(ctx, tx, captainID, taskID, expectedUpdatedAt)
+		if err != nil {
+			return err
+		}
+		if err := ensureTaskDistributionCompleted(ctx, tx, task.TaskID); err != nil {
+			return err
+		}
+
+		now := time.Now().UTC()
+		updatedAt, err = repository.UpdateTaskFromDistributingToCompleted(
+			ctx, tx, task.TaskID, task.UpdatedAt, now,
+		)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrConcurrencyConflict
+			}
+			log.Error().Err(err).Int64("errand_task_id", task.TaskID).
+				Msg("failed to complete task without bills")
+			return newErrandInternalError("")
+		}
+		if err := repository.UpdateTaskRelatedDemandsToCompleted(ctx, tx, task.TaskID, now); err != nil {
+			log.Error().Err(err).Int64("errand_task_id", task.TaskID).
+				Msg("failed to complete related demands without bills")
+			return newErrandInternalError("")
+		}
+		if err := repository.UpdateTaskRelatedDemandItemsToCompleted(ctx, tx, task.TaskID, now); err != nil {
+			log.Error().Err(err).Int64("errand_task_id", task.TaskID).
+				Msg("failed to complete related demand items without bills")
+			return newErrandInternalError("")
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return timestamppb.New(updatedAt), nil
 }
 
 // 将多个分配记录聚合为每个用户的账单草稿
@@ -2234,7 +2313,8 @@ func ensureTaskPaymentsCompleted(ctx context.Context, db bun.IDB, taskID int64) 
 		return newErrandInternalError("")
 	}
 	if len(billRefs) == 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task has no payment payer"))
+		// 全部为团长自购，无需支付，直接放行
+		return nil
 	}
 
 	billIDs := make([]int64, 0, len(billRefs))
@@ -2386,11 +2466,6 @@ func appendErrandTaskItems(tasks []*errandv1.ErrandTask, rows []repository.Erran
 }
 
 func errandTaskListItemRowToProto(row repository.ErrandTaskListItemRow, storeID int64) *errandv1.ErrandTaskItem {
-	actualUnitPriceCents := int32(0)
-	if row.ActualUnitPriceCents != nil {
-		actualUnitPriceCents = *row.ActualUnitPriceCents
-	}
-
 	item := &errandv1.ErrandTaskItem{
 		Id: row.TaskItemID,
 		ProductSnapshot: &catalogv1.ProductTemplate{
@@ -2401,9 +2476,12 @@ func errandTaskListItemRowToProto(row repository.ErrandTaskListItemRow, storeID 
 			StoreId:      storeID,
 			MainImageUrl: row.ImageURLSnapshot,
 		},
-		RequiredQuantity:     row.RequiredQuantity,
-		ActualUnitPriceCents: actualUnitPriceCents,
-		UpdatedAt:            timestamppb.New(row.UpdatedAt),
+		RequiredQuantity: row.RequiredQuantity,
+		UpdatedAt:        timestamppb.New(row.UpdatedAt),
+	}
+	if row.ActualUnitPriceCents != nil {
+		actualUnitPriceCents := *row.ActualUnitPriceCents
+		item.ActualUnitPriceCents = &actualUnitPriceCents
 	}
 	if row.PurchasedQuantity != nil {
 		purchasedQuantity := *row.PurchasedQuantity

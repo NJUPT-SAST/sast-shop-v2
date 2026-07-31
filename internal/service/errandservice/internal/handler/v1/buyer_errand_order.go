@@ -7,8 +7,10 @@ import (
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/errand/v1/errandv1connect"
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
+	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	"connectrpc.com/connect"
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/service"
 	"github.com/labstack/echo/v5"
@@ -115,14 +117,9 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderDetail(
 
 	productItems := make([]*errandv1.BuyerErrandOrderProductItem, 0, len(detail.ProductItems))
 	for _, pi := range detail.ProductItems {
-		actualPrice := int32(0)
-		if pi.ActualUnitPriceCents != nil {
-			actualPrice = *pi.ActualUnitPriceCents
-		}
-
 		productItems = append(productItems, &errandv1.BuyerErrandOrderProductItem{
 			ProductTemplate:        pi.ProductTemplate,
-			ActualUnitPriceCents:   actualPrice,
+			ActualUnitPriceCents:   pi.ActualUnitPriceCents,
 			RequiredQuantity:       pi.RequiredQuantity,
 			PurchasedQuantity:      pi.PurchasedQuantity,
 			NonPurchaseReason:      &pi.NonPurchaseReason,
@@ -163,9 +160,30 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderDetail(
 		protoDetail.CancelledAt = timestamppb.New(*detail.CancelledAt)
 	}
 
+	if detail.PaymentBillID != nil {
+		protoDetail.Bill = loadBill(ctx, *detail.PaymentBillID)
+	}
+
 	return connect.NewResponse(&errandv1.GetBuyerErrandOrderDetailResponse{
 		Order: protoDetail,
 	}), nil
+}
+
+func loadBill(ctx context.Context, billID int64) *paymentv1.Bill {
+	resp, err := client.PaymentInternalServiceClient.BatchGetBills(
+		ctx,
+		connect.NewRequest(&paymentv1.BatchGetBillsRequest{
+			BillIds: []int64{billID},
+		}),
+	)
+	if err != nil {
+		log.Warn().Err(err).Int64("bill_id", billID).Msg("failed to load bill")
+		return nil
+	}
+	if len(resp.Msg.Bills) == 0 {
+		return nil
+	}
+	return resp.Msg.Bills[0]
 }
 
 func demandStatusFromProto(s errandv1.ErrandDemandStatus) model.ErrandDemandStatus {
