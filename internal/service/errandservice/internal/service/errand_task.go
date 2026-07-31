@@ -1578,7 +1578,9 @@ func TransitionToCollectingPayment(
 
 	var updatedAt time.Time
 	if err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		updatedAt, err = transitionToCollectingPaymentTx(ctx, tx, captainID, req.ErrandTaskId, expectedUpdatedAt, billDrafts)
+		updatedAt, err = transitionToCollectingPaymentTx(
+			ctx, tx, captainID, req.ErrandTaskId, expectedUpdatedAt, billDrafts,
+		)
 		return err
 	}); err != nil {
 		return nil, err
