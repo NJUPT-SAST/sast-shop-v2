@@ -323,7 +323,6 @@ func UpdateTaskFromDistributingToCompleted(
 		Model(task).
 		Set("status = ?", model.ErrandTaskStatusCompleted).
 		Set("distribution_completed_at = ?", now).
-		Set("payment_completed_at = ?", now).
 		Set("updated_at = ?", now).
 		WherePK().
 		Where("status = ?", model.ErrandTaskStatusDistributing).
@@ -428,6 +427,48 @@ func UpdateTaskRelatedDemandItemsToCompleted(ctx context.Context, db bun.IDB, ta
 		)`, taskID).
 		Where("status IN (?)", bun.List([]model.ErrandDemandItemStatus{
 			model.ErrandDemandItemStatusPendingPayment,
+			model.ErrandDemandItemStatusCompleted,
+		})).
+		Exec(ctx)
+	return err
+}
+
+// UpdateTaskRelatedDemandsToCompletedWithoutPayment 全自购直跳完成场景：
+// demand 从 distributing 直接到 completed，没有支付环节，不写 payment_completed_at。
+func UpdateTaskRelatedDemandsToCompletedWithoutPayment(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemand)(nil)).
+		Set("status = ?", model.ErrandDemandStatusCompleted).
+		Set("distribution_completed_at = ?", now).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT DISTINCT edi.errand_demand_id
+			FROM errand.errand_task_assignment AS eta
+			JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status IN (?)", bun.List([]model.ErrandDemandStatus{
+			model.ErrandDemandStatusDistributing,
+			model.ErrandDemandStatusCompleted,
+		})).
+		Exec(ctx)
+	return err
+}
+
+// UpdateTaskRelatedDemandItemsToCompletedWithoutPayment 全自购直跳完成场景：
+// demand item 从 distributing 直接到 completed，不写支付相关时间戳。
+func UpdateTaskRelatedDemandItemsToCompletedWithoutPayment(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandDemandItemStatusCompleted).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT eta.demand_item_id
+			FROM errand.errand_task_assignment AS eta
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status IN (?)", bun.List([]model.ErrandDemandItemStatus{
+			model.ErrandDemandItemStatusDistributing,
 			model.ErrandDemandItemStatusCompleted,
 		})).
 		Exec(ctx)
