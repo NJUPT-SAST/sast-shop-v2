@@ -12,7 +12,7 @@ message DistributingItem {
   string description_snapshot = 4;
   string image_url_snapshot = 5;
   int32 origin_unit_price_cents = 6;
-  int32 actual_unit_price_cents = 7;
+  optional int32 actual_unit_price_cents = 7;
   repeated DistributingRequestInfo requesters = 8;
   google.protobuf.Timestamp updated_at = 9;
 }
