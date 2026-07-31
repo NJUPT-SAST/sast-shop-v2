@@ -435,7 +435,12 @@ func UpdateTaskRelatedDemandItemsToCompleted(ctx context.Context, db bun.IDB, ta
 
 // UpdateTaskRelatedDemandsToCompletedWithoutPayment 全自购直跳完成场景：
 // demand 从 distributing 直接到 completed，没有支付环节，不写 payment_completed_at。
-func UpdateTaskRelatedDemandsToCompletedWithoutPayment(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+func UpdateTaskRelatedDemandsToCompletedWithoutPayment(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	now time.Time,
+) error {
 	_, err := db.NewUpdate().
 		Model((*model.ErrandDemand)(nil)).
 		Set("status = ?", model.ErrandDemandStatusCompleted).
@@ -457,7 +462,12 @@ func UpdateTaskRelatedDemandsToCompletedWithoutPayment(ctx context.Context, db b
 
 // UpdateTaskRelatedDemandItemsToCompletedWithoutPayment 全自购直跳完成场景：
 // demand item 从 distributing 直接到 completed，不写支付相关时间戳。
-func UpdateTaskRelatedDemandItemsToCompletedWithoutPayment(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+func UpdateTaskRelatedDemandItemsToCompletedWithoutPayment(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	now time.Time,
+) error {
 	_, err := db.NewUpdate().
 		Model((*model.ErrandDemandItem)(nil)).
 		Set("status = ?", model.ErrandDemandItemStatusCompleted).
