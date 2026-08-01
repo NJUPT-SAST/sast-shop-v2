@@ -57,7 +57,7 @@ func getBuyerErrandOrderCaptainContact(
 			Err(err).
 			Int64("errand_demand_id", req.ErrandDemandId).
 			Msg("failed to resolve buyer errand order contact")
-		return "", errandInternalError()
+		return "", newErrandInternalError("failed to resolve buyer errand order contact")
 	}
 	if record.RequesterID != userID {
 		return "", connect.NewError(connect.CodePermissionDenied, ErrBuyerErrandOrderPermissionDenied)
@@ -83,7 +83,7 @@ func resolveUserContactOpenID(ctx context.Context, userID int64) (string, error)
 	)
 	if err != nil {
 		log.Error().Err(err).Int64("user_id", userID).Msg("failed to resolve user contact")
-		return "", errandInternalError()
+		return "", newErrandInternalError("failed to resolve user contact")
 	}
 	return response.Msg.FeishuOpenId, nil
 }
