@@ -1035,6 +1035,10 @@ func GetDistributingTaskDetail(
 				actual := *row.ActualUnitPriceCents
 				item.ActualUnitPriceCents = &actual
 			}
+			if row.PurchasedQuantity != nil {
+				purchased := *row.PurchasedQuantity
+				item.PurchasedQuantity = &purchased
+			}
 			itemByID[row.TaskItemID] = item
 			items = append(items, item)
 		}
