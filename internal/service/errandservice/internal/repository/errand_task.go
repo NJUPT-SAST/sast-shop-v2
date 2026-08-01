@@ -443,6 +443,7 @@ func UpdateTaskRelatedDemandsToPendingDistributing(ctx context.Context, db bun.I
 	_, err := db.NewUpdate().
 		Model((*model.ErrandDemand)(nil)).
 		Set("status = ?", model.ErrandDemandStatusPendingDistributing).
+		Set("shopping_completed_at = ?", now).
 		Set("updated_at = ?", now).
 		Where(`id IN (
 			SELECT DISTINCT edi.errand_demand_id
@@ -524,6 +525,7 @@ type DistributingTaskDetailRow struct {
 	ImageURLSnapshot        string    `bun:"image_url_snapshot"`
 	OriginUnitPriceCents    int32     `bun:"origin_unit_price_cents"`
 	ActualUnitPriceCents    *int32    `bun:"actual_unit_price_cents"`
+	PurchasedQuantity       *int32    `bun:"purchased_quantity"`
 	PurchaserID             int64     `bun:"purchaser_id"`
 	PurchaserName           string    `bun:"purchaser_name"`
 	PurchaserAvatarURL      string    `bun:"purchaser_avatar_url"`
@@ -583,6 +585,7 @@ func ListDistributingTaskDetails(ctx context.Context, db bun.IDB, taskID int64) 
 		ColumnExpr("eti.image_url_snapshot AS image_url_snapshot").
 		ColumnExpr("edi.estimated_unit_price_cents AS origin_unit_price_cents").
 		ColumnExpr("eti.actual_unit_price_cents AS actual_unit_price_cents").
+		ColumnExpr("eti.purchased_quantity AS purchased_quantity").
 		ColumnExpr("eta.purchaser_id AS purchaser_id").
 		ColumnExpr("COALESCE(ua.display_name, '') AS purchaser_name").
 		ColumnExpr("COALESCE(ua.avatar_url, '') AS purchaser_avatar_url").

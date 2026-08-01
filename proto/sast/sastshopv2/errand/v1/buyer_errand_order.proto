@@ -14,7 +14,7 @@ message BuyerErrandOrderProductItem {
   // 商品模板快照
   sast.sastshopv2.catalog.v1.ProductTemplate product_template = 1;
   // 实际采购单价，单位为分
-  int32 actual_unit_price_cents = 2;
+  optional int32 actual_unit_price_cents = 2;
   // 买家需求数量
   int32 required_quantity = 3;
   // 团长实际购买数量

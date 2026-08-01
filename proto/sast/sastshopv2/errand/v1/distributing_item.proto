@@ -12,7 +12,9 @@ message DistributingItem {
   string description_snapshot = 4;
   string image_url_snapshot = 5;
   int32 origin_unit_price_cents = 6;
-  int32 actual_unit_price_cents = 7;
+  optional int32 actual_unit_price_cents = 7;
   repeated DistributingRequestInfo requesters = 8;
   google.protobuf.Timestamp updated_at = 9;
+  // 实际采购数量（item 级），购物阶段未填时为 null；0 表示未采购该商品
+  optional int32 purchased_quantity = 10;
 }

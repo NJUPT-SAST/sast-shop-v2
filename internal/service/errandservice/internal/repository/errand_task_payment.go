@@ -135,6 +135,7 @@ func ListTaskPaymentBillAssignments(
 		ColumnExpr("eta.service_fee_per_unit_cents AS service_fee_per_unit_cents").
 		Where("eta.task_id = ?", taskID).
 		Where("eta.distributed_quantity > 0").
+		Where("eta.purchaser_id != et.captain_id").
 		OrderExpr("eta.purchaser_id ASC, eta.id ASC").
 		Scan(ctx, &rows)
 	return rows, err
@@ -242,6 +243,7 @@ func ListCollectingPaymentDetails(ctx context.Context, db bun.IDB, taskID int64)
 		ColumnExpr("COALESCE(payee.avatar_url, '') AS payee_avatar_url").
 		Where("eta.task_id = ?", taskID).
 		Where("eta.distributed_quantity > 0").
+		Where("eta.purchaser_id != et.captain_id").
 		OrderExpr("eta.purchaser_id ASC, eti.deadline ASC, eti.id ASC, eta.id ASC").
 		Scan(ctx, &rows)
 	return rows, err
@@ -306,6 +308,38 @@ func GetErrandTaskForUpdateByID(ctx context.Context, db bun.IDB, taskID int64) (
 		return nil, err
 	}
 	return &row, nil
+}
+
+// UpdateTaskFromDistributingToCompleted 全自购场景：直接从分发中流转到已完成
+func UpdateTaskFromDistributingToCompleted(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	expectedUpdatedAt time.Time,
+	now time.Time,
+) (time.Time, error) {
+	task := &model.ErrandTask{ID: taskID}
+	res, err := db.NewUpdate().
+		Model(task).
+		Set("status = ?", model.ErrandTaskStatusCompleted).
+		Set("distribution_completed_at = ?", now).
+		Set("updated_at = ?", now).
+		WherePK().
+		Where("status = ?", model.ErrandTaskStatusDistributing).
+		Where("updated_at = ?", expectedUpdatedAt).
+		Returning("updated_at").
+		Exec(ctx)
+	if err != nil {
+		return time.Time{}, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return time.Time{}, err
+	}
+	if affected == 0 {
+		return time.Time{}, sql.ErrNoRows
+	}
+	return task.UpdatedAt, nil
 }
 
 func UpdateTaskToCompletedWithoutUpdatedAt(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
@@ -399,6 +433,58 @@ func UpdateTaskRelatedDemandItemsToCompleted(ctx context.Context, db bun.IDB, ta
 	return err
 }
 
+// UpdateTaskRelatedDemandsToCompletedWithoutPayment 全自购直跳完成场景：
+// demand 从 distributing 直接到 completed，没有支付环节，不写 payment_completed_at。
+func UpdateTaskRelatedDemandsToCompletedWithoutPayment(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	now time.Time,
+) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemand)(nil)).
+		Set("status = ?", model.ErrandDemandStatusCompleted).
+		Set("distribution_completed_at = ?", now).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT DISTINCT edi.errand_demand_id
+			FROM errand.errand_task_assignment AS eta
+			JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status IN (?)", bun.List([]model.ErrandDemandStatus{
+			model.ErrandDemandStatusDistributing,
+			model.ErrandDemandStatusCompleted,
+		})).
+		Exec(ctx)
+	return err
+}
+
+// UpdateTaskRelatedDemandItemsToCompletedWithoutPayment 全自购直跳完成场景：
+// demand item 从 distributing 直接到 completed，不写支付相关时间戳。
+func UpdateTaskRelatedDemandItemsToCompletedWithoutPayment(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	now time.Time,
+) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandDemandItemStatusCompleted).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT eta.demand_item_id
+			FROM errand.errand_task_assignment AS eta
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status IN (?)", bun.List([]model.ErrandDemandItemStatus{
+			model.ErrandDemandItemStatusDistributing,
+			model.ErrandDemandItemStatusCompleted,
+		})).
+		Exec(ctx)
+	return err
+}
+
 type TaskPaymentBillRefRow struct {
 	PayerID          int64  `bun:"payer_id"`
 	PaymentBillID    *int64 `bun:"payment_bill_id"`
@@ -411,6 +497,7 @@ func ListTaskPaymentBillRefs(ctx context.Context, db bun.IDB, taskID int64) ([]T
 	rows := make([]TaskPaymentBillRefRow, 0)
 	err := db.NewSelect().
 		TableExpr("errand.errand_task_assignment AS eta").
+		Join("JOIN errand.errand_task AS et ON et.id = eta.task_id").
 		ColumnExpr("eta.purchaser_id AS payer_id").
 		ColumnExpr("MAX(eta.payment_bill_id) AS payment_bill_id").
 		ColumnExpr("COUNT(*) AS assignment_count").
@@ -418,6 +505,7 @@ func ListTaskPaymentBillRefs(ctx context.Context, db bun.IDB, taskID int64) ([]T
 		ColumnExpr("COUNT(DISTINCT eta.payment_bill_id) FILTER (WHERE eta.payment_bill_id IS NOT NULL) AS bill_id_count").
 		Where("eta.task_id = ?", taskID).
 		Where("eta.distributed_quantity > 0").
+		Where("eta.purchaser_id != et.captain_id").
 		GroupExpr("eta.purchaser_id").
 		OrderExpr("eta.purchaser_id ASC").
 		Scan(ctx, &rows)
