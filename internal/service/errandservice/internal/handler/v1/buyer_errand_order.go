@@ -123,7 +123,7 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderDetail(
 			RequiredQuantity:       pi.RequiredQuantity,
 			PurchasedQuantity:      pi.PurchasedQuantity,
 			NonPurchaseReason:      &pi.NonPurchaseReason,
-			DistributedQuantity:    &pi.DistributedQuantity,
+			DistributedQuantity:    pi.DistributedQuantity,
 			ServiceFeePerUnitCents: pi.ServiceFeePerUnitCents,
 			SubtotalCents:          0,
 			ErrandDemandItemId:     pi.ErrandDemandItemID,

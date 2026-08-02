@@ -376,7 +376,7 @@ CREATE TABLE errand_task_assignment (
     task_item_id              BIGINT NOT NULL REFERENCES errand_task_item(id) ON DELETE CASCADE,
     demand_item_id            BIGINT NOT NULL UNIQUE REFERENCES errand_demand_item(id),
     purchaser_id              BIGINT NOT NULL,
-    distributed_quantity      INTEGER NOT NULL DEFAULT 0 CHECK (distributed_quantity >= 0),
+    distributed_quantity      INTEGER CHECK (distributed_quantity >= 0),
     service_fee_per_unit_cents INTEGER NOT NULL CHECK (service_fee_per_unit_cents >= 0),
     payment_bill_id           BIGINT,
     created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -385,7 +385,7 @@ CREATE TABLE errand_task_assignment (
 COMMENT ON TABLE errand_task_assignment IS '任务分配表，关联 task_item 与 demand_item，一个 demand_item 只能被接单一次';
 COMMENT ON COLUMN errand_task_assignment.demand_item_id IS '唯一约束，确保一个需求行不会被重复接单';
 COMMENT ON COLUMN errand_task_assignment.purchaser_id IS '购买人用户 ID（跨服务引用）';
-COMMENT ON COLUMN errand_task_assignment.distributed_quantity IS '实际分发数量';
+COMMENT ON COLUMN errand_task_assignment.distributed_quantity IS '实际分发数量（NULL=未处理，0=不分发，>0=已分配）';
 COMMENT ON COLUMN errand_task_assignment.payment_bill_id IS '关联支付账单 ID（跨服务引用 payment.payment_bill）';
 
 -- 改价日志

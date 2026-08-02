@@ -13,6 +13,7 @@ type TaskDistributionSummaryRow struct {
 	TotalTaskItemCount int64 `bun:"total_task_item_count"`
 	UnhandledCount     int64 `bun:"unhandled_count"`
 	UnpricedCount      int64 `bun:"unpriced_count"`
+	UnassignedCount    int64 `bun:"unassigned_count"`
 	IncompleteCount    int64 `bun:"incomplete_count"`
 }
 
@@ -21,7 +22,9 @@ func GetTaskDistributionSummary(ctx context.Context, db bun.IDB, taskID int64) (
 	err := db.NewSelect().
 		TableExpr("errand.errand_task_item AS eti").
 		Join(`LEFT JOIN (
-			SELECT task_item_id, COALESCE(SUM(distributed_quantity), 0) AS total_distributed
+			SELECT task_item_id,
+				COALESCE(SUM(distributed_quantity), 0) AS total_distributed,
+				COUNT(*) FILTER (WHERE distributed_quantity IS NULL) AS unassigned_count
 			FROM errand.errand_task_assignment
 			GROUP BY task_item_id
 		) AS eta_sum ON eta_sum.task_item_id = eti.id`).
@@ -31,6 +34,10 @@ func GetTaskDistributionSummary(ctx context.Context, db bun.IDB, taskID int64) (
 			WHERE COALESCE(eti.purchased_quantity, 0) > 0
 				AND eti.actual_unit_price_cents IS NULL
 		) AS unpriced_count`).
+		ColumnExpr(`COUNT(*) FILTER (
+			WHERE eti.purchased_quantity IS NOT NULL
+				AND COALESCE(eta_sum.unassigned_count, 0) > 0
+		) AS unassigned_count`).
 		ColumnExpr(`COUNT(*) FILTER (
 			WHERE eti.purchased_quantity IS NOT NULL
 				AND COALESCE(eta_sum.total_distributed, 0) <> eti.purchased_quantity
@@ -107,13 +114,13 @@ func UpdateTaskRelatedDemandItemsToPendingPayment(ctx context.Context, db bun.ID
 }
 
 type TaskPaymentBillAssignmentRow struct {
-	AssignmentID           int64 `bun:"assignment_id"`
-	PayerID                int64 `bun:"payer_id"`
-	PayeeID                int64 `bun:"payee_id"`
-	PackagingFeeCents      int32 `bun:"packaging_fee_cents"`
-	ActualUnitPriceCents   int32 `bun:"actual_unit_price_cents"`
-	DistributedQuantity    int32 `bun:"distributed_quantity"`
-	ServiceFeePerUnitCents int32 `bun:"service_fee_per_unit_cents"`
+	AssignmentID           int64  `bun:"assignment_id"`
+	PayerID                int64  `bun:"payer_id"`
+	PayeeID                int64  `bun:"payee_id"`
+	PackagingFeeCents      int32  `bun:"packaging_fee_cents"`
+	ActualUnitPriceCents   int32  `bun:"actual_unit_price_cents"`
+	DistributedQuantity    *int32 `bun:"distributed_quantity"`
+	ServiceFeePerUnitCents int32  `bun:"service_fee_per_unit_cents"`
 }
 
 func ListTaskPaymentBillAssignments(
@@ -204,7 +211,7 @@ type CollectingPaymentDetailRow struct {
 	TitleSnapshot          string `bun:"title_snapshot"`
 	RequiredQuantity       int32  `bun:"required_quantity"`
 	PurchasedQuantity      int32  `bun:"purchased_quantity"`
-	DistributedQuantity    int32  `bun:"distributed_quantity"`
+	DistributedQuantity    *int32 `bun:"distributed_quantity"`
 	ActualUnitPriceCents   int32  `bun:"actual_unit_price_cents"`
 	ServiceFeePerUnitCents int32  `bun:"service_fee_per_unit_cents"`
 	NonPurchaseReason      string `bun:"non_purchase_reason"`
