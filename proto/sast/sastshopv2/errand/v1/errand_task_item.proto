@@ -13,4 +13,6 @@ message ErrandTaskItem {
   optional string non_purchase_reason = 5;
   optional int32 actual_unit_price_cents = 6;
   google.protobuf.Timestamp updated_at = 7;
+  // 截止时间，取自 errand_demand.deadline
+  google.protobuf.Timestamp deadline = 8;
 }
