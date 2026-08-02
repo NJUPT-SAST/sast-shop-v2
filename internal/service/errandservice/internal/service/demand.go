@@ -508,10 +508,10 @@ func CancelErrandDemand(
 
 // UpdateErrandDemandParams 修改需求的入参。
 type UpdateErrandDemandParams struct {
-	DemandID         int64
-	StoreID          int64
-	Deadline         time.Time
-	Items            []DemandItemDraft
+	DemandID          int64
+	StoreID           int64
+	Deadline          time.Time
+	Items             []DemandItemDraft
 	ExpectedUpdatedAt time.Time
 }
 
