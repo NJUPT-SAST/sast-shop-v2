@@ -86,7 +86,7 @@ type ErrandTaskAssignment struct {
 	TaskItemID             int64     `bun:"task_item_id,notnull"`
 	DemandItemID           int64     `bun:"demand_item_id,notnull,unique"`
 	PurchaserID            int64     `bun:"purchaser_id,notnull"`
-	DistributedQuantity    int32     `bun:"distributed_quantity,notnull,default:0"`
+	DistributedQuantity    *int32    `bun:"distributed_quantity"`
 	ServiceFeePerUnitCents int32     `bun:"service_fee_per_unit_cents,notnull"`
 	PaymentBillID          *int64    `bun:"payment_bill_id"`
 	CreatedAt              time.Time `bun:"created_at,notnull,default:current_timestamp"`

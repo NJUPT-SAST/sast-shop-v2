@@ -32,7 +32,7 @@ type BuyerOrderProductItem struct {
 	RequiredQuantity        int32
 	PurchasedQuantity       *int32
 	NonPurchaseReason       string
-	DistributedQuantity     int32
+	DistributedQuantity     *int32
 	ServiceFeePerUnitCents  int32
 	EstimatedUnitPriceCents int32
 	ErrandDemandItemID      int64

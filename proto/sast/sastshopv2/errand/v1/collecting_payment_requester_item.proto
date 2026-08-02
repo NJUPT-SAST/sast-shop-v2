@@ -17,7 +17,7 @@ message CollectingPaymentRequesterItemDetail {
   string title_snapshot = 2;
   int32 required_quantity = 3;
   int32 purchased_quantity = 4;
-  int32 distributed_quantity = 5;
+  optional int32 distributed_quantity = 5;
   int32 actual_unit_price_cents = 6;
   int32 product_amount_cents = 7;
   int32 service_fee_per_unit_cents = 8;

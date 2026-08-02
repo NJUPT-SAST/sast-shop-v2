@@ -1388,13 +1388,14 @@ func updateDistributingStatus(
 }
 
 // 更新分发中的购买人分发结果（Phase 5 — 分发中）
+// distributed_quantity: -1 表示撤销到未处理（NULL），0 表示不分发，>0 表示分配数量
 func SaveDistributingTaskAssignment(
 	ctx context.Context,
 	captainID int64,
 	req *errandv1.SaveDistributingTaskAssignmentRequest,
 ) (*timestamppb.Timestamp, error) {
 	if req == nil || req.ErrandTaskItemId <= 0 || req.ErrandTaskAssignmentId <= 0 ||
-		req.DistributedQuantity < 0 ||
+		req.DistributedQuantity < undoShoppingTaskItemPurchasedQuantity ||
 		req.ErrandTaskAssignmentUpdatedAt == nil || !req.ErrandTaskAssignmentUpdatedAt.IsValid() {
 		return nil, connect.NewError(
 			connect.CodeInvalidArgument,
@@ -1441,8 +1442,17 @@ func executeSaveDistributingTaskAssignmentTx(
 	); err != nil {
 		return time.Time{}, err
 	}
-	// 幂等性检查
-	if row.DistributedQuantity == req.DistributedQuantity {
+	// 撤销到未处理：-1 → NULL
+	if req.DistributedQuantity == undoShoppingTaskItemPurchasedQuantity {
+		if row.DistributedQuantity == nil {
+			return row.AssignmentUpdatedAt, nil // 已经是未处理，幂等
+		}
+		return persistDistributingTaskAssignmentUndo(
+			ctx, tx, captainID, req.ErrandTaskAssignmentId, row.AssignmentUpdatedAt,
+		)
+	}
+	// 幂等性检查（nil 不是任何值的幂等，nil → 0/N 是首次决策）
+	if row.DistributedQuantity != nil && *row.DistributedQuantity == req.DistributedQuantity {
 		return row.AssignmentUpdatedAt, nil
 	}
 	// 存数据库
@@ -1496,6 +1506,10 @@ func validateDistributingTaskAssignmentUpdate(
 	if row.PurchasedQuantity == nil {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task item has not been purchased"))
 	}
+	// 撤销动作（-1）不校验数量边界，直接放行
+	if distributedQuantity == undoShoppingTaskItemPurchasedQuantity {
+		return nil
+	}
 	if distributedQuantity > row.DemandQuantity {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("distributed quantity exceeds demand quantity"))
 	}
@@ -1508,8 +1522,12 @@ func validateDistributingTaskAssignmentUpdate(
 			Msg("failed to sum distributed quantity")
 		return newErrandInternalError("")
 	}
-	// 计算更新后总数
-	totalAfterUpdate := totalDistributed - int64(row.DistributedQuantity) + int64(distributedQuantity)
+	// 计算更新后总数（旧值可能为 nil=未处理，按 0 算；NULL 不占额度）
+	oldQuantity := int64(0)
+	if row.DistributedQuantity != nil {
+		oldQuantity = int64(*row.DistributedQuantity)
+	}
+	totalAfterUpdate := totalDistributed - oldQuantity + int64(distributedQuantity)
 	// 如果更新后总数小于等于采购的数量
 	// 小张想要 6 件
 	// totalAfterUpdate = 5 - 0 + 6 = 11
@@ -1549,6 +1567,35 @@ func persistDistributingTaskAssignment(
 			Int64("captain_id", captainID).
 			Int64("errand_task_assignment_id", assignmentID).
 			Msg("failed to update distributing task assignment")
+		return time.Time{}, newErrandInternalError("")
+	}
+
+	return updatedAt, nil
+}
+
+func persistDistributingTaskAssignmentUndo(
+	ctx context.Context,
+	tx bun.Tx,
+	captainID, assignmentID int64,
+	currentUpdatedAt time.Time,
+) (time.Time, error) {
+	now := time.Now().UTC()
+	updatedAt, err := repository.UndoDistributingTaskAssignment(
+		ctx,
+		tx,
+		assignmentID,
+		currentUpdatedAt,
+		now,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, ErrConcurrencyConflict
+		}
+		log.Error().
+			Err(err).
+			Int64("captain_id", captainID).
+			Int64("errand_task_assignment_id", assignmentID).
+			Msg("failed to undo distributing task assignment")
 		return time.Time{}, newErrandInternalError("")
 	}
 
@@ -1715,6 +1762,9 @@ func ensureTaskDistributionCompleted(ctx context.Context, tx bun.Tx, taskID int6
 	}
 	if summary.UnpricedCount > 0 {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unpriced distributing items"))
+	}
+	if summary.UnassignedCount > 0 {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unhandled distributing assignments"))
 	}
 	if summary.IncompleteCount > 0 {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("incomplete distributing items"))
@@ -1946,8 +1996,12 @@ func buildTaskPaymentBillDrafts(rows []repository.TaskPaymentBillAssignmentRow) 
 			payerIDs = append(payerIDs, row.PayerID) // 记录新付款人
 		}
 
-		productAmount := int64(row.ActualUnitPriceCents) * int64(row.DistributedQuantity)
-		serviceFeeAmount := int64(row.ServiceFeePerUnitCents) * int64(row.DistributedQuantity)
+		quantity := int64(0)
+		if row.DistributedQuantity != nil {
+			quantity = int64(*row.DistributedQuantity)
+		}
+		productAmount := int64(row.ActualUnitPriceCents) * quantity
+		serviceFeeAmount := int64(row.ServiceFeePerUnitCents) * quantity
 		group.amount += productAmount + serviceFeeAmount
 	}
 	// 计算包装费分摊（向上取整除法）
@@ -2069,8 +2123,12 @@ func buildCollectingPaymentBills(
 		var packagingFeeShareCents int64
 
 		for i, row := range group.rows {
-			productAmount := int64(row.ActualUnitPriceCents) * int64(row.DistributedQuantity)
-			serviceFeeAmount := int64(row.ServiceFeePerUnitCents) * int64(row.DistributedQuantity)
+			quantity := int64(0)
+			if row.DistributedQuantity != nil {
+				quantity = int64(*row.DistributedQuantity)
+			}
+			productAmount := int64(row.ActualUnitPriceCents) * quantity
+			serviceFeeAmount := int64(row.ServiceFeePerUnitCents) * quantity
 			itemPackagingShare := int64(0)
 			if i == 0 {
 				itemPackagingShare = int64(packagingShare)
