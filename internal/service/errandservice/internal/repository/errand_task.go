@@ -53,6 +53,7 @@ type ShoppingTaskItemRow struct {
 	NonPurchaseReason    string    `bun:"non_purchase_reason"`
 	ActualUnitPriceCents *int32    `bun:"actual_unit_price_cents"`
 	UpdatedAt            time.Time `bun:"updated_at"`
+	Deadline             time.Time `bun:"deadline"`
 }
 
 type ShoppingTaskItemForUpdateRow struct {
@@ -267,6 +268,7 @@ func ListShoppingTaskItems(ctx context.Context, db bun.IDB, taskID int64) ([]Sho
 		ColumnExpr("eti.non_purchase_reason as non_purchase_reason").
 		ColumnExpr("eti.actual_unit_price_cents as actual_unit_price_cents").
 		ColumnExpr("eti.updated_at as updated_at").
+		ColumnExpr("eti.deadline as deadline").
 		Where("eti.task_id = ?", taskID).
 		OrderExpr("eti.deadline asc, eti.id asc").
 		Scan(ctx, &rows)
