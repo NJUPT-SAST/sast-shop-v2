@@ -530,7 +530,7 @@ type DistributingTaskDetailRow struct {
 	PurchaserName           string    `bun:"purchaser_name"`
 	PurchaserAvatarURL      string    `bun:"purchaser_avatar_url"`
 	Quantity                int32     `bun:"quantity"`
-	DistributedQuantity     int32     `bun:"distributed_quantity"`
+	DistributedQuantity     *int32    `bun:"distributed_quantity"`
 	TaskAssignmentID        int64     `bun:"task_assignment_id"`
 	DemandItemID            int64     `bun:"demand_item_id"`
 	TaskAssignmentUpdatedAt time.Time `bun:"task_assignment_updated_at"`
@@ -670,7 +670,7 @@ type DistributingTaskAssignmentForUpdateRow struct {
 	AssignmentID        int64                  `bun:"assignment_id"`
 	PurchasedQuantity   *int32                 `bun:"purchased_quantity"`
 	DemandQuantity      int32                  `bun:"demand_quantity"`
-	DistributedQuantity int32                  `bun:"distributed_quantity"`
+	DistributedQuantity *int32                 `bun:"distributed_quantity"`
 	AssignmentUpdatedAt time.Time              `bun:"assignment_updated_at"`
 }
 
@@ -792,6 +792,36 @@ func UpdateDistributingTaskAssignment(
 	res, err := db.NewUpdate().
 		Model(assignment).
 		Set("distributed_quantity = ?", distributedQuantity).
+		Set("updated_at = ?", now).
+		WherePK().
+		Where("updated_at = ?", expectedUpdatedAt).
+		Returning("updated_at").
+		Exec(ctx)
+	if err != nil {
+		return time.Time{}, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return time.Time{}, err
+	}
+	if affected == 0 {
+		return time.Time{}, sql.ErrNoRows
+	}
+	return assignment.UpdatedAt, nil
+}
+
+// UndoDistributingTaskAssignment 撤销分发到未处理（distributed_quantity 置 NULL）
+func UndoDistributingTaskAssignment(
+	ctx context.Context,
+	db bun.IDB,
+	assignmentID int64,
+	expectedUpdatedAt time.Time,
+	now time.Time,
+) (time.Time, error) {
+	assignment := &model.ErrandTaskAssignment{ID: assignmentID}
+	res, err := db.NewUpdate().
+		Model(assignment).
+		Set("distributed_quantity = NULL").
 		Set("updated_at = ?", now).
 		WherePK().
 		Where("updated_at = ?", expectedUpdatedAt).
