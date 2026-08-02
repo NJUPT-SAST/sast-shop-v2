@@ -80,18 +80,26 @@ func GetDistinctRequestersByStore(
 	return requesterIDs, err
 }
 
+// OpenDemandItemRow 是 errand_demand_item JOIN errand_demand 的查询结果。
+type OpenDemandItemRow struct {
+	model.ErrandDemandItem
+	Deadline time.Time `bun:"deadline"`
+}
+
 func GetOpenDemandItemsByStore(
 	ctx context.Context,
 	storeID int64,
-) ([]*model.ErrandDemandItem, error) {
-	var items []*model.ErrandDemandItem
+) ([]*OpenDemandItemRow, error) {
+	var rows []*OpenDemandItemRow
 	err := postgres.DB.NewSelect().
-		Model(&items).
-		Where("store_id = ?", storeID).
-		Where("status = ?", model.ErrandDemandItemStatusOpen).
-		Order("product_template_id ASC", "updated_at DESC").
-		Scan(ctx)
-	return items, err
+		ColumnExpr("edi.*, ed.deadline").
+		TableExpr("errand.errand_demand_item AS edi").
+		Join("JOIN errand.errand_demand AS ed ON edi.errand_demand_id = ed.id").
+		Where("edi.store_id = ?", storeID).
+		Where("edi.status = ?", model.ErrandDemandItemStatusOpen).
+		Order("edi.product_template_id ASC", "edi.updated_at DESC").
+		Scan(ctx, &rows)
+	return rows, err
 }
 
 func GetDemandByID(ctx context.Context, demandID int64) (*model.ErrandDemand, error) {
