@@ -353,18 +353,18 @@ func GetDemandDetail(ctx context.Context, storeID int64) ([]*DemandDetailResult,
 		return nil, errors.New("invalid store_id")
 	}
 
-	// 2. 查询该店铺下所有 open 状态的 demand_item
-	items, err := repository.GetOpenDemandItemsByStore(ctx, storeID)
+	// 2. 查询该店铺下所有 open 状态的 demand_item（JOIN errand_demand 获取 deadline）
+	rows, err := repository.GetOpenDemandItemsByStore(ctx, storeID)
 	if err != nil {
 		log.Error().Err(err).Int64("store_id", storeID).Msg("get open demand items failed")
 		return nil, ErrInternal
 	}
-	if len(items) == 0 {
+	if len(rows) == 0 {
 		return []*DemandDetailResult{}, nil
 	}
 
 	// 3. 按商品分组聚合 + 收集买家 ID
-	productMap, requesterIDSet := aggregateDemandItems(items)
+	productMap, requesterIDSet := aggregateDemandItems(rows)
 
 	// 4. 逐个查询商品信息（标题、描述、图片）补全展示字段
 	fetchProductDetails(ctx, productMap)
@@ -382,29 +382,30 @@ func GetDemandDetail(ctx context.Context, storeID int64) ([]*DemandDetailResult,
 
 // aggregateDemandItems 将 demand_item 列表按 product_template_id 分组，
 // 同时收集所有去重后的 requester_id 供后续批量查用户。
-func aggregateDemandItems(items []*model.ErrandDemandItem) (map[int64]*DemandDetailResult, map[int64]struct{}) {
+func aggregateDemandItems(rows []*repository.OpenDemandItemRow) (map[int64]*DemandDetailResult, map[int64]struct{}) {
 	productMap := make(map[int64]*DemandDetailResult)
 	requesterIDSet := make(map[int64]struct{})
 
-	for _, item := range items {
-		if _, exists := productMap[item.ProductTemplateID]; !exists {
-			productMap[item.ProductTemplateID] = &DemandDetailResult{
-				ErrandDemandID:          item.ErrandDemandID,
-				ProductTemplateID:       item.ProductTemplateID,
-				EstimatedUnitPriceCents: item.EstimatedUnitPriceCents,
+	for _, row := range rows {
+		if _, exists := productMap[row.ProductTemplateID]; !exists {
+			productMap[row.ProductTemplateID] = &DemandDetailResult{
+				ErrandDemandID:          row.ErrandDemandID,
+				ProductTemplateID:       row.ProductTemplateID,
+				EstimatedUnitPriceCents: row.EstimatedUnitPriceCents,
 				Requesters:              []*DemandDetailRequester{},
 			}
 		}
-		detail := productMap[item.ProductTemplateID]
-		detail.TotalQuantity += item.Quantity
+		detail := productMap[row.ProductTemplateID]
+		detail.TotalQuantity += row.Quantity
 		detail.Requesters = append(detail.Requesters, &DemandDetailRequester{
-			RequesterID:            item.RequesterID,
-			Quantity:               item.Quantity,
-			ServiceFeePerUnitCents: item.ServiceFeePerUnitCents,
-			ErrandDemandItemID:     item.ID,
-			UpdatedAt:              item.UpdatedAt,
+			RequesterID:            row.RequesterID,
+			Quantity:               row.Quantity,
+			ServiceFeePerUnitCents: row.ServiceFeePerUnitCents,
+			ErrandDemandItemID:     row.ID,
+			Deadline:               row.Deadline,
+			UpdatedAt:              row.UpdatedAt,
 		})
-		requesterIDSet[item.RequesterID] = struct{}{}
+		requesterIDSet[row.RequesterID] = struct{}{}
 	}
 	return productMap, requesterIDSet
 }

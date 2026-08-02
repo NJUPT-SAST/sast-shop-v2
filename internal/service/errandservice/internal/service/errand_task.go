@@ -596,6 +596,7 @@ func shoppingTaskItemRowToProto(row repository.ShoppingTaskItemRow, storeID int6
 		},
 		RequiredQuantity: row.RequiredQuantity,
 		UpdatedAt:        timestamppb.New(row.UpdatedAt),
+		Deadline:         timestamppb.New(row.Deadline),
 	}
 	if row.ActualUnitPriceCents != nil {
 		actualUnitPriceCents := *row.ActualUnitPriceCents
@@ -1034,6 +1035,10 @@ func GetDistributingTaskDetail(
 			if row.ActualUnitPriceCents != nil {
 				actual := *row.ActualUnitPriceCents
 				item.ActualUnitPriceCents = &actual
+			}
+			if row.PurchasedQuantity != nil {
+				purchased := *row.PurchasedQuantity
+				item.PurchasedQuantity = &purchased
 			}
 			itemByID[row.TaskItemID] = item
 			items = append(items, item)
