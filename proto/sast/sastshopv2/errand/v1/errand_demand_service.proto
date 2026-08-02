@@ -66,9 +66,7 @@ message UpdateErrandDemandRequest {
   // 目标店铺 ID
   int64 store_id = 2;
   // 买家期望送达时间
-  google.protobuf.Timestamp deadline = 3 [(buf.validate.field).timestamp = {
-    gt_now: true
-  }];
+  google.protobuf.Timestamp deadline = 3 [(buf.validate.field).timestamp = {gt_now: true}];
   // 修改后的商品需求行
   repeated sast.sastshopv2.errand.v1.ErrandDemandItemDraft demand_items = 4 [(buf.validate.field).repeated = {min_items: 1}];
   // 前端读取需求时拿到的 updated_at，用于并发校验
