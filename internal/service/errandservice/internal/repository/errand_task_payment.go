@@ -114,13 +114,13 @@ func UpdateTaskRelatedDemandItemsToPendingPayment(ctx context.Context, db bun.ID
 }
 
 type TaskPaymentBillAssignmentRow struct {
-	AssignmentID           int64 `bun:"assignment_id"`
-	PayerID                int64 `bun:"payer_id"`
-	PayeeID                int64 `bun:"payee_id"`
-	PackagingFeeCents      int32 `bun:"packaging_fee_cents"`
-	ActualUnitPriceCents   int32 `bun:"actual_unit_price_cents"`
+	AssignmentID           int64  `bun:"assignment_id"`
+	PayerID                int64  `bun:"payer_id"`
+	PayeeID                int64  `bun:"payee_id"`
+	PackagingFeeCents      int32  `bun:"packaging_fee_cents"`
+	ActualUnitPriceCents   int32  `bun:"actual_unit_price_cents"`
 	DistributedQuantity    *int32 `bun:"distributed_quantity"`
-	ServiceFeePerUnitCents int32 `bun:"service_fee_per_unit_cents"`
+	ServiceFeePerUnitCents int32  `bun:"service_fee_per_unit_cents"`
 }
 
 func ListTaskPaymentBillAssignments(
