@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"time"
@@ -22,6 +23,8 @@ var (
 	ErrInvalidDeadline  = errors.New("deadline must be in the future")
 	ErrEmptyDemandItems = errors.New("demand items cannot be empty")
 	ErrInvalidQuantity  = errors.New("quantity must be greater than 0")
+	ErrDemandNotFound   = errors.New("errand demand not found")
+	ErrDemandNotOpen    = errors.New("errand demand is not in open status")
 	ErrInternal         = errors.New("internal error")
 )
 
@@ -452,4 +455,155 @@ func fillRequesterInfo(ctx context.Context, productMap map[int64]*DemandDetailRe
 			}
 		}
 	}
+}
+
+// CancelErrandDemand 买家撤回未接单需求（open → cancelled）。
+// 返回撤回后的 updated_at，用于前端刷新。
+func CancelErrandDemand(
+	ctx context.Context,
+	requesterID, demandID int64,
+	expectedUpdatedAt time.Time,
+) (*time.Time, error) {
+	var updatedAt time.Time
+	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		demand, err := repository.GetDemandForUpdate(ctx, tx, demandID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrDemandNotFound
+			}
+			log.Error().Err(err).Int64("demand_id", demandID).Msg("load demand for cancel failed")
+			return ErrInternal
+		}
+		if demand.RequesterID != requesterID {
+			log.Warn().Int64("demand_id", demandID).Msg("demand does not belong to requester")
+			return ErrDemandNotFound
+		}
+		if demand.Status != model.ErrandDemandStatusOpen {
+			return ErrDemandNotOpen
+		}
+		if !sameUpdatedAtSecond(demand.UpdatedAt, expectedUpdatedAt) {
+			return ErrConcurrencyConflict
+		}
+
+		now := time.Now().UTC()
+		if err := repository.UpdateDemandToCancelled(ctx, tx, demandID, demand.UpdatedAt, now); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrConcurrencyConflict
+			}
+			log.Error().Err(err).Int64("demand_id", demandID).Msg("update demand to cancelled failed")
+			return ErrInternal
+		}
+		if err := repository.UpdateDemandItemsToCancelled(ctx, tx, demandID, now); err != nil {
+			log.Error().Err(err).Int64("demand_id", demandID).Msg("update demand items to cancelled failed")
+			return ErrInternal
+		}
+		updatedAt = now
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &updatedAt, nil
+}
+
+// UpdateErrandDemandParams 修改需求的入参。
+type UpdateErrandDemandParams struct {
+	DemandID         int64
+	StoreID          int64
+	Deadline         time.Time
+	Items            []DemandItemDraft
+	ExpectedUpdatedAt time.Time
+}
+
+// UpdateErrandDemand 买家修改未接单需求（open 状态，全量替换需求行）。
+// 返回修改后的 updated_at，用于前端刷新。
+func UpdateErrandDemand(
+	ctx context.Context,
+	requesterID int64,
+	params *UpdateErrandDemandParams,
+) (*time.Time, error) {
+	if params == nil || params.DemandID <= 0 || params.StoreID <= 0 {
+		return nil, errors.New("invalid update errand demand request")
+	}
+
+	// 1. 商品校验（存在性、归属店铺、版本），与创建时一致
+	productMap, err := validateProducts(ctx, params.StoreID, params.Items)
+	if err != nil {
+		return nil, err
+	}
+
+	var updatedAt time.Time
+	err = repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		var err error
+		updatedAt, err = updateErrandDemandTx(ctx, tx, requesterID, params, productMap)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &updatedAt, nil
+}
+
+func updateErrandDemandTx(
+	ctx context.Context,
+	tx bun.Tx,
+	requesterID int64,
+	params *UpdateErrandDemandParams,
+	productMap map[int64]*catalogv1.ProductTemplate,
+) (time.Time, error) {
+	// 2. 加锁校验需求：存在、归属、open、乐观锁
+	demand, err := repository.GetDemandForUpdate(ctx, tx, params.DemandID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, ErrDemandNotFound
+		}
+		log.Error().Err(err).Int64("demand_id", params.DemandID).Msg("load demand for update failed")
+		return time.Time{}, ErrInternal
+	}
+	if demand.RequesterID != requesterID {
+		log.Warn().Int64("demand_id", params.DemandID).Msg("demand does not belong to requester")
+		return time.Time{}, ErrDemandNotFound
+	}
+	if demand.Status != model.ErrandDemandStatusOpen {
+		return time.Time{}, ErrDemandNotOpen
+	}
+	if !sameUpdatedAtSecond(demand.UpdatedAt, params.ExpectedUpdatedAt) {
+		return time.Time{}, ErrConcurrencyConflict
+	}
+
+	now := time.Now().UTC()
+	// 3. 更新 demand 主记录（店铺、期望送达时间）
+	if err := repository.UpdateDemandBasic(
+		ctx, tx, params.DemandID, params.StoreID, params.Deadline, demand.UpdatedAt, now,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, ErrConcurrencyConflict
+		}
+		log.Error().Err(err).Int64("demand_id", params.DemandID).Msg("update demand basic failed")
+		return time.Time{}, ErrInternal
+	}
+	// 4. 删除旧明细行
+	if err := repository.DeleteDemandItemsByDemandID(ctx, tx, params.DemandID); err != nil {
+		log.Error().Err(err).Int64("demand_id", params.DemandID).Msg("delete demand items failed")
+		return time.Time{}, ErrInternal
+	}
+	// 5. 插入新明细行
+	demandItems := make([]*model.ErrandDemandItem, 0, len(params.Items))
+	for _, item := range params.Items {
+		demandItems = append(demandItems, &model.ErrandDemandItem{
+			ErrandDemandID:          params.DemandID,
+			RequesterID:             requesterID,
+			StoreID:                 params.StoreID,
+			ProductTemplateID:       item.ProductTemplateID,
+			Quantity:                item.Quantity,
+			ServiceFeePerUnitCents:  item.ServiceFeePerUnitCents,
+			EstimatedUnitPriceCents: productMap[item.ProductTemplateID].PriceCents,
+		})
+	}
+	if err := repository.BatchCreateDemandItems(ctx, tx, demandItems); err != nil {
+		log.Error().Err(err).Msg("batch create demand items failed")
+		return time.Time{}, ErrInternal
+	}
+
+	return now, nil
 }
