@@ -15,6 +15,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/timeutil"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/repository"
@@ -463,10 +464,17 @@ func validateCreateSpotOrderItem(item *spotv1.CreateSpotOrder) error {
 }
 
 func validateGoodsForCreateSpotOrder(goods *model.SpotGoods, item *spotv1.CreateSpotOrder) error {
+	goodsTime := goods.UpdatedAt
+	itemTime := item.UpdatedAt.AsTime()
+
+	log.Debug().
+		Time("goods_updated_at", goodsTime).
+		Time("item_updated_at", itemTime).
+		Msg("validating spot order goods")
 	if goods.ClosedAt != nil {
 		return connect.NewError(connect.CodeFailedPrecondition, ErrSpotGoodsClosed)
 	}
-	if !goods.UpdatedAt.Equal(item.UpdatedAt.AsTime()) {
+	if !timeutil.SameUpdatedAtSecond(goodsTime, itemTime) {
 		return connect.NewError(connect.CodeAborted, ErrSpotGoodsVersionConflict)
 	}
 	if goods.StockTotal < item.Quantity {
@@ -809,14 +817,17 @@ func getBill(ctx context.Context, billID *int64) (*paymentv1.Bill, error) {
 	if billID == nil || *billID <= 0 {
 		return nil, nil
 	}
-	resp, err := client.BillServiceClient.GetBill(ctx, connect.NewRequest(&paymentv1.GetBillRequest{
-		BillId: *billID,
+	resp, err := client.PaymentInternalServiceClient.BatchGetBills(ctx, connect.NewRequest(&paymentv1.BatchGetBillsRequest{
+		BillIds: []int64{*billID},
 	}))
 	if err != nil {
 		log.Error().Err(err).Int64("bill_id", *billID).Msg("failed to get bill")
 		return nil, err
 	}
-	return resp.Msg.Bill, nil
+	if len(resp.Msg.Bills) == 0 {
+		return nil, nil
+	}
+	return resp.Msg.Bills[0], nil
 }
 
 func modelStatusToProto(status model.SpotOrderStatus) spotv1.SpotOrderStatus {
