@@ -34,6 +34,7 @@ var (
 	ErrSpotOrderPermissionDenied      = errors.New("permission denied for spot order")
 	ErrSpotOrderVersionConflict       = errors.New("spot order updated_at version conflict")
 	ErrInvalidSpotOrderStatus         = errors.New("invalid spot order status")
+	ErrCannotPurchaseOwnGoods         = errors.New("cannot purchase own goods")
 )
 
 const (
@@ -396,6 +397,9 @@ func createOneSpotOrder(
 	if err != nil {
 		return nil, err
 	}
+	if err := validateSpotOrderParticipants(purchaserID, goods); err != nil {
+		return nil, err
+	}
 
 	product, err := getProductTemplate(ctx, goods.ProductTemplateID)
 	if err != nil {
@@ -479,6 +483,13 @@ func validateGoodsForCreateSpotOrder(goods *model.SpotGoods, item *spotv1.Create
 	}
 	if goods.StockTotal < item.Quantity {
 		return connect.NewError(connect.CodeResourceExhausted, ErrInsufficientStock)
+	}
+	return nil
+}
+
+func validateSpotOrderParticipants(purchaserID int64, goods *model.SpotGoods) error {
+	if goods != nil && purchaserID == goods.SellerID {
+		return connect.NewError(connect.CodeFailedPrecondition, ErrCannotPurchaseOwnGoods)
 	}
 	return nil
 }
