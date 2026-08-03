@@ -26,13 +26,15 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 	if r.Msg.Page < 1 || r.Msg.PageSize <= 0 || r.Msg.PageSize > 30 {
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR},
-		}, "invalid pagination parameters")
+			
+			}, "invalid pagination parameters")
 	}
 	offset := int((r.Msg.Page - 1) * r.Msg.PageSize)
 	limit := int(r.Msg.PageSize)
-
+	
 	spotGoodsBrief, err := service.ListSpotGoods(ctx, r.Msg.StoreId, offset, limit)
 	if err != nil {
+		
 		log.Error().Err(err).Msgf("Failed to list spot goods for storeID: %d", r.Msg.StoreId)
 		return nil, err
 	}

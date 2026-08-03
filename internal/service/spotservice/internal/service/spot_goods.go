@@ -8,6 +8,7 @@ import (
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	spotv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/spot/v1"
+	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
@@ -30,14 +31,22 @@ func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*sp
 		}, "")
 	}
 
+	templates, err := getProductTemplates(ctx, spotGoodsList)
+	if err != nil {
+		return nil, err
+	}
+
 	briefs := make([]*spotv1.SpotGoodsBrief, 0, len(spotGoodsList))
 	for _, g := range spotGoodsList {
-		briefs = append(briefs, &spotv1.SpotGoodsBrief{
-			Id:             g.ID,
-			SalePriceCents: g.SalePriceCents,
-			CreatedAt:      timestamppb.New(g.CreatedAt),
-			UpdatedAt:      timestamppb.New(g.UpdatedAt),
-		})
+		template := templates[g.ProductTemplateID]
+		if template == nil {
+			log.Error().
+				Int64("spot_goods_id", g.ID).
+				Int64("product_template_id", g.ProductTemplateID).
+				Msg("catalog service returned no product template for spot goods")
+			return nil, spotInternalError()
+		}
+		briefs = append(briefs, modelToBrief(g, template))
 	}
 	return briefs, nil
 }
@@ -73,7 +82,15 @@ func GetSpotGoods(ctx context.Context, goodsID int64) (*spotv1.SpotGoodsDetail, 
 			},
 		}, "")
 	}
-	return modelToDetail(goods), nil
+	template, err := getProductTemplate(ctx, goods.ProductTemplateID)
+	if err != nil {
+		return nil, err
+	}
+	seller, err := getUser(ctx, goods.SellerID)
+	if err != nil {
+		return nil, err
+	}
+	return modelToDetail(goods, template, seller), nil
 }
 
 func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGoods, error) {
@@ -165,7 +182,7 @@ func CreateSpotGoods(
 			},
 		}, "")
 	}
-	return modelToDetail(goods), nil
+	return modelToDetail(goods, template, nil), nil
 }
 
 func UpdateSpotGoodsStock(
@@ -299,12 +316,69 @@ func UpdateSpotGoodsPrice(
 	return nil
 }
 
-func modelToDetail(goods *model.SpotGoods) *spotv1.SpotGoodsDetail {
+func getProductTemplates(
+	ctx context.Context,
+	goodsList []*model.SpotGoods,
+) (map[int64]*catalogv1.ProductTemplate, error) {
+	templates := make(map[int64]*catalogv1.ProductTemplate)
+	if len(goodsList) == 0 {
+		return templates, nil
+	}
+
+	productTemplateIDs := make([]int64, 0, len(goodsList))
+	seen := make(map[int64]struct{}, len(goodsList))
+	for _, goods := range goodsList {
+		if _, ok := seen[goods.ProductTemplateID]; ok {
+			continue
+		}
+		seen[goods.ProductTemplateID] = struct{}{}
+		productTemplateIDs = append(productTemplateIDs, goods.ProductTemplateID)
+	}
+
+	resp, err := client.CatalogInternalServiceClient.GetProductTemplates(
+		ctx,
+		connect.NewRequest(&catalogv1.GetProductTemplatesRequest{
+			ProductTemplateIds: productTemplateIDs,
+		}),
+	)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Interface("product_template_ids", productTemplateIDs).
+			Msg("failed to get product templates for spot goods")
+		return nil, err
+	}
+	for _, template := range resp.Msg.ProductTemplates {
+		templates[template.Id] = template
+	}
+	return templates, nil
+}
+
+func modelToBrief(
+	goods *model.SpotGoods,
+	template *catalogv1.ProductTemplate,
+) *spotv1.SpotGoodsBrief {
+	return &spotv1.SpotGoodsBrief{
+		Id:              goods.ID,
+		ProductTemplate: template,
+		SalePriceCents:  goods.SalePriceCents,
+		CreatedAt:       timestamppb.New(goods.CreatedAt),
+		UpdatedAt:       timestamppb.New(goods.UpdatedAt),
+	}
+}
+
+func modelToDetail(
+	goods *model.SpotGoods,
+	template *catalogv1.ProductTemplate,
+	seller *userv1.UserInfo,
+) *spotv1.SpotGoodsDetail {
 	return &spotv1.SpotGoodsDetail{
-		Id:             goods.ID,
-		SalePriceCents: goods.SalePriceCents,
-		CreatedAt:      timestamppb.New(goods.CreatedAt),
-		UpdatedAt:      timestamppb.New(goods.UpdatedAt),
-		Stock:          goods.StockTotal,
+		Id:              goods.ID,
+		ProductTemplate: template,
+		SalePriceCents:  goods.SalePriceCents,
+		CreatedAt:       timestamppb.New(goods.CreatedAt),
+		UpdatedAt:       timestamppb.New(goods.UpdatedAt),
+		Stock:           goods.StockTotal,
+		Seller:          seller,
 	}
 }
