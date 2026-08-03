@@ -37,6 +37,7 @@ type BuyerOrderProductItem struct {
 	SubtotalCents           int32
 	EstimatedUnitPriceCents int32
 	ErrandDemandItemID      int64
+	PackagingFeeShareCents  int32
 }
 
 type BuyerOrderDetail struct {
@@ -347,6 +348,7 @@ func buildProductItems(
 			ServiceFeePerUnitCents:  item.ServiceFeePerUnitCents,
 			EstimatedUnitPriceCents: item.EstimatedUnitPriceCents,
 			ErrandDemandItemID:      item.ID,
+			PackagingFeeShareCents:  packagingShareCents,
 		}
 
 		quantity := item.Quantity
