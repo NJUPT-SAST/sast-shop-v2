@@ -13,41 +13,33 @@ import (
 )
 
 func paymentError() *connect.Error {
-	return rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
-		PaymentError: &paymentv1.PaymentError{
-			Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_UNSPECIFIED,
-		},
-	}, "")
+	return paymentBusinessError(connect.CodeInternal, paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_UNSPECIFIED)
 }
 
 func billNotFoundError() *connect.Error {
-	return rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
-		PaymentError: &paymentv1.PaymentError{
-			Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_BILL_NOT_FOUND,
-		},
-	}, "")
+	return paymentBusinessError(connect.CodeNotFound, paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_BILL_NOT_FOUND)
 }
 
 func invalidBillStatusError() *connect.Error {
-	return rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
-		PaymentError: &paymentv1.PaymentError{
-			Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_BILL_STATUS,
-		},
-	}, "")
+	return paymentBusinessError(connect.CodeFailedPrecondition, paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_BILL_STATUS)
 }
 
 func invalidChannelError() *connect.Error {
-	return rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
-		PaymentError: &paymentv1.PaymentError{
-			Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_CHANNEL,
-		},
-	}, "")
+	return paymentBusinessError(connect.CodeInvalidArgument, paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_CHANNEL)
 }
 
 func duplicateBillError() *connect.Error {
-	return rpcerror.NewInternalError(&commonv1.BusinessError_PaymentError{
+	return paymentBusinessError(connect.CodeAlreadyExists, paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_DUPLICATE_BILL)
+}
+
+func concurrencyConflictError() *connect.Error {
+	return paymentBusinessError(connect.CodeAborted, paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_UNSPECIFIED)
+}
+
+func paymentBusinessError(code connect.Code, paymentCode paymentv1.PaymentErrorCode) *connect.Error {
+	return rpcerror.NewError(code, &commonv1.BusinessError_PaymentError{
 		PaymentError: &paymentv1.PaymentError{
-			Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_DUPLICATE_BILL,
+			Code: paymentCode,
 		},
 	}, "")
 }
@@ -63,7 +55,7 @@ func mapServiceError(err error) *connect.Error {
 	case errors.Is(err, service.ErrDuplicateBill):
 		return duplicateBillError()
 	case errors.Is(err, service.ErrConcurrencyConflict):
-		return paymentError()
+		return concurrencyConflictError()
 	default:
 		return paymentError()
 	}
