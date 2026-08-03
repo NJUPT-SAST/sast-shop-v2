@@ -181,6 +181,108 @@ func (s *ErrandDemandServiceServer) GetDemandDetail(
 	}), nil
 }
 
+// CancelErrandDemand 买家撤回未接单需求。
+func (s *ErrandDemandServiceServer) CancelErrandDemand(
+	ctx context.Context,
+	r *connect.Request[errandv1.CancelErrandDemandRequest],
+) (*connect.Response[errandv1.CancelErrandDemandResponse], error) {
+	requesterID := getUserIDFromContext(ctx)
+	if requesterID == 0 {
+		log.Warn().Msg("CancelErrandDemand: user not authenticated")
+		return nil, errandError()
+	}
+
+	if r.Msg.UpdatedAt == nil || !r.Msg.UpdatedAt.IsValid() {
+		log.Warn().Int64("errand_demand_id", r.Msg.ErrandDemandId).Msg("invalid updated_at")
+		return nil, errandError()
+	}
+
+	updatedAt, err := service.CancelErrandDemand(
+		ctx,
+		requesterID,
+		r.Msg.ErrandDemandId,
+		r.Msg.UpdatedAt.AsTime().UTC(),
+	)
+	if err != nil {
+		log.Error().Err(err).Int64("errand_demand_id", r.Msg.ErrandDemandId).Msg("CancelErrandDemand failed")
+		return nil, mapDemandServiceError(err)
+	}
+
+	return connect.NewResponse(&errandv1.CancelErrandDemandResponse{
+		UpdatedAt: timestamppb.New(*updatedAt),
+	}), nil
+}
+
+// UpdateErrandDemand 买家修改未接单需求（全量替换需求行）。
+func (s *ErrandDemandServiceServer) UpdateErrandDemand(
+	ctx context.Context,
+	r *connect.Request[errandv1.UpdateErrandDemandRequest],
+) (*connect.Response[errandv1.UpdateErrandDemandResponse], error) {
+	requesterID := getUserIDFromContext(ctx)
+	if requesterID == 0 {
+		log.Warn().Msg("UpdateErrandDemand: user not authenticated")
+		return nil, errandError()
+	}
+
+	if r.Msg.UpdatedAt == nil || !r.Msg.UpdatedAt.IsValid() {
+		log.Warn().Int64("errand_demand_id", r.Msg.ErrandDemandId).Msg("invalid updated_at")
+		return nil, errandError()
+	}
+
+	items := make([]service.DemandItemDraft, 0, len(r.Msg.DemandItems))
+	for _, item := range r.Msg.DemandItems {
+		items = append(items, service.DemandItemDraft{
+			ProductTemplateID:      item.ProductTemplateId,
+			Quantity:               item.Quantity,
+			ServiceFeePerUnitCents: item.ServiceFeePerUnitCents,
+			UpdatedAt:              item.UpdatedAt.AsTime(),
+		})
+	}
+
+	updatedAt, err := service.UpdateErrandDemand(ctx, requesterID, &service.UpdateErrandDemandParams{
+		DemandID:          r.Msg.ErrandDemandId,
+		StoreID:           r.Msg.StoreId,
+		Deadline:          r.Msg.Deadline.AsTime(),
+		Items:             items,
+		ExpectedUpdatedAt: r.Msg.UpdatedAt.AsTime().UTC(),
+	})
+	if err != nil {
+		log.Error().Err(err).Int64("errand_demand_id", r.Msg.ErrandDemandId).Msg("UpdateErrandDemand failed")
+		return nil, mapDemandServiceError(err)
+	}
+
+	return connect.NewResponse(&errandv1.UpdateErrandDemandResponse{
+		UpdatedAt: timestamppb.New(*updatedAt),
+	}), nil
+}
+
+// mapDemandServiceError 将 service 层哨兵错误映射为 Connect 错误码。
+func mapDemandServiceError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var connErr *connect.Error
+	if errors.As(err, &connErr) {
+		return connErr
+	}
+
+	switch {
+	case errors.Is(err, service.ErrDemandNotFound):
+		return connect.NewError(connect.CodeNotFound, err)
+	case errors.Is(err, service.ErrDemandNotOpen):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, service.ErrConcurrencyConflict):
+		return connect.NewError(connect.CodeAborted, err)
+	case errors.Is(err, service.ErrProductInvalid),
+		errors.Is(err, service.ErrDuplicateProduct),
+		errors.Is(err, service.ErrInvalidQuantity):
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	default:
+		return errandError()
+	}
+}
+
 // getUserIDFromContext 从 context 中提取用户 ID
 func getUserIDFromContext(ctx context.Context) int64 {
 	user, ok := rpcinterceptor.UserFromContext(ctx)

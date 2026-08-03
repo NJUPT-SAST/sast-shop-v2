@@ -47,6 +47,36 @@ message GetDemandDetailResponse {
   repeated sast.sastshopv2.errand.v1.ErrandDemandDetail details = 1;
 }
 
+// 买家撤回未接单需求（open 状态）
+message CancelErrandDemandRequest {
+  // 买家视角跑腿订单 ID
+  int64 errand_demand_id = 1 [(buf.validate.field).int64 = {gt: 0}];
+  // 前端读取需求时拿到的 updated_at，用于并发校验
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message CancelErrandDemandResponse {
+  google.protobuf.Timestamp updated_at = 1;
+}
+
+// 买家修改未接单需求（open 状态），全量替换需求行
+message UpdateErrandDemandRequest {
+  // 买家视角跑腿订单 ID
+  int64 errand_demand_id = 1 [(buf.validate.field).int64 = {gt: 0}];
+  // 目标店铺 ID
+  int64 store_id = 2;
+  // 买家期望送达时间
+  google.protobuf.Timestamp deadline = 3 [(buf.validate.field).timestamp = {gt_now: true}];
+  // 修改后的商品需求行
+  repeated sast.sastshopv2.errand.v1.ErrandDemandItemDraft demand_items = 4 [(buf.validate.field).repeated = {min_items: 1}];
+  // 前端读取需求时拿到的 updated_at，用于并发校验
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message UpdateErrandDemandResponse {
+  google.protobuf.Timestamp updated_at = 1;
+}
+
 service ErrandDemandService {
   // 买家创建跑腿需求订单
   rpc CreateErrandDemand(CreateErrandDemandRequest) returns (CreateErrandDemandResponse);
@@ -54,4 +84,8 @@ service ErrandDemandService {
   rpc GetDemandList(GetDemandListRequest) returns (GetDemandListResponse);
   // 团长查看某个店铺下可接单的需求详情
   rpc GetDemandDetail(GetDemandDetailRequest) returns (GetDemandDetailResponse);
+  // 买家撤回未接单需求
+  rpc CancelErrandDemand(CancelErrandDemandRequest) returns (CancelErrandDemandResponse);
+  // 买家修改未接单需求（全量替换需求行）
+  rpc UpdateErrandDemand(UpdateErrandDemandRequest) returns (UpdateErrandDemandResponse);
 }
