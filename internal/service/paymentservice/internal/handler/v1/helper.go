@@ -27,30 +27,6 @@ func invalidBillStatusError() *connect.Error {
 	)
 }
 
-func invalidBillRequestError() *connect.Error {
-	return rpcerror.NewError(
-		connect.CodeInvalidArgument,
-		&commonv1.BusinessError_PaymentError{
-			PaymentError: &paymentv1.PaymentError{
-				Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_UNSPECIFIED,
-			},
-		},
-		"invalid create bill request",
-	)
-}
-
-func selfPaymentError() *connect.Error {
-	return rpcerror.NewError(
-		connect.CodeFailedPrecondition,
-		&commonv1.BusinessError_PaymentError{
-			PaymentError: &paymentv1.PaymentError{
-				Code: paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_BILL_STATUS,
-			},
-		},
-		"payer and payee must be different",
-	)
-}
-
 func invalidChannelError() *connect.Error {
 	return paymentBusinessError(
 		connect.CodeInvalidArgument,
