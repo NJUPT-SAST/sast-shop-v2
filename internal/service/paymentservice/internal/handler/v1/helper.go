@@ -21,11 +21,17 @@ func billNotFoundError() *connect.Error {
 }
 
 func invalidBillStatusError() *connect.Error {
-	return paymentBusinessError(connect.CodeFailedPrecondition, paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_BILL_STATUS)
+	return paymentBusinessError(
+		connect.CodeFailedPrecondition,
+		paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_BILL_STATUS,
+	)
 }
 
 func invalidChannelError() *connect.Error {
-	return paymentBusinessError(connect.CodeInvalidArgument, paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_CHANNEL)
+	return paymentBusinessError(
+		connect.CodeInvalidArgument,
+		paymentv1.PaymentErrorCode_PAYMENT_ERROR_CODE_INVALID_CHANNEL,
+	)
 }
 
 func duplicateBillError() *connect.Error {
