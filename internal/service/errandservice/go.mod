@@ -48,5 +48,3 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250922171735-9219d122eba9 // indirect
 	mellium.im/sasl v0.3.2 // indirect
 )
-
-replace buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go => ../../../gen/protocolbuffers/go
