@@ -23,6 +23,8 @@ message CreateErrandDemandRequest {
 message CreateErrandDemandResponse {
   // 买家视角跑腿订单 ID
   int64 errand_demand_id = 1;
+  // 创建后的 updated_at，用于后续撤回/修改的并发校验
+  google.protobuf.Timestamp updated_at = 2;
 }
 
 message GetDemandListRequest {
