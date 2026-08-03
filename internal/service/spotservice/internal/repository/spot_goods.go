@@ -11,22 +11,27 @@ import (
 
 func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*model.SpotGoods, error) {
 	var goodsList []*model.SpotGoods
-	err := postgres.DB.NewSelect().
+	query := postgres.DB.NewSelect().
 		Model(&goodsList).
-		Where("store_id = ?", storeID).
 		Where("closed_at IS NULL").
+		OrderExpr("created_at DESC, id DESC").
 		Offset(offset).
-		Limit(limit).
-		Scan(ctx)
+		Limit(limit)
+	if storeID != 0 {
+		query = query.Where("store_id = ?", storeID)
+	}
+	err := query.Scan(ctx)
 	return goodsList, err
 }
 
 func GetSpotGoodsLength(ctx context.Context, storeID int64) (int, error) {
-	count, err := postgres.DB.NewSelect().
+	query := postgres.DB.NewSelect().
 		Model((*model.SpotGoods)(nil)).
-		Where("store_id = ?", storeID).
-		Where("closed_at IS NULL").
-		Count(ctx)
+		Where("closed_at IS NULL")
+	if storeID != 0 {
+		query = query.Where("store_id = ?", storeID)
+	}
+	count, err := query.Count(ctx)
 	return count, err
 }
 

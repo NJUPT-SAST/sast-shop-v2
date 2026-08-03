@@ -15,6 +15,8 @@ func ExchangeCode(ctx context.Context, code string, codeVerifier string, redirec
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("[DEBUG] 1. 传入的 redirectURI: %s\n", redirectURI)
+	fmt.Printf("[DEBUG] 2. client.RedirectURL (SDK默认): %s\n", client.RedirectURL)
 
 	reqBuilder := authorizationcode.NewTokenRequestBuilder().Code(code)
 	redirect := redirectURI
@@ -27,6 +29,7 @@ func ExchangeCode(ctx context.Context, code string, codeVerifier string, redirec
 	if codeVerifier != "" {
 		reqBuilder.CodeVerifier(codeVerifier)
 	}
+	fmt.Printf("[DEBUG] 3. 最终发给飞书的 redirect_uri: %s\n", redirect)
 
 	resp, err := client.SDK.AccessToken.RetrieveByAuthorizationCode(ctx, reqBuilder.Build())
 	if err != nil {

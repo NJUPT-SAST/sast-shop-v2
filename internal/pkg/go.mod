@@ -34,7 +34,7 @@ require (
 )
 
 require (
-	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260607141353-2f726ec59732.1
+	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260729122644-8226c83aee9b.1
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
