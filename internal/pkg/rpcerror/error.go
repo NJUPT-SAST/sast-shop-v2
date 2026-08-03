@@ -8,13 +8,13 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/constant"
 )
 
-// NewInternalError creates a connect error with CodeInternal and a BusinessError detail.
+// NewError creates a connect error with a BusinessError detail.
 // The detail must be a protobuf oneof wrapper like &commonv1.BusinessError_UserError{...}.
-func NewInternalError(detail any, errorMessage string) *connect.Error {
+func NewError(code connect.Code, detail any, errorMessage string) *connect.Error {
 	if errorMessage == "" {
 		errorMessage = constant.UnknownErrorMessage
 	}
-	connErr := connect.NewError(connect.CodeInternal, errors.New(errorMessage))
+	connErr := connect.NewError(code, errors.New(errorMessage))
 	bizErr := &commonv1.BusinessError{
 		ErrorMessage: errorMessage,
 	}
@@ -34,4 +34,9 @@ func NewInternalError(detail any, errorMessage string) *connect.Error {
 		connErr.AddDetail(detail)
 	}
 	return connErr
+}
+
+// NewInternalError creates a connect error with CodeInternal and a BusinessError detail.
+func NewInternalError(detail any, errorMessage string) *connect.Error {
+	return NewError(connect.CodeInternal, detail, errorMessage)
 }
