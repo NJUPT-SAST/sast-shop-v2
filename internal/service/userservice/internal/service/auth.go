@@ -78,9 +78,9 @@ func Login(ctx context.Context, req *userv1.LoginRequest) (*userv1.LoginResponse
 		return nil, userError(fmt.Sprintf("feishu exchange code: %v", err))
 	}
 	if err != nil {
-    log.Error().Err(err).Msg("feishu exchange code failed")
-    return nil, userError(fmt.Sprintf("feishu exchange code: %v", err))
-}
+		log.Error().Err(err).Msg("feishu exchange code failed")
+		return nil, userError(fmt.Sprintf("feishu exchange code: %v", err))
+	}
 
 	userInfo, err := feishu.GetCurrentUser(ctx, feishuToken.AccessToken)
 	if err != nil {
