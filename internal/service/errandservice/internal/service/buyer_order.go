@@ -56,6 +56,7 @@ type BuyerOrderDetail struct {
 	DistributionCompletedAt *time.Time
 	PaymentCompletedAt      *time.Time
 	CancelledAt             *time.Time
+	UpdatedAt               time.Time
 }
 
 func GetBuyerOrderBriefList(
@@ -222,6 +223,7 @@ func GetBuyerOrderDetail(ctx context.Context, requesterID, demandID int64) (*Buy
 		DistributionCompletedAt: demand.DistributionCompletedAt,
 		PaymentCompletedAt:      demand.PaymentCompletedAt,
 		CancelledAt:             demand.CancelledAt,
+		UpdatedAt:               demand.UpdatedAt,
 	}, nil
 }
 

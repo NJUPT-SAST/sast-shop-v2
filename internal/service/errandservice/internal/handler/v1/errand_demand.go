@@ -48,7 +48,7 @@ func (s *ErrandDemandServiceServer) CreateErrandDemand(
 	}
 
 	// 4. 调用 service 层
-	demandID, updatedAt, err := service.CreateErrandDemand(ctx, requesterID, msg.StoreId, deadline, items)
+	demandID, err := service.CreateErrandDemand(ctx, requesterID, msg.StoreId, deadline, items)
 	if err != nil {
 		// service 层已经记过日志了，这里只翻译成 connect.Error
 		if errors.Is(err, service.ErrProductInvalid) {
@@ -61,10 +61,9 @@ func (s *ErrandDemandServiceServer) CreateErrandDemand(
 		return nil, errandError()
 	}
 
-	// 5. 返回响应（updated_at 供前端保存，用于后续撤回/修改的并发校验）
+	// 5. 返回响应
 	return connect.NewResponse(&errandv1.CreateErrandDemandResponse{
 		ErrandDemandId: demandID,
-		UpdatedAt:      timestamppb.New(*updatedAt),
 	}), nil
 }
 
