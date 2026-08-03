@@ -9,6 +9,7 @@ import (
 
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/timeutil"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/repository"
@@ -481,7 +482,7 @@ func CancelErrandDemand(
 		if demand.Status != model.ErrandDemandStatusOpen {
 			return ErrDemandNotOpen
 		}
-		if !sameUpdatedAtSecond(demand.UpdatedAt, expectedUpdatedAt) {
+		if !timeutil.SameUpdatedAtSecond(demand.UpdatedAt, expectedUpdatedAt) {
 			return ErrConcurrencyConflict
 		}
 
@@ -567,7 +568,7 @@ func updateErrandDemandTx(
 	if demand.Status != model.ErrandDemandStatusOpen {
 		return time.Time{}, ErrDemandNotOpen
 	}
-	if !sameUpdatedAtSecond(demand.UpdatedAt, params.ExpectedUpdatedAt) {
+	if !timeutil.SameUpdatedAtSecond(demand.UpdatedAt, params.ExpectedUpdatedAt) {
 		return time.Time{}, ErrConcurrencyConflict
 	}
 
