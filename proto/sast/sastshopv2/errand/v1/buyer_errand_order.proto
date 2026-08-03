@@ -84,6 +84,6 @@ message BuyerErrandOrderDetail {
   google.protobuf.Timestamp payment_completed_at = 16;
   // 订单取消时间
   google.protobuf.Timestamp cancelled_at = 17;
-  // 最近更新时间
+  // 需求最近更新时间，用于撤回/修改的并发校验
   google.protobuf.Timestamp updated_at = 18;
 }
