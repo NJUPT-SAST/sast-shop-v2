@@ -37,7 +37,7 @@ func (s *CatalogServiceServer) CreateStore(
 	if !ok {
 		return nil, catalogError()
 	}
-	if authUser.Role != "admin" {
+	if authUser.Role == "admin" {
 		return nil, permissionDeniedError()
 	}
 
@@ -65,7 +65,7 @@ func (s *CatalogServiceServer) UpdateStore(
 	if !ok {
 		return nil, catalogError()
 	}
-	if authUser.Role != "admin" {
+	if authUser.Role == "admin" {
 		return nil, permissionDeniedError()
 	}
 
