@@ -3,8 +3,8 @@ module github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice
 go 1.26.3
 
 require (
-	buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.20.0-20260729122644-8226c83aee9b.1
-	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260729122644-8226c83aee9b.1
+	buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.20.0-20260803055026-0b894163deec.1
+	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260803055026-0b894163deec.1
 	connectrpc.com/connect v1.20.0
 	github.com/NJUPT-SAST/sast-shop-v2/internal/pkg v0.0.0
 	github.com/labstack/echo/v5 v5.1.1
