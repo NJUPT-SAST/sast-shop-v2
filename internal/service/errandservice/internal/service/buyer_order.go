@@ -406,7 +406,7 @@ func buildProductItems(
 
 	var actual *int32
 	if actualTotalsReady {
-		actualSummary, err := safeInt32FromInt64(actualProductCents + int64(packagingShareCents))
+		actualSummary, err := safeInt32FromInt64(actualProductCents)
 		if err != nil {
 			return nil, 0, nil, 0, err
 		}
