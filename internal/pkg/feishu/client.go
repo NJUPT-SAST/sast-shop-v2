@@ -26,6 +26,9 @@ func Init() {
 	cfg := config.AppConfig
 	if cfg.Feishu_AppID == "" || cfg.Feishu_AppSecret == "" ||
 		cfg.Feishu_AppID == constant.FeishuDefaultAppID || cfg.Feishu_AppSecret == constant.FeishuDefaultAppSecret {
+		if cfg.AppEnv == config.Development {
+			return
+		}
 		panic("feishu: FEISHU_APP_ID / FEISHU_APP_SECRET must be configured with real credentials")
 	}
 	AppClient = &Client{

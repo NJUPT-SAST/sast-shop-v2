@@ -127,6 +127,7 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderDetail(
 			ServiceFeePerUnitCents: pi.ServiceFeePerUnitCents,
 			SubtotalCents:          pi.SubtotalCents,
 			ErrandDemandItemId:     pi.ErrandDemandItemID,
+			PackagingFeeShareCents: &pi.PackagingFeeShareCents,
 		})
 	}
 
