@@ -2588,18 +2588,25 @@ func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRe
 				Msg("failed to update task to cancelled")
 			return newErrandInternalError("")
 		}
-		if err := repository.UpdateTaskRelatedDemandsToCancelled(ctx, tx, task.TaskID, now); err != nil {
+		if err := repository.ReopenTaskRelatedDemands(ctx, tx, task.TaskID, now); err != nil {
 			log.Error().
 				Err(err).
 				Int64("errand_task_id", task.TaskID).
-				Msg("failed to update related demands to cancelled")
+				Msg("failed to reopen related demands")
 			return newErrandInternalError("")
 		}
-		if err := repository.UpdateTaskRelatedDemandItemsToCancelled(ctx, tx, task.TaskID, now); err != nil {
+		if err := repository.ReopenTaskRelatedDemandItems(ctx, tx, task.TaskID, now); err != nil {
 			log.Error().
 				Err(err).
 				Int64("errand_task_id", task.TaskID).
-				Msg("failed to update related demand items to cancelled")
+				Msg("failed to reopen related demand items")
+			return newErrandInternalError("")
+		}
+		if err := repository.DeleteReopenedTaskAssignments(ctx, tx, task.TaskID); err != nil {
+			log.Error().
+				Err(err).
+				Int64("errand_task_id", task.TaskID).
+				Msg("failed to delete reopened task assignments")
 			return newErrandInternalError("")
 		}
 
