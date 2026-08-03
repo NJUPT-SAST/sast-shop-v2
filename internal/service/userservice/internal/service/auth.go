@@ -15,6 +15,7 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/userservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/userservice/internal/repository"
+	"github.com/rs/zerolog/log"
 )
 
 // 生成后端自有 access_token，32 字节随机 hex
@@ -74,6 +75,10 @@ func Login(ctx context.Context, req *userv1.LoginRequest) (*userv1.LoginResponse
 
 	feishuToken, err := feishu.ExchangeCode(ctx, req.Code, "", req.GetRedirectUri())
 	if err != nil {
+		return nil, userError(fmt.Sprintf("feishu exchange code: %v", err))
+	}
+	if err != nil {
+		log.Error().Err(err).Msg("feishu exchange code failed")
 		return nil, userError(fmt.Sprintf("feishu exchange code: %v", err))
 	}
 

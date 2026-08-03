@@ -9,6 +9,7 @@ import (
 
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/timeutil"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/repository"
@@ -38,24 +39,24 @@ type DemandItemDraft struct {
 
 // CreateErrandDemand — 买家创建跑腿需求
 // CreateErrandDemand 买家创建跑腿需求订单。
-// 返回新创建的 errand_demand ID。
+// 返回新创建的 errand_demand ID 和创建后的 updated_at（用于后续并发校验）。
 func CreateErrandDemand(
 	ctx context.Context,
 	requesterID int64,
 	storeID int64,
 	deadline time.Time,
 	items []DemandItemDraft,
-) (int64, error) {
+) (int64, *time.Time, error) {
 	// 1. 参数校验
 
 	// 检查重复商品（同一个 product_template_id 不能出现两次）
 	productSet := make(map[int64]struct{})
 	for _, item := range items {
 		if item.Quantity <= 0 {
-			return 0, ErrInvalidQuantity
+			return 0, nil, ErrInvalidQuantity
 		}
 		if _, exists := productSet[item.ProductTemplateID]; exists {
-			return 0, ErrDuplicateProduct
+			return 0, nil, ErrDuplicateProduct
 		}
 		productSet[item.ProductTemplateID] = struct{}{}
 	}
@@ -63,10 +64,11 @@ func CreateErrandDemand(
 	// 2. 逐个调用 catalog 服务校验商品：存在性、归属、版本
 	productMap, err := validateProducts(ctx, storeID, items)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	var demandID int64
+	var updatedAt time.Time
 	err = repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		// 3. 插入 errand_demand 主记录
 		demand := &model.ErrandDemand{
@@ -79,6 +81,7 @@ func CreateErrandDemand(
 			return ErrInternal
 		}
 		demandID = demand.ID
+		updatedAt = demand.UpdatedAt.UTC()
 
 		// 4. 批量插入 errand_demand_item 明细
 		demandItems := make([]*model.ErrandDemandItem, 0, len(items))
@@ -102,10 +105,10 @@ func CreateErrandDemand(
 		return nil
 	})
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
-	return demandID, nil
+	return demandID, &updatedAt, nil
 }
 
 // validateProducts 逐个校验商品：存在、归属店铺、版本号匹配。
@@ -481,7 +484,7 @@ func CancelErrandDemand(
 		if demand.Status != model.ErrandDemandStatusOpen {
 			return ErrDemandNotOpen
 		}
-		if !sameUpdatedAtSecond(demand.UpdatedAt, expectedUpdatedAt) {
+		if !timeutil.SameUpdatedAtSecond(demand.UpdatedAt, expectedUpdatedAt) {
 			return ErrConcurrencyConflict
 		}
 
@@ -567,7 +570,7 @@ func updateErrandDemandTx(
 	if demand.Status != model.ErrandDemandStatusOpen {
 		return time.Time{}, ErrDemandNotOpen
 	}
-	if !sameUpdatedAtSecond(demand.UpdatedAt, params.ExpectedUpdatedAt) {
+	if !timeutil.SameUpdatedAtSecond(demand.UpdatedAt, params.ExpectedUpdatedAt) {
 		return time.Time{}, ErrConcurrencyConflict
 	}
 

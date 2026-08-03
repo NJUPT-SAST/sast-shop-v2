@@ -16,6 +16,7 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/feishu"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/timeutil"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/repository"
@@ -217,7 +218,7 @@ func validateSelectedDemandItemRow(
 	if row.DemandStatus != model.ErrandDemandStatusOpen || row.DemandItemStatus != model.ErrandDemandItemStatusOpen {
 		return ErrDemandItemNotOpen
 	}
-	if !sameUpdatedAtSecond(row.DemandItemUpdatedAt, selectedUpdatedAt) {
+	if !timeutil.SameUpdatedAtSecond(row.DemandItemUpdatedAt, selectedUpdatedAt) {
 		return ErrConcurrencyConflict
 	}
 	if !row.Deadline.After(now) {
@@ -225,10 +226,6 @@ func validateSelectedDemandItemRow(
 	}
 
 	return nil
-}
-
-func sameUpdatedAtSecond(dbUpdatedAt, selectedUpdatedAt time.Time) bool {
-	return dbUpdatedAt.UTC().Truncate(time.Second).Equal(selectedUpdatedAt.UTC().Truncate(time.Second))
 }
 
 func loadValidatedSnapshots(
@@ -654,7 +651,7 @@ func executeSaveShoppingTask(
 			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
 		}
 		// 基于 errand_task_item_updated_at 校验并发后
-		if !sameUpdatedAtSecond(row.TaskItemUpdatedAt, expectedUpdatedAt) {
+		if !timeutil.SameUpdatedAtSecond(row.TaskItemUpdatedAt, expectedUpdatedAt) {
 			return ErrConcurrencyConflict
 		}
 		if !isValidShoppingTaskItemPurchasedQuantity(req.PurchasedQuantity, row.RequiredQuantity) {
@@ -1172,7 +1169,7 @@ func validateActualPriceUpdate(
 			errors.New("task is not in distributing flow"),
 		)
 	}
-	if !sameUpdatedAtSecond(row.TaskItemUpdatedAt, expectedUpdatedAt) {
+	if !timeutil.SameUpdatedAtSecond(row.TaskItemUpdatedAt, expectedUpdatedAt) {
 		return ErrConcurrencyConflict
 	}
 
@@ -1317,7 +1314,7 @@ func loadPendingDistributingTaskForTransition(
 			errors.New("task is not in pending distributing status"),
 		)
 	}
-	if !sameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
+	if !timeutil.SameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
 
@@ -1500,7 +1497,7 @@ func validateDistributingTaskAssignmentUpdate(
 	if row.TaskStatus != model.ErrandTaskStatusDistributing {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in distributing status"))
 	}
-	if !sameUpdatedAtSecond(row.AssignmentUpdatedAt, expectedUpdatedAt) {
+	if !timeutil.SameUpdatedAtSecond(row.AssignmentUpdatedAt, expectedUpdatedAt) {
 		return ErrConcurrencyConflict
 	}
 	if row.PurchasedQuantity == nil {
@@ -1732,7 +1729,7 @@ func loadDistributingTaskForCollectingPayment(
 			errors.New("task is not in distributing status"),
 		)
 	}
-	if !sameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
+	if !timeutil.SameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
 		log.Error().
 			Err(err).
 			Time("task.UpdatedAt", task.UpdatedAt).
@@ -2361,7 +2358,7 @@ func loadCollectingPaymentTaskForCompletion(
 			errors.New("task is not in collecting payment status"),
 		)
 	}
-	if !sameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
+	if !timeutil.SameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
 
@@ -2638,7 +2635,7 @@ func loadTaskForCancellation(
 	if task.Status == model.ErrandTaskStatusCompleted || task.Status == model.ErrandTaskStatusCancelled {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("task cannot be cancelled"))
 	}
-	if !sameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
+	if !timeutil.SameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
 

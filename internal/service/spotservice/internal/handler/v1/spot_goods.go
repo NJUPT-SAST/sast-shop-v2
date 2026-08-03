@@ -33,6 +33,7 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 
 	spotGoodsBrief, err := service.ListSpotGoods(ctx, r.Msg.StoreId, offset, limit)
 	if err != nil {
+
 		log.Error().Err(err).Msgf("Failed to list spot goods for storeID: %d", r.Msg.StoreId)
 		return nil, err
 	}
