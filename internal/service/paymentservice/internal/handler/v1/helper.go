@@ -54,10 +54,6 @@ func mapServiceError(err error) *connect.Error {
 	switch {
 	case errors.Is(err, service.ErrBillNotFound):
 		return billNotFoundError()
-	case errors.Is(err, service.ErrInvalidBillRequest):
-		return invalidBillRequestError()
-	case errors.Is(err, service.ErrSelfPayment):
-		return selfPaymentError()
 	case errors.Is(err, service.ErrInvalidBillStatus):
 		return invalidBillStatusError()
 	case errors.Is(err, service.ErrInvalidChannel):

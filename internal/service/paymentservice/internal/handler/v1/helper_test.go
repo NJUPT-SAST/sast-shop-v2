@@ -27,12 +27,6 @@ func TestMapServiceErrorUsesClientFacingCodes(t *testing.T) {
 			if got := connect.CodeOf(mapServiceError(testCase.err)); got != testCase.code {
 				t.Fatalf("mapServiceError(%v) code = %v, want %v", testCase.err, got, testCase.code)
 			}
-<<<<<<< HEAD
-			if testCase.message != "" && mapServiceError(testCase.err).Error() != testCase.message {
-				t.Fatalf("mapServiceError(%v) message = %q, want %q", testCase.err, mapServiceError(testCase.err).Error(), testCase.message)
-			}
-=======
->>>>>>> main
 		})
 	}
 }
