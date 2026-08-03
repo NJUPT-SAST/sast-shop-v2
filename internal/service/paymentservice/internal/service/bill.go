@@ -23,6 +23,8 @@ var (
 	ErrConcurrencyConflict = errors.New("concurrency conflict: bill was modified by another request")
 	ErrBillNotFound        = errors.New("bill not found")
 	ErrInvalidBillStatus   = errors.New("invalid bill status")
+	ErrInvalidBillRequest  = errors.New("invalid create bill request")
+	ErrSelfPayment         = errors.New("payer and payee must be different")
 	ErrInvalidChannel      = errors.New("invalid channel")
 	ErrDuplicateBill       = errors.New("duplicate bill")
 )
@@ -298,8 +300,11 @@ func CreateBillForOrder(
 	payerID, payeeID int64,
 	amountCents int32,
 ) (*paymentv1.Bill, error) {
-	if sourceType == "" || sourceID <= 0 || payerID <= 0 || payeeID <= 0 || amountCents < 0 || payerID == payeeID {
-		return nil, ErrInvalidBillStatus
+	if sourceType == "" || sourceID <= 0 || payerID <= 0 || payeeID <= 0 || amountCents < 0 {
+		return nil, ErrInvalidBillRequest
+	}
+	if payerID == payeeID {
+		return nil, ErrSelfPayment
 	}
 
 	bill, err := repository.GetBillBySource(ctx, sourceType, sourceID, payerID)

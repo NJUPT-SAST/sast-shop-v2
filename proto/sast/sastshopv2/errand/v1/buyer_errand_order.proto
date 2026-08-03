@@ -29,6 +29,8 @@ message BuyerErrandOrderProductItem {
   int32 subtotal_cents = 8;
   // 对应的买家需求行 ID
   int64 errand_demand_item_id = 9;
+  // 包装费分摊，单位为分
+  optional int32 packaging_fee_share_cents = 10;
 }
 
 // 买家跑腿订单列表项

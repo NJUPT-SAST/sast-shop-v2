@@ -34,8 +34,10 @@ type BuyerOrderProductItem struct {
 	NonPurchaseReason       string
 	DistributedQuantity     *int32
 	ServiceFeePerUnitCents  int32
+	SubtotalCents           int32
 	EstimatedUnitPriceCents int32
 	ErrandDemandItemID      int64
+	PackagingFeeShareCents  int32
 }
 
 type BuyerOrderDetail struct {
@@ -204,7 +206,23 @@ func GetBuyerOrderDetail(ctx context.Context, requesterID, demandID int64) (*Buy
 	captainInfo := loadCaptain(ctx, task)
 	billID := findBillID(assignByItem)
 
-	productItems, originCents, serviceCents := buildProductItems(items, assignByItem, taskItemByProduct, productMap)
+	packagingShareCents, err := loadBuyerPackagingShareCents(ctx, task, requesterID)
+	if err != nil {
+		log.Error().Err(err).Int64("demand_id", demandID).Msg("calculate buyer packaging share failed")
+		return nil, ErrInternal
+	}
+
+	productItems, originCents, actualCents, serviceCents, err := buildProductItems(
+		items,
+		assignByItem,
+		taskItemByProduct,
+		productMap,
+		packagingShareCents,
+	)
+	if err != nil {
+		log.Error().Err(err).Int64("demand_id", demandID).Msg("build buyer order product items failed")
+		return nil, ErrInternal
+	}
 
 	return &BuyerOrderDetail{
 		ErrandDemandID:          demand.ID,
@@ -213,6 +231,7 @@ func GetBuyerOrderDetail(ctx context.Context, requesterID, demandID int64) (*Buy
 		Status:                  demand.Status,
 		ProductItems:            productItems,
 		TotalOriginAmountCents:  originCents,
+		TotalActualAmountCents:  actualCents,
 		TotalServiceFeeCents:    serviceCents,
 		StoreInfo:               store,
 		CaptainInfo:             captainInfo,
@@ -279,18 +298,49 @@ func findBillID(assignByItem map[int64]*model.ErrandTaskAssignment) *int64 {
 	return nil
 }
 
+func loadBuyerPackagingShareCents(ctx context.Context, task *model.ErrandTask, requesterID int64) (int32, error) {
+	if task == nil || task.PackagingFeeCents <= 0 {
+		return 0, nil
+	}
+
+	rows, err := repository.ListTaskPaymentBillAssignments(ctx, postgres.DB, task.ID)
+	if err != nil {
+		return 0, err
+	}
+
+	payerIDs := make(map[int64]struct{})
+	requesterHasBillableItem := false
+	for _, row := range rows {
+		payerIDs[row.PayerID] = struct{}{}
+		if row.PayerID == requesterID {
+			requesterHasBillableItem = true
+		}
+	}
+	if !requesterHasBillableItem {
+		return 0, nil
+	}
+
+	payerCount, err := safeInt32FromInt(len(payerIDs))
+	if err != nil {
+		return 0, err
+	}
+	return ceilDivide(task.PackagingFeeCents, payerCount), nil
+}
+
 func buildProductItems(
 	items []*model.ErrandDemandItem,
 	assignByItem map[int64]*model.ErrandTaskAssignment,
 	taskItemByProduct map[int64]*model.ErrandTaskItem,
 	productMap map[int64]*catalogv1.ProductTemplate,
-) ([]*BuyerOrderProductItem, int32, int32) {
+	packagingShareCents int32,
+) ([]*BuyerOrderProductItem, int32, *int32, int32, error) {
 	productItems := make([]*BuyerOrderProductItem, 0, len(items))
-	var originCents, serviceCents int32
+	actualTotalsReady := len(items) > 0
+	packagingApplied := false
+	var originCents, actualProductCents, serviceCents int64
 
 	for _, item := range items {
-		originCents += item.EstimatedUnitPriceCents * item.Quantity
-		serviceCents += item.ServiceFeePerUnitCents * item.Quantity
+		originCents += int64(item.EstimatedUnitPriceCents) * int64(item.Quantity)
 
 		pi := &BuyerOrderProductItem{
 			ProductTemplate:         productMap[item.ProductTemplateID],
@@ -298,16 +348,70 @@ func buildProductItems(
 			ServiceFeePerUnitCents:  item.ServiceFeePerUnitCents,
 			EstimatedUnitPriceCents: item.EstimatedUnitPriceCents,
 			ErrandDemandItemID:      item.ID,
+			PackagingFeeShareCents:  packagingShareCents,
 		}
+
+		quantity := item.Quantity
 		if a, ok := assignByItem[item.ID]; ok {
 			pi.DistributedQuantity = a.DistributedQuantity
+			if a.DistributedQuantity != nil {
+				quantity = *a.DistributedQuantity
+			} else {
+				actualTotalsReady = false
+			}
+		} else {
+			actualTotalsReady = false
 		}
+
+		actualUnitPriceCents := item.EstimatedUnitPriceCents
 		if ti, ok := taskItemByProduct[item.ProductTemplateID]; ok {
 			pi.ActualUnitPriceCents = ti.ActualUnitPriceCents
 			pi.PurchasedQuantity = ti.PurchasedQuantity
 			pi.NonPurchaseReason = ti.NonPurchaseReason
+			if ti.ActualUnitPriceCents != nil {
+				actualUnitPriceCents = *ti.ActualUnitPriceCents
+			} else if quantity > 0 {
+				actualTotalsReady = false
+			}
+		} else if quantity > 0 {
+			actualTotalsReady = false
 		}
+
+		productAmount := int64(actualUnitPriceCents) * int64(quantity)
+		serviceFeeAmount := int64(item.ServiceFeePerUnitCents) * int64(quantity)
+		subtotalCents := productAmount + serviceFeeAmount
+		if !packagingApplied && packagingShareCents > 0 {
+			subtotalCents += int64(packagingShareCents)
+			packagingApplied = true
+		}
+
+		subtotal, err := safeInt32FromInt64(subtotalCents)
+		if err != nil {
+			return nil, 0, nil, 0, err
+		}
+		pi.SubtotalCents = subtotal
+		actualProductCents += productAmount
+		serviceCents += serviceFeeAmount
 		productItems = append(productItems, pi)
 	}
-	return productItems, originCents, serviceCents
+
+	origin, err := safeInt32FromInt64(originCents)
+	if err != nil {
+		return nil, 0, nil, 0, err
+	}
+	service, err := safeInt32FromInt64(serviceCents)
+	if err != nil {
+		return nil, 0, nil, 0, err
+	}
+
+	var actual *int32
+	if actualTotalsReady {
+		actualSummary, err := safeInt32FromInt64(actualProductCents)
+		if err != nil {
+			return nil, 0, nil, 0, err
+		}
+		actual = &actualSummary
+	}
+
+	return productItems, origin, actual, service, nil
 }

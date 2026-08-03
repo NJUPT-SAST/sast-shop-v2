@@ -12,7 +12,6 @@ import (
 
 var (
 	CatalogInternalServiceClient catalogv1connect.CatalogInternalServiceClient
-	BillServiceClient            paymentv1connect.BillServiceClient
 	PaymentInternalServiceClient paymentv1connect.PaymentInternalServiceClient
 	UserInternalServiceClient    userv1connect.UserInternalServiceClient
 )
@@ -23,10 +22,6 @@ func Init() {
 		fmt.Sprintf("%s:%d", config.AppConfig.CatalogServiceURL, config.AppConfig.CatalogServicePort),
 	)
 	PaymentInternalServiceClient = paymentv1connect.NewPaymentInternalServiceClient(
-		http.DefaultClient,
-		fmt.Sprintf("%s:%d", config.AppConfig.PaymentServiceURL, config.AppConfig.PaymentServicePort),
-	)
-	BillServiceClient = paymentv1connect.NewBillServiceClient(
 		http.DefaultClient,
 		fmt.Sprintf("%s:%d", config.AppConfig.PaymentServiceURL, config.AppConfig.PaymentServicePort),
 	)

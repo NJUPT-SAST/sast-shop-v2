@@ -97,6 +97,15 @@ func MarkDemandsCompletedIfAllItemsDoneByItemIDs(
 	return res.RowsAffected()
 }
 
+// CountDistinctPurchasers 统计任务下唯一付款人数量，用于包装费分摊。
+func CountDistinctPurchasers(ctx context.Context, db bun.IDB, taskID int64) (int, error) {
+	return db.NewSelect().
+		ColumnExpr("COUNT(DISTINCT purchaser_id)").
+		TableExpr("errand.errand_task_assignment").
+		Where("task_id = ?", taskID).
+		Count(ctx)
+}
+
 // MarkTaskCompleted 完成团长任务的状态流转
 func MarkTaskCompleted(ctx context.Context, db bun.IDB, taskID int64, now time.Time) (int64, error) {
 	res, err := db.NewUpdate().
