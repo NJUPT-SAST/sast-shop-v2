@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
@@ -109,6 +110,101 @@ func GetDemandByID(ctx context.Context, demandID int64) (*model.ErrandDemand, er
 		Where("id = ?", demandID).
 		Scan(ctx)
 	return &demand, err
+}
+
+// GetDemandForUpdate 事务内加锁查询需求，防止并发接单/修改/撤回竞态
+func GetDemandForUpdate(ctx context.Context, db bun.IDB, demandID int64) (*model.ErrandDemand, error) {
+	var demand model.ErrandDemand
+	err := db.NewSelect().
+		Model(&demand).
+		Where("id = ?", demandID).
+		Limit(1).
+		For("UPDATE").
+		Scan(ctx)
+	return &demand, err
+}
+
+// UpdateDemandToCancelled 撤回需求：demand 主记录 open → cancelled
+func UpdateDemandToCancelled(
+	ctx context.Context,
+	db bun.IDB,
+	demandID int64,
+	expectedUpdatedAt time.Time,
+	now time.Time,
+) error {
+	res, err := db.NewUpdate().
+		Model((*model.ErrandDemand)(nil)).
+		Set("status = ?", model.ErrandDemandStatusCancelled).
+		Set("cancelled_at = ?", now).
+		Set("updated_at = ?", now).
+		Where("id = ?", demandID).
+		Where("status = ?", model.ErrandDemandStatusOpen).
+		Where("updated_at = ?", expectedUpdatedAt).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// UpdateDemandItemsToCancelled 撤回时同步取消明细行
+func UpdateDemandItemsToCancelled(ctx context.Context, db bun.IDB, demandID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandDemandItemStatusCancelled).
+		Set("updated_at = ?", now).
+		Where("errand_demand_id = ?", demandID).
+		Where("status = ?", model.ErrandDemandItemStatusOpen).
+		Exec(ctx)
+	return err
+}
+
+// DeleteDemandItemsByDemandID 修改需求时物理删除旧明细行（open 态无引用，可安全删除）
+func DeleteDemandItemsByDemandID(ctx context.Context, db bun.IDB, demandID int64) error {
+	_, err := db.NewDelete().
+		Model((*model.ErrandDemandItem)(nil)).
+		Where("errand_demand_id = ?", demandID).
+		Exec(ctx)
+	return err
+}
+
+// UpdateDemandBasic 修改需求：更新店铺与期望送达时间，乐观锁校验 updated_at
+func UpdateDemandBasic(
+	ctx context.Context,
+	db bun.IDB,
+	demandID int64,
+	storeID int64,
+	deadline time.Time,
+	expectedUpdatedAt time.Time,
+	now time.Time,
+) error {
+	res, err := db.NewUpdate().
+		Model((*model.ErrandDemand)(nil)).
+		Set("store_id = ?", storeID).
+		Set("deadline = ?", deadline).
+		Set("updated_at = ?", now).
+		Where("id = ?", demandID).
+		Where("status = ?", model.ErrandDemandStatusOpen).
+		Where("updated_at = ?", expectedUpdatedAt).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func GetDemandsByRequester(
