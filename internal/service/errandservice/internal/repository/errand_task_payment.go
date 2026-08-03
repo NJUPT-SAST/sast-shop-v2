@@ -689,3 +689,59 @@ func UpdateTaskRelatedDemandItemsToCancelled(ctx context.Context, db bun.IDB, ta
 		Exec(ctx)
 	return err
 }
+
+func ReopenTaskRelatedDemands(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemand)(nil)).
+		Set("status = ?", model.ErrandDemandStatusOpen).
+		Set("task_id = NULL").
+		Set("shopping_start_at = NULL").
+		Set("shopping_completed_at = NULL").
+		Set("distribution_completed_at = NULL").
+		Set("payment_completed_at = NULL").
+		Set("cancelled_at = NULL").
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT DISTINCT edi.errand_demand_id
+			FROM errand.errand_task_assignment AS eta
+			JOIN errand.errand_demand_item AS edi ON edi.id = eta.demand_item_id
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status NOT IN (?)", bun.List([]model.ErrandDemandStatus{
+			model.ErrandDemandStatusCompleted,
+			model.ErrandDemandStatusCancelled,
+		})).
+		Exec(ctx)
+	return err
+}
+
+func ReopenTaskRelatedDemandItems(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandDemandItem)(nil)).
+		Set("status = ?", model.ErrandDemandItemStatusOpen).
+		Set("updated_at = ?", now).
+		Where(`id IN (
+			SELECT eta.demand_item_id
+			FROM errand.errand_task_assignment AS eta
+			WHERE eta.task_id = ?
+		)`, taskID).
+		Where("status NOT IN (?)", bun.List([]model.ErrandDemandItemStatus{
+			model.ErrandDemandItemStatusCompleted,
+			model.ErrandDemandItemStatusCancelled,
+		})).
+		Exec(ctx)
+	return err
+}
+
+func DeleteReopenedTaskAssignments(ctx context.Context, db bun.IDB, taskID int64) error {
+	_, err := db.NewDelete().
+		Model((*model.ErrandTaskAssignment)(nil)).
+		Where("task_id = ?", taskID).
+		Where(`demand_item_id IN (
+			SELECT edi.id
+			FROM errand.errand_demand_item AS edi
+			WHERE edi.status = ?
+		)`, model.ErrandDemandItemStatusOpen).
+		Exec(ctx)
+	return err
+}
