@@ -142,6 +142,7 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderDetail(
 		TotalServiceFeeCents:   detail.TotalServiceFeeCents,
 		CaptainInfo:            detail.CaptainInfo,
 		Deadline:               timestamppb.New(detail.Deadline),
+		UpdatedAt:              timestamppb.New(detail.UpdatedAt),
 	}
 
 	if detail.ShoppingStartAt != nil {
