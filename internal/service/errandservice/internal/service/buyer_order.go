@@ -37,6 +37,7 @@ type BuyerOrderProductItem struct {
 	SubtotalCents           int32
 	EstimatedUnitPriceCents int32
 	ErrandDemandItemID      int64
+	PackagingFeeShareCents  int32
 }
 
 type BuyerOrderDetail struct {
@@ -347,6 +348,7 @@ func buildProductItems(
 			ServiceFeePerUnitCents:  item.ServiceFeePerUnitCents,
 			EstimatedUnitPriceCents: item.EstimatedUnitPriceCents,
 			ErrandDemandItemID:      item.ID,
+			PackagingFeeShareCents:  packagingShareCents,
 		}
 
 		quantity := item.Quantity
@@ -404,7 +406,7 @@ func buildProductItems(
 
 	var actual *int32
 	if actualTotalsReady {
-		actualSummary, err := safeInt32FromInt64(actualProductCents + int64(packagingShareCents))
+		actualSummary, err := safeInt32FromInt64(actualProductCents)
 		if err != nil {
 			return nil, 0, nil, 0, err
 		}
