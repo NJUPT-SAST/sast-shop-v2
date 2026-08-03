@@ -108,6 +108,9 @@ func PayBill(
 	if bill.Status != model.PaymentBillStatusUnpaid {
 		return nil, ErrInvalidBillStatus
 	}
+	if !sameUpdatedAtSecond(bill.UpdatedAt, expectedUpdatedAt) {
+		return nil, ErrConcurrencyConflict
+	}
 
 	ch, ok := model.ProtoChannelToModel(channel)
 	if !ok {
@@ -118,7 +121,7 @@ func PayBill(
 	updatedAt, affected, err := repository.UpdateBillStatus(
 		ctx,
 		billId,
-		expectedUpdatedAt,
+		bill.UpdatedAt,
 		model.PaymentBillStatusSubmitted,
 		map[string]any{
 			"channel":      ch,
@@ -154,12 +157,15 @@ func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time)
 	if bill.Status != model.PaymentBillStatusSubmitted {
 		return nil, ErrInvalidBillStatus
 	}
+	if !sameUpdatedAtSecond(bill.UpdatedAt, expectedUpdatedAt) {
+		return nil, ErrConcurrencyConflict
+	}
 
 	completedAt := time.Now()
 	updatedAt, affected, err := repository.UpdateBillStatus(
 		ctx,
 		billId,
-		expectedUpdatedAt,
+		bill.UpdatedAt,
 		model.PaymentBillStatusCompleted,
 		map[string]any{
 			"completed_at": completedAt,
@@ -212,8 +218,11 @@ func TransitionBill(
 	if operatorID != bill.PayeeID {
 		return nil, ErrInvalidBillStatus
 	}
+	if !sameUpdatedAtSecond(bill.UpdatedAt, expectedUpdatedAt) {
+		return nil, ErrConcurrencyConflict
+	}
 
-	updatedAt, affected, err := repository.UpdateBillStatus(ctx, billId, expectedUpdatedAt, newStatus, map[string]any{
+	updatedAt, affected, err := repository.UpdateBillStatus(ctx, billId, bill.UpdatedAt, newStatus, map[string]any{
 		"submitted_at": nil,
 		"channel":      nil,
 	})
@@ -261,8 +270,11 @@ func SupplementSerialNumber(
 	if bill.Status != model.PaymentBillStatusSubmitted {
 		return nil, ErrInvalidBillStatus
 	}
+	if !sameUpdatedAtSecond(bill.UpdatedAt, expectedUpdatedAt) {
+		return nil, ErrConcurrencyConflict
+	}
 
-	updatedAt, affected, err := repository.UpdateBillStatus(ctx, billId, expectedUpdatedAt, bill.Status, map[string]any{
+	updatedAt, affected, err := repository.UpdateBillStatus(ctx, billId, bill.UpdatedAt, bill.Status, map[string]any{
 		"serial_number": serialNumber,
 	})
 	if err != nil {
@@ -335,6 +347,14 @@ func CreateBillForOrder(
 
 func newPaymentBillNo() (string, error) {
 	return idgen.NewOrderNo(paymentBillNoPrefix)
+}
+
+// sameUpdatedAtSecond compares optimistic-lock versions at the precision
+// preserved by the client. PostgreSQL stores microseconds while protobuf/JSON
+// clients can round timestamps, so the database value is used for the SQL
+// predicate after this check succeeds.
+func sameUpdatedAtSecond(dbUpdatedAt, expectedUpdatedAt time.Time) bool {
+	return dbUpdatedAt.UTC().Truncate(time.Second).Equal(expectedUpdatedAt.UTC().Truncate(time.Second))
 }
 
 func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) error {
