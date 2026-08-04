@@ -25,16 +25,16 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// 按截止时间和相同商品类型聚合
+// 按相同商品类型聚合（商品级采购，deadline 不参与聚合）
 type taskItemGroupKey struct {
 	ProductTemplateID int64
-	Deadline          time.Time
 }
 
-// 按商品id和截止时间分组结果
+// 按商品id分组结果
 type taskItemGroup struct {
 	Snapshot         productSnapshot
 	RequiredQuantity int32
+	EarliestDeadline time.Time
 	Rows             []repository.SelectedDemandItemRow
 }
 
@@ -328,7 +328,7 @@ func createShoppingTask(ctx context.Context, tx bun.Tx, captainID, storeID int64
 	return task, nil
 }
 
-// 按 product_template_id + deadline 聚合被选中的 demand_item
+// 按 product_template_id 聚合被选中的 demand_item（商品级采购，deadline 取最早）
 func buildTaskItemGroups(
 	rows []repository.SelectedDemandItemRow,
 	snapshots map[int64]productSnapshot,
@@ -338,16 +338,19 @@ func buildTaskItemGroups(
 	for _, row := range rows {
 		key := taskItemGroupKey{
 			ProductTemplateID: row.ProductTemplateID,
-			Deadline:          row.Deadline,
 		}
 		group, ok := grouped[key]
 		if !ok {
 			group = &taskItemGroup{
-				Snapshot: snapshots[row.ProductTemplateID],
+				Snapshot:         snapshots[row.ProductTemplateID],
+				EarliestDeadline: row.Deadline,
 			}
 			grouped[key] = group
 		}
 		group.RequiredQuantity += row.RequiredQuantity
+		if row.Deadline.Before(group.EarliestDeadline) {
+			group.EarliestDeadline = row.Deadline
+		}
 		group.Rows = append(group.Rows, row)
 	}
 
@@ -361,7 +364,7 @@ func createGroupedTaskItems(
 	rows []repository.SelectedDemandItemRow,
 	snapshots map[int64]productSnapshot,
 ) (map[int64]int64, error) {
-	// 按 product_template_id + deadline 聚合被选中的 demand_item
+	// 按 product_template_id 聚合被选中的 demand_item
 	grouped := buildTaskItemGroups(rows, snapshots)
 	taskItemIDByDemandItemID := make(map[int64]int64, len(rows))
 
@@ -374,7 +377,7 @@ func createGroupedTaskItems(
 			DescriptionSnapshot: group.Snapshot.Description,
 			ImageURLSnapshot:    group.Snapshot.MainImageURL,
 			RequiredQuantity:    group.RequiredQuantity,
-			Deadline:            key.Deadline,
+			Deadline:            group.EarliestDeadline,
 		}
 		if err := repository.CreateTaskItem(ctx, tx, taskItem); err != nil {
 			log.Error().Err(err).Msg("failed to create task item")
