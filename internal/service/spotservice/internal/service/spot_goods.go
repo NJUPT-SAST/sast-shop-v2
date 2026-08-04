@@ -182,7 +182,11 @@ func CreateSpotGoods(
 			},
 		}, "")
 	}
-	return modelToDetail(goods, template, nil), nil
+	seller, err := getUser(ctx, goods.SellerID)
+	if err != nil {
+		return nil, err
+	}
+	return modelToDetail(goods, template, seller), nil
 }
 
 func UpdateSpotGoodsStock(
