@@ -13,6 +13,7 @@ import (
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/feishu"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
@@ -25,16 +26,16 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// 按截止时间和相同商品类型聚合
+// 按相同商品类型聚合（商品级采购，deadline 不参与聚合）
 type taskItemGroupKey struct {
 	ProductTemplateID int64
-	Deadline          time.Time
 }
 
-// 按商品id和截止时间分组结果
+// 按商品id分组结果
 type taskItemGroup struct {
 	Snapshot         productSnapshot
 	RequiredQuantity int32
+	EarliestDeadline time.Time
 	Rows             []repository.SelectedDemandItemRow
 }
 
@@ -328,7 +329,7 @@ func createShoppingTask(ctx context.Context, tx bun.Tx, captainID, storeID int64
 	return task, nil
 }
 
-// 按 product_template_id + deadline 聚合被选中的 demand_item
+// 按 product_template_id 聚合被选中的 demand_item（商品级采购，deadline 取最早）
 func buildTaskItemGroups(
 	rows []repository.SelectedDemandItemRow,
 	snapshots map[int64]productSnapshot,
@@ -338,16 +339,19 @@ func buildTaskItemGroups(
 	for _, row := range rows {
 		key := taskItemGroupKey{
 			ProductTemplateID: row.ProductTemplateID,
-			Deadline:          row.Deadline,
 		}
 		group, ok := grouped[key]
 		if !ok {
 			group = &taskItemGroup{
-				Snapshot: snapshots[row.ProductTemplateID],
+				Snapshot:         snapshots[row.ProductTemplateID],
+				EarliestDeadline: row.Deadline,
 			}
 			grouped[key] = group
 		}
 		group.RequiredQuantity += row.RequiredQuantity
+		if row.Deadline.Before(group.EarliestDeadline) {
+			group.EarliestDeadline = row.Deadline
+		}
 		group.Rows = append(group.Rows, row)
 	}
 
@@ -361,7 +365,7 @@ func createGroupedTaskItems(
 	rows []repository.SelectedDemandItemRow,
 	snapshots map[int64]productSnapshot,
 ) (map[int64]int64, error) {
-	// 按 product_template_id + deadline 聚合被选中的 demand_item
+	// 按 product_template_id 聚合被选中的 demand_item
 	grouped := buildTaskItemGroups(rows, snapshots)
 	taskItemIDByDemandItemID := make(map[int64]int64, len(rows))
 
@@ -374,7 +378,7 @@ func createGroupedTaskItems(
 			DescriptionSnapshot: group.Snapshot.Description,
 			ImageURLSnapshot:    group.Snapshot.MainImageURL,
 			RequiredQuantity:    group.RequiredQuantity,
-			Deadline:            key.Deadline,
+			Deadline:            group.EarliestDeadline,
 		}
 		if err := repository.CreateTaskItem(ctx, tx, taskItem); err != nil {
 			log.Error().Err(err).Msg("failed to create task item")
@@ -541,13 +545,13 @@ func GetShoppingTaskDetail(
 	req *errandv1.GetShoppingTaskDetailRequest,
 ) (*errandv1.GetShoppingTaskDetailResponse, error) {
 	if req == nil || req.ErrandTaskId <= 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
+		return nil, connect.NewError(errmsg.InvalidErrandTaskID.Code, errmsg.InvalidErrandTaskID)
 	}
 
 	header, err := repository.GetShoppingTaskHeader(ctx, postgres.DB, req.ErrandTaskId, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("shopping task not found"))
+			return nil, connect.NewError(errmsg.TaskNotFound.Code, errmsg.TaskNotFound)
 		}
 		log.Error().
 			Err(err).
@@ -558,7 +562,7 @@ func GetShoppingTaskDetail(
 	}
 
 	if header.Status != model.ErrandTaskStatusShopping {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
+		return nil, connect.NewError(errmsg.TaskNotInShopping.Code, errmsg.TaskNotInShopping)
 	}
 
 	itemRows, err := repository.ListShoppingTaskItems(ctx, postgres.DB, header.TaskID)
@@ -630,7 +634,7 @@ func SaveShoppingTaskItem(
 func ValidateSaveRequest(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
 	if req == nil || req.ErrandTaskId <= 0 || req.ErrandTaskItemId <= 0 || req.ErrandTaskItemUpdatedAt == nil ||
 		!req.ErrandTaskItemUpdatedAt.IsValid() {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("incalid save shopping task item request"))
+		return connect.NewError(errmsg.InvalidSaveShoppingTaskItemRequest.Code, errmsg.InvalidSaveShoppingTaskItemRequest)
 	}
 	return nil
 }
@@ -648,14 +652,14 @@ func executeSaveShoppingTask(
 			return err
 		}
 		if row.TaskStatus != model.ErrandTaskStatusShopping {
-			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
+			return connect.NewError(errmsg.TaskNotInShopping.Code, errmsg.TaskNotInShopping)
 		}
 		// 基于 errand_task_item_updated_at 校验并发后
 		if !timeutil.SameUpdatedAtSecond(row.TaskItemUpdatedAt, expectedUpdatedAt) {
 			return ErrConcurrencyConflict
 		}
 		if !isValidShoppingTaskItemPurchasedQuantity(req.PurchasedQuantity, row.RequiredQuantity) {
-			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid purchased quantity"))
+			return connect.NewError(errmsg.InvalidPurchasedQuantity.Code, errmsg.InvalidPurchasedQuantity)
 		}
 		// 更新 purchased_quantity、non_purchase_reason、handled_at、updated_at
 		updatedAt, err = updateTaskItem(ctx, tx, req, captainID)
@@ -677,7 +681,7 @@ func loadTaskItem(
 	row, err := repository.GetShoppingTaskItemForUpdate(ctx, tx, req.ErrandTaskId, req.ErrandTaskItemId, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("shopping task item not found"))
+			return nil, connect.NewError(errmsg.TaskItemNotFound.Code, errmsg.TaskItemNotFound)
 		}
 		log.Error().
 			Err(err).
@@ -768,7 +772,7 @@ func TransitionToPendingDistributing(
 	req *errandv1.TransitionToPendingDistributingRequest,
 ) (*timestamppb.Timestamp, error) {
 	if req == nil || req.ErrandTaskId <= 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition"))
+		return nil, connect.NewError(errmsg.InvalidTransitionRequest.Code, errmsg.InvalidTransitionRequest)
 	}
 	updatedAt, notificationRows, err := transitionTaskToPendingDistributing(
 		ctx,
@@ -848,7 +852,7 @@ func loadShoppingTaskForTransition(
 	task, err := repository.GetErrandTaskForUpdate(ctx, tx, taskID, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("shopping task not found"))
+			return nil, connect.NewError(errmsg.TaskNotFound.Code, errmsg.TaskNotFound)
 		}
 		log.Error().
 			Err(err).
@@ -858,7 +862,7 @@ func loadShoppingTaskForTransition(
 		return nil, newErrandInternalError("")
 	}
 	if task.Status != model.ErrandTaskStatusShopping {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in shopping status"))
+		return nil, connect.NewError(errmsg.TaskNotInShopping.Code, errmsg.TaskNotInShopping)
 	}
 
 	return task, nil
@@ -875,10 +879,10 @@ func ensureTaskItemsHandledForTransition(ctx context.Context, tx bun.Tx, taskID 
 		return newErrandInternalError("")
 	}
 	if summary.TotalCount == 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task has no shopping items"))
+		return connect.NewError(errmsg.TaskHasNoShoppingItems.Code, errmsg.TaskHasNoShoppingItems)
 	}
 	if summary.UnhandledCount > 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unhandled shopping items"))
+		return connect.NewError(errmsg.UnhandledShoppingItems.Code, errmsg.UnhandledShoppingItems)
 	}
 
 	return nil
@@ -988,13 +992,13 @@ func GetDistributingTaskDetail(
 	req *errandv1.GetDistributingTaskDetailRequest,
 ) (*errandv1.GetDistributingTaskDetailResponse, error) {
 	if req == nil || req.ErrandTaskId <= 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
+		return nil, connect.NewError(errmsg.InvalidErrandTaskID.Code, errmsg.InvalidErrandTaskID)
 	}
 
 	header, err := repository.GetDistributingTaskHeader(ctx, postgres.DB, req.ErrandTaskId, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("distributing task not found"))
+			return nil, connect.NewError(errmsg.TaskNotFound.Code, errmsg.TaskNotFound)
 		}
 		log.Error().
 			Err(err).
@@ -1005,7 +1009,7 @@ func GetDistributingTaskDetail(
 	}
 	if header.Status != model.ErrandTaskStatusPendingDistributing &&
 		header.Status != model.ErrandTaskStatusDistributing {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in distributing flow"))
+		return nil, connect.NewError(errmsg.TaskNotInDistributingFlow.Code, errmsg.TaskNotInDistributingFlow)
 	}
 
 	rows, err := repository.ListDistributingTaskDetails(ctx, postgres.DB, header.TaskID)
@@ -1072,7 +1076,7 @@ func UpdateActualPrice(
 	if req == nil || req.ErrandTaskId <= 0 || req.ErrandTaskItemId <= 0 ||
 		req.ErrandTaskItemUpdatedAt == nil || !req.ErrandTaskItemUpdatedAt.IsValid() ||
 		req.ActualUnitPriceCents < 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid update actual price request"))
+		return nil, connect.NewError(errmsg.InvalidUpdateActualPriceRequest.Code, errmsg.InvalidUpdateActualPriceRequest)
 	}
 
 	expectedUpdatedAt := req.ErrandTaskItemUpdatedAt.AsTime().UTC()
@@ -1142,7 +1146,7 @@ func loadDistributingTaskItemForPriceUpdate(
 	row, err := repository.GetDistributingTaskItemForUpdate(ctx, tx, taskID, taskItemID, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("distributing task item not found"))
+			return nil, connect.NewError(errmsg.TaskItemNotFound.Code, errmsg.TaskItemNotFound)
 		}
 		log.Error().
 			Err(err).
@@ -1164,23 +1168,17 @@ func validateActualPriceUpdate(
 ) error {
 	if row.TaskStatus != model.ErrandTaskStatusPendingDistributing &&
 		row.TaskStatus != model.ErrandTaskStatusDistributing {
-		return connect.NewError(
-			connect.CodeFailedPrecondition,
-			errors.New("task is not in distributing flow"),
-		)
+		return connect.NewError(errmsg.TaskNotInDistributingFlow.Code, errmsg.TaskNotInDistributingFlow)
 	}
 	if !timeutil.SameUpdatedAtSecond(row.TaskItemUpdatedAt, expectedUpdatedAt) {
 		return ErrConcurrencyConflict
 	}
 
 	if row.PurchasedQuantity == nil {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task item has not been handled"))
+		return connect.NewError(errmsg.TaskItemNotHandled.Code, errmsg.TaskItemNotHandled)
 	}
 	if *row.PurchasedQuantity == 0 && actualUnitPriceCents != 0 {
-		return connect.NewError(
-			connect.CodeInvalidArgument,
-			errors.New("fully-unpurchased item must use 0 actual price"),
-		)
+		return connect.NewError(errmsg.FullyUnpurchasedItemMustUseZeroPrice.Code, errmsg.FullyUnpurchasedItemMustUseZeroPrice)
 	}
 
 	return nil
@@ -1256,10 +1254,7 @@ func TransitionToDistributing(
 ) (*timestamppb.Timestamp, error) {
 	if req == nil || req.ErrandTaskId <= 0 || req.PackagingFeeCents < 0 ||
 		req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return nil, connect.NewError(
-			connect.CodeInvalidArgument,
-			errors.New("invalid transition to distributing request"),
-		)
+		return nil, connect.NewError(errmsg.InvalidTransitionToDistributingRequest.Code, errmsg.InvalidTransitionToDistributingRequest)
 	}
 
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
@@ -1299,7 +1294,7 @@ func loadPendingDistributingTaskForTransition(
 	task, err := repository.GetErrandTaskForUpdate(ctx, tx, taskID, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("pending distributing task not found"))
+			return nil, connect.NewError(errmsg.TaskNotFound.Code, errmsg.TaskNotFound)
 		}
 		log.Error().
 			Err(err).
@@ -1309,10 +1304,7 @@ func loadPendingDistributingTaskForTransition(
 		return nil, newErrandInternalError("")
 	}
 	if task.Status != model.ErrandTaskStatusPendingDistributing {
-		return nil, connect.NewError(
-			connect.CodeFailedPrecondition,
-			errors.New("task is not in pending distributing status"),
-		)
+		return nil, connect.NewError(errmsg.TaskNotInPendingDistributing.Code, errmsg.TaskNotInPendingDistributing)
 	}
 	if !timeutil.SameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
@@ -1330,10 +1322,10 @@ func ensureTaskItemsPriced(ctx context.Context, tx bun.Tx, taskID int64) error {
 		return newErrandInternalError("")
 	}
 	if summary.UnhandledCount > 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unhandled shopping items"))
+		return connect.NewError(errmsg.UnhandledShoppingItems.Code, errmsg.UnhandledShoppingItems)
 	}
 	if summary.UnpricedCount > 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unpriced distributing items"))
+		return connect.NewError(errmsg.UnpricedDistributingItems.Code, errmsg.UnpricedDistributingItems)
 	}
 	return nil
 }
@@ -1394,10 +1386,7 @@ func SaveDistributingTaskAssignment(
 	if req == nil || req.ErrandTaskItemId <= 0 || req.ErrandTaskAssignmentId <= 0 ||
 		req.DistributedQuantity < undoShoppingTaskItemPurchasedQuantity ||
 		req.ErrandTaskAssignmentUpdatedAt == nil || !req.ErrandTaskAssignmentUpdatedAt.IsValid() {
-		return nil, connect.NewError(
-			connect.CodeInvalidArgument,
-			errors.New("invalid distributing task assignment request"),
-		)
+		return nil, connect.NewError(errmsg.InvalidDistributingAssignmentRequest.Code, errmsg.InvalidDistributingAssignmentRequest)
 	}
 
 	expectedUpdatedAt := req.ErrandTaskAssignmentUpdatedAt.AsTime().UTC()
@@ -1472,7 +1461,7 @@ func loadDistributingTaskAssignmentForUpdate(
 	row, err := repository.GetDistributingTaskAssignmentForUpdate(ctx, tx, taskItemID, assignmentID, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("distributing task assignment not found"))
+			return nil, connect.NewError(errmsg.AssignmentNotFound.Code, errmsg.AssignmentNotFound)
 		}
 		log.Error().
 			Err(err).
@@ -1495,20 +1484,20 @@ func validateDistributingTaskAssignmentUpdate(
 	expectedUpdatedAt time.Time,
 ) error {
 	if row.TaskStatus != model.ErrandTaskStatusDistributing {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task is not in distributing status"))
+		return connect.NewError(errmsg.TaskNotInDistributing.Code, errmsg.TaskNotInDistributing)
 	}
 	if !timeutil.SameUpdatedAtSecond(row.AssignmentUpdatedAt, expectedUpdatedAt) {
 		return ErrConcurrencyConflict
 	}
 	if row.PurchasedQuantity == nil {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task item has not been purchased"))
+		return connect.NewError(errmsg.TaskItemNotPurchased.Code, errmsg.TaskItemNotPurchased)
 	}
 	// 撤销动作（-1）不校验数量边界，直接放行
 	if distributedQuantity == undoShoppingTaskItemPurchasedQuantity {
 		return nil
 	}
 	if distributedQuantity > row.DemandQuantity {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("distributed quantity exceeds demand quantity"))
+		return connect.NewError(errmsg.DistributedQuantityExceedsDemand.Code, errmsg.DistributedQuantityExceedsDemand)
 	}
 	// 计算当前task_item已经分发的总数
 	totalDistributed, err := repository.SumTaskItemDistributedQuantity(ctx, tx, row.TaskItemID)
@@ -1530,10 +1519,7 @@ func validateDistributingTaskAssignmentUpdate(
 	// totalAfterUpdate = 5 - 0 + 6 = 11
 	// 11 > 10  不允许（超过采购总量）
 	if totalAfterUpdate > int64(*row.PurchasedQuantity) {
-		return connect.NewError(
-			connect.CodeFailedPrecondition,
-			errors.New("distributed quantity exceeds purchased quantity"),
-		)
+		return connect.NewError(errmsg.DistributedQuantityExceedsPurchased.Code, errmsg.DistributedQuantityExceedsPurchased)
 	}
 
 	return nil
@@ -1606,10 +1592,7 @@ func TransitionToCollectingPayment(
 	req *errandv1.TransitionToCollectingPaymentRequest,
 ) (*timestamppb.Timestamp, error) {
 	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return nil, connect.NewError(
-			connect.CodeInvalidArgument,
-			errors.New("invalid transition to collecting payment request"),
-		)
+		return nil, connect.NewError(errmsg.InvalidTransitionRequest.Code, errmsg.InvalidTransitionRequest)
 	}
 
 	// 先通过 RPC 创建账单（事务外，失败则任务状态不变）
@@ -1714,7 +1697,7 @@ func loadDistributingTaskForCollectingPayment(
 	task, err := repository.GetErrandTaskForUpdate(ctx, tx, taskID, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("distributing task not found"))
+			return nil, connect.NewError(errmsg.TaskNotFound.Code, errmsg.TaskNotFound)
 		}
 		log.Error().
 			Err(err).
@@ -1724,10 +1707,7 @@ func loadDistributingTaskForCollectingPayment(
 		return nil, newErrandInternalError("")
 	}
 	if task.Status != model.ErrandTaskStatusDistributing {
-		return nil, connect.NewError(
-			connect.CodeFailedPrecondition,
-			errors.New("task is not in distributing status"),
-		)
+		return nil, connect.NewError(errmsg.TaskNotInDistributing.Code, errmsg.TaskNotInDistributing)
 	}
 	if !timeutil.SameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
 		log.Error().
@@ -1752,19 +1732,19 @@ func ensureTaskDistributionCompleted(ctx context.Context, tx bun.Tx, taskID int6
 		return newErrandInternalError("")
 	}
 	if summary.TotalTaskItemCount == 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("task has no distributing items"))
+		return connect.NewError(errmsg.TaskHasNoDistributingItems.Code, errmsg.TaskHasNoDistributingItems)
 	}
 	if summary.UnhandledCount > 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unhandled shopping items"))
+		return connect.NewError(errmsg.UnhandledShoppingItems.Code, errmsg.UnhandledShoppingItems)
 	}
 	if summary.UnpricedCount > 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unpriced distributing items"))
+		return connect.NewError(errmsg.UnpricedDistributingItems.Code, errmsg.UnpricedDistributingItems)
 	}
 	if summary.UnassignedCount > 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("unhandled distributing assignments"))
+		return connect.NewError(errmsg.UnassignedDistributingItems.Code, errmsg.UnassignedDistributingItems)
 	}
 	if summary.IncompleteCount > 0 {
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("incomplete distributing items"))
+		return connect.NewError(errmsg.IncompleteDistributingItems.Code, errmsg.IncompleteDistributingItems)
 	}
 
 	return nil
@@ -1772,7 +1752,7 @@ func ensureTaskDistributionCompleted(ctx context.Context, tx bun.Tx, taskID int6
 
 func OnPaymentConfirmed(ctx context.Context, req *errandv1.OnPaymentConfirmedRequest) error {
 	if req == nil || req.SourceType != "errand_task" || req.SourceId <= 0 || req.PayerId <= 0 {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid payment confirmed request"))
+		return connect.NewError(errmsg.InvalidPaymentConfirmedRequest.Code, errmsg.InvalidPaymentConfirmedRequest)
 	}
 
 	now := time.Now().UTC()
@@ -1796,14 +1776,14 @@ func OnPaymentConfirmed(ctx context.Context, req *errandv1.OnPaymentConfirmedReq
 
 func OnAllPaymentsConfirmed(ctx context.Context, req *errandv1.OnAllPaymentsConfirmedRequest) error {
 	if req == nil || req.SourceType != "errand_task" || req.SourceId <= 0 {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid all payments confirmed request"))
+		return connect.NewError(errmsg.InvalidAllPaymentsConfirmedRequest.Code, errmsg.InvalidAllPaymentsConfirmedRequest)
 	}
 
 	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		task, err := repository.GetErrandTaskForUpdateByID(ctx, tx, req.SourceId)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return connect.NewError(connect.CodeNotFound, errors.New("collecting payment task not found"))
+				return connect.NewError(errmsg.TaskNotFound.Code, errmsg.TaskNotFound)
 			}
 			log.Error().
 				Err(err).
@@ -1815,10 +1795,7 @@ func OnAllPaymentsConfirmed(ctx context.Context, req *errandv1.OnAllPaymentsConf
 			return nil
 		}
 		if task.Status != model.ErrandTaskStatusCollectingPayment {
-			return connect.NewError(
-				connect.CodeFailedPrecondition,
-				errors.New("task is not in collecting payment status"),
-			)
+			return connect.NewError(errmsg.TaskNotInCollectingPayment.Code, errmsg.TaskNotInCollectingPayment)
 		}
 		if err := ensureTaskPaymentsCompleted(ctx, tx, task.TaskID); err != nil {
 			return err
@@ -2032,13 +2009,13 @@ func GetCollectingPaymentDetail(
 	req *errandv1.GetCollectingPaymentDetailRequest,
 ) (*errandv1.GetCollectingPaymentDetailResponse, error) {
 	if req == nil || req.ErrandTaskId <= 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task id"))
+		return nil, connect.NewError(errmsg.InvalidErrandTaskID.Code, errmsg.InvalidErrandTaskID)
 	}
 
 	header, err := repository.GetCollectingPaymentTaskHeader(ctx, postgres.DB, req.ErrandTaskId, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("collecting payment task not found"))
+			return nil, connect.NewError(errmsg.TaskNotFound.Code, errmsg.TaskNotFound)
 		}
 		log.Error().
 			Err(err).
@@ -2048,10 +2025,7 @@ func GetCollectingPaymentDetail(
 		return nil, newErrandInternalError("")
 	}
 	if header.Status != model.ErrandTaskStatusCollectingPayment {
-		return nil, connect.NewError(
-			connect.CodeFailedPrecondition,
-			errors.New("task is not in collecting payment status"),
-		)
+		return nil, connect.NewError(errmsg.TaskNotInCollectingPayment.Code, errmsg.TaskNotInCollectingPayment)
 	}
 
 	rows, err := repository.ListCollectingPaymentDetails(ctx, postgres.DB, header.TaskID)
@@ -2254,14 +2228,14 @@ const maxInt32Value = 1<<31 - 1
 
 func safeInt32FromInt(value int) (int32, error) {
 	if value < 0 || value > maxInt32Value {
-		return 0, connect.NewError(connect.CodeOutOfRange, errors.New("value exceeds int32 range"))
+		return 0, connect.NewError(errmsg.ValueExceedsInt32.Code, errmsg.ValueExceedsInt32)
 	}
 	return int32(value), nil //nolint:gosec // guarded by range check above
 }
 
 func safeInt32FromInt64(value int64) (int32, error) {
 	if value < 0 || value > maxInt32Value {
-		return 0, connect.NewError(connect.CodeOutOfRange, errors.New("amount cents exceeds int32 range"))
+		return 0, connect.NewError(errmsg.AmountExceedsInt32.Code, errmsg.AmountExceedsInt32)
 	}
 	return int32(value), nil //nolint:gosec // guarded by range check above
 }
@@ -2285,7 +2259,7 @@ func TransitionToCompleted(
 	req *errandv1.TransitionToCompletedRequest,
 ) (*timestamppb.Timestamp, error) {
 	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid transition to completed request"))
+		return nil, connect.NewError(errmsg.InvalidTransitionRequest.Code, errmsg.InvalidTransitionRequest)
 	}
 
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
@@ -2343,7 +2317,7 @@ func loadCollectingPaymentTaskForCompletion(
 	task, err := repository.GetErrandTaskForUpdate(ctx, tx, taskID, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("collecting payment task not found"))
+			return nil, connect.NewError(errmsg.TaskNotFound.Code, errmsg.TaskNotFound)
 		}
 		log.Error().
 			Err(err).
@@ -2353,10 +2327,7 @@ func loadCollectingPaymentTaskForCompletion(
 		return nil, newErrandInternalError("")
 	}
 	if task.Status != model.ErrandTaskStatusCollectingPayment {
-		return nil, connect.NewError(
-			connect.CodeFailedPrecondition,
-			errors.New("task is not in collecting payment status"),
-		)
+		return nil, connect.NewError(errmsg.TaskNotInCollectingPayment.Code, errmsg.TaskNotInCollectingPayment)
 	}
 	if !timeutil.SameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
@@ -2382,7 +2353,7 @@ func ensureTaskPaymentsCompleted(ctx context.Context, db bun.IDB, taskID int64) 
 	billIDs := make([]int64, 0, len(billRefs))
 	for _, ref := range billRefs {
 		if ref.MissingBillCount > 0 || ref.BillIDCount != 1 || ref.PaymentBillID == nil {
-			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task payments are not completed"))
+			return connect.NewError(errmsg.TaskPaymentsNotCompleted.Code, errmsg.TaskPaymentsNotCompleted)
 		}
 		billIDs = append(billIDs, *ref.PaymentBillID)
 	}
@@ -2394,7 +2365,7 @@ func ensureTaskPaymentsCompleted(ctx context.Context, db bun.IDB, taskID int64) 
 	for _, billID := range billIDs {
 		bill := paymentBillsByID[billID]
 		if bill == nil || bill.Status != paymentv1.BillStatus_BILL_STATUS_COMPLETED {
-			return connect.NewError(connect.CodeFailedPrecondition, errors.New("task payments are not completed"))
+			return connect.NewError(errmsg.TaskPaymentsNotCompleted.Code, errmsg.TaskPaymentsNotCompleted)
 		}
 	}
 
@@ -2486,7 +2457,7 @@ func buildErrandTaskStatusFilter(protoStatus *errandv1.ErrandTaskStatus) (*model
 
 	status, ok := protoErrandTaskStatusToModel(*protoStatus)
 	if !ok {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid errand task status"))
+		return nil, connect.NewError(errmsg.InvalidErrandTaskStatus.Code, errmsg.InvalidErrandTaskStatus)
 	}
 
 	return &status, nil
@@ -2560,7 +2531,7 @@ func errandTaskListItemRowToProto(row repository.ErrandTaskListItemRow, storeID 
 // 取消未完成的跑腿任务
 func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRequest) (*timestamppb.Timestamp, error) {
 	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid cancel task request"))
+		return nil, connect.NewError(errmsg.InvalidCancelTaskRequest.Code, errmsg.InvalidCancelTaskRequest)
 	}
 
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
@@ -2630,7 +2601,7 @@ func loadTaskForCancellation(
 	task, err := repository.GetErrandTaskForUpdate(ctx, tx, taskID, captainID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("errand task not found"))
+			return nil, connect.NewError(errmsg.TaskNotFound.Code, errmsg.TaskNotFound)
 		}
 		log.Error().
 			Err(err).
@@ -2640,7 +2611,7 @@ func loadTaskForCancellation(
 		return nil, newErrandInternalError("")
 	}
 	if task.Status == model.ErrandTaskStatusCompleted || task.Status == model.ErrandTaskStatusCancelled {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("task cannot be cancelled"))
+		return nil, connect.NewError(errmsg.TaskCannotBeCancelled.Code, errmsg.TaskCannotBeCancelled)
 	}
 	if !timeutil.SameUpdatedAtSecond(task.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict

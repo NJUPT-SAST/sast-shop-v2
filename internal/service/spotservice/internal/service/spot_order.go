@@ -828,9 +828,12 @@ func getBill(ctx context.Context, billID *int64) (*paymentv1.Bill, error) {
 	if billID == nil || *billID <= 0 {
 		return nil, nil
 	}
-	resp, err := client.PaymentInternalServiceClient.BatchGetBills(ctx, connect.NewRequest(&paymentv1.BatchGetBillsRequest{
-		BillIds: []int64{*billID},
-	}))
+	resp, err := client.PaymentInternalServiceClient.BatchGetBills(
+		ctx,
+		connect.NewRequest(&paymentv1.BatchGetBillsRequest{
+			BillIds: []int64{*billID},
+		}),
+	)
 	if err != nil {
 		log.Error().Err(err).Int64("bill_id", *billID).Msg("failed to get bill")
 		return nil, err

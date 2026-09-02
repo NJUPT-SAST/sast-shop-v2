@@ -10,6 +10,7 @@ import (
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/constant"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/feishu"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/redis"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
@@ -66,11 +67,12 @@ func toLoginMember(u *model.UserAccount) *userv1.LoginMember {
 // 核心登录流水线：ExchangeCode→GetCurrentUser→Upsert→生成 token→写 Redis→返回
 func Login(ctx context.Context, req *userv1.LoginRequest) (*userv1.LoginResponse, error) {
 	userError := func(msg string) error {
+		log.Error().Str("detail", msg).Msg("login failed")
 		return rpcerror.NewInternalError(&commonv1.BusinessError_UserError{
 			UserError: &userv1.UserError{
 				Code: userv1.UserErrorCode_USER_ERROR_CODE_INTERNAL_ERROR,
 			},
-		}, msg)
+		}, errmsg.Internal.Msg)
 	}
 
 	feishuToken, err := feishu.ExchangeCode(ctx, req.Code, "", req.GetRedirectUri())
