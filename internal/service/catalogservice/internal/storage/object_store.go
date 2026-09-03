@@ -13,11 +13,13 @@ type ObjectStore interface {
 		body io.Reader,
 		size int64,
 		contentType string,
-	)error
+	) error
 
 	Delete(ctx context.Context, key string) error
-	PublicURL(key string)(string, error) //生成公开访问链接
-	ProbePublic(ctx context.Context, url, contentType string) //探测定性
+	PublicURL(key string) (string, error) //生成公开访问链接
+	// ProbePublic 必须仅在对象可以被公开获取后才返回。
+	// 实现应验证响应的内容类型和状态。
+	ProbePublic(ctx context.Context, url, contentType string) error
 	Ready(ctx context.Context) error // 健康检查
 
 }
