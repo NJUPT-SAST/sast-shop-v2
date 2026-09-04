@@ -2,7 +2,6 @@ package v1
 
 import (
 	"context"
-	"errors"
 
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/errand/v1/errandv1connect"
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
@@ -10,6 +9,7 @@ import (
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	"connectrpc.com/connect"
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/service"
@@ -25,7 +25,7 @@ type BuyerErrandOrderServiceServer struct {
 func authenticatedBuyerUserID(ctx context.Context) (int64, error) {
 	user, ok := rpcinterceptor.UserFromContext(ctx)
 	if !ok || user == nil || user.UserID <= 0 {
-		return 0, connect.NewError(connect.CodeUnauthenticated, errors.New("missing authenticated user"))
+		return 0, connect.NewError(errmsg.Unauthenticated.Code, errmsg.Unauthenticated)
 	}
 	return user.UserID, nil
 }

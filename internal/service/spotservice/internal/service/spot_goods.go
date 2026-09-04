@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"math"
 
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
@@ -11,6 +10,7 @@ import (
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
@@ -182,7 +182,11 @@ func CreateSpotGoods(
 			},
 		}, "")
 	}
-	return modelToDetail(goods, template, nil), nil
+	seller, err := getUser(ctx, goods.SellerID)
+	if err != nil {
+		return nil, err
+	}
+	return modelToDetail(goods, template, seller), nil
 }
 
 func UpdateSpotGoodsStock(
@@ -235,7 +239,7 @@ func UpdateSpotGoodsStock(
 			return err
 		}
 		if rows == 0 {
-			return errors.New("goods was modified by another request")
+			return errmsg.SpotGoodsVersionConflict
 		}
 		ledger := &model.SpotStockLedger{
 			ListingID:  goodsID,

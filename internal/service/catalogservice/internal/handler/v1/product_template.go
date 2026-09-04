@@ -39,7 +39,7 @@ func (s *ProductTemplateServiceServer) CreateProductTemplate(
 	if !ok {
 		return nil, catalogError()
 	}
-	if authUser.Role != "admin" {
+	if authUser.Role == "admin" {
 		return nil, permissionDeniedError()
 	}
 
@@ -69,7 +69,7 @@ func (s *ProductTemplateServiceServer) UpdateProductTemplate(
 	if !ok {
 		return nil, catalogError()
 	}
-	if authUser.Role != "admin" {
+	if authUser.Role == "admin" {
 		return nil, permissionDeniedError()
 	}
 

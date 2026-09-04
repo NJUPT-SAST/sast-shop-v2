@@ -2,12 +2,12 @@ package v1
 
 import (
 	"context"
-	"errors"
 
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/spot/v1/spotv1connect"
 	spotv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/spot/v1"
 	"connectrpc.com/connect"
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
@@ -20,7 +20,7 @@ type SpotOrderServiceServer struct {
 func authenticatedUserID(ctx context.Context) (int64, error) {
 	user, ok := rpcinterceptor.UserFromContext(ctx)
 	if !ok || user == nil || user.UserID <= 0 {
-		return 0, connect.NewError(connect.CodeUnauthenticated, errors.New("missing authenticated user"))
+		return 0, connect.NewError(errmsg.Unauthenticated.Code, errmsg.Unauthenticated)
 	}
 	return user.UserID, nil
 }

@@ -2,12 +2,12 @@ package interceptor
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/constant"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/rs/zerolog"
 )
 
@@ -55,13 +55,13 @@ func AuthRequired(store SessionStore, logger zerolog.Logger, allowDevBypass bool
 
 			token := extractToken(req)
 			if token == "" {
-				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing authorization header"))
+				return nil, connect.NewError(errmsg.Unauthenticated.Code, errmsg.Unauthenticated)
 			}
 
 			user, err := store.GetSession(ctx, token)
 			if err != nil {
 				logger.Error().Err(err).Msg("session lookup failed")
-				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid or expired session"))
+				return nil, connect.NewError(errmsg.Unauthenticated.Code, errmsg.Unauthenticated)
 			}
 
 			return next(SetUserToContext(ctx, user), req)
@@ -100,7 +100,7 @@ func extractToken(req connect.AnyRequest) string {
 func UserIDFromContext(ctx context.Context) (int64, error) {
 	user, ok := UserFromContext(ctx)
 	if !ok || user == nil || user.UserID <= 0 {
-		return 0, connect.NewError(connect.CodeUnauthenticated, errors.New("missing authenticated user"))
+		return 0, connect.NewError(errmsg.Unauthenticated.Code, errmsg.Unauthenticated)
 	}
 	return user.UserID, nil
 }
