@@ -12,12 +12,12 @@ var (
 	Concurrency      = Biz{connect.CodeAborted, "操作冲突，请刷新后重试"}
 
 	// 资源不存在
-	TaskNotFound                 = Biz{connect.CodeNotFound, "任务不存在"}
-	TaskItemNotFound             = Biz{connect.CodeNotFound, "商品不存在"}
-	AssignmentNotFound           = Biz{connect.CodeNotFound, "分发明细不存在"}
-	DemandNotFound               = Biz{connect.CodeNotFound, "需求不存在"}
-	BuyerErrandOrderNotFound     = Biz{connect.CodeNotFound, "跑腿订单不存在"}
-	PaymentAssignmentNotFound    = Biz{connect.CodeNotFound, "账单关联不存在"}
+	TaskNotFound              = Biz{connect.CodeNotFound, "任务不存在"}
+	TaskItemNotFound          = Biz{connect.CodeNotFound, "商品不存在"}
+	AssignmentNotFound        = Biz{connect.CodeNotFound, "分发明细不存在"}
+	DemandNotFound            = Biz{connect.CodeNotFound, "需求不存在"}
+	BuyerErrandOrderNotFound  = Biz{connect.CodeNotFound, "跑腿订单不存在"}
+	PaymentAssignmentNotFound = Biz{connect.CodeNotFound, "账单关联不存在"}
 
 	// 状态不允许
 	TaskNotInShopping           = Biz{connect.CodeFailedPrecondition, "任务不在采购中状态"}

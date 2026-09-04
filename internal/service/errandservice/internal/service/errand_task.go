@@ -634,7 +634,10 @@ func SaveShoppingTaskItem(
 func ValidateSaveRequest(ctx context.Context, captainID int64, req *errandv1.SaveShoppingTaskItemRequest) error {
 	if req == nil || req.ErrandTaskId <= 0 || req.ErrandTaskItemId <= 0 || req.ErrandTaskItemUpdatedAt == nil ||
 		!req.ErrandTaskItemUpdatedAt.IsValid() {
-		return connect.NewError(errmsg.InvalidSaveShoppingTaskItemRequest.Code, errmsg.InvalidSaveShoppingTaskItemRequest)
+		return connect.NewError(
+			errmsg.InvalidSaveShoppingTaskItemRequest.Code,
+			errmsg.InvalidSaveShoppingTaskItemRequest,
+		)
 	}
 	return nil
 }
@@ -1076,7 +1079,10 @@ func UpdateActualPrice(
 	if req == nil || req.ErrandTaskId <= 0 || req.ErrandTaskItemId <= 0 ||
 		req.ErrandTaskItemUpdatedAt == nil || !req.ErrandTaskItemUpdatedAt.IsValid() ||
 		req.ActualUnitPriceCents < 0 {
-		return nil, connect.NewError(errmsg.InvalidUpdateActualPriceRequest.Code, errmsg.InvalidUpdateActualPriceRequest)
+		return nil, connect.NewError(
+			errmsg.InvalidUpdateActualPriceRequest.Code,
+			errmsg.InvalidUpdateActualPriceRequest,
+		)
 	}
 
 	expectedUpdatedAt := req.ErrandTaskItemUpdatedAt.AsTime().UTC()
@@ -1178,7 +1184,10 @@ func validateActualPriceUpdate(
 		return connect.NewError(errmsg.TaskItemNotHandled.Code, errmsg.TaskItemNotHandled)
 	}
 	if *row.PurchasedQuantity == 0 && actualUnitPriceCents != 0 {
-		return connect.NewError(errmsg.FullyUnpurchasedItemMustUseZeroPrice.Code, errmsg.FullyUnpurchasedItemMustUseZeroPrice)
+		return connect.NewError(
+			errmsg.FullyUnpurchasedItemMustUseZeroPrice.Code,
+			errmsg.FullyUnpurchasedItemMustUseZeroPrice,
+		)
 	}
 
 	return nil
@@ -1254,7 +1263,10 @@ func TransitionToDistributing(
 ) (*timestamppb.Timestamp, error) {
 	if req == nil || req.ErrandTaskId <= 0 || req.PackagingFeeCents < 0 ||
 		req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
-		return nil, connect.NewError(errmsg.InvalidTransitionToDistributingRequest.Code, errmsg.InvalidTransitionToDistributingRequest)
+		return nil, connect.NewError(
+			errmsg.InvalidTransitionToDistributingRequest.Code,
+			errmsg.InvalidTransitionToDistributingRequest,
+		)
 	}
 
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
@@ -1386,7 +1398,10 @@ func SaveDistributingTaskAssignment(
 	if req == nil || req.ErrandTaskItemId <= 0 || req.ErrandTaskAssignmentId <= 0 ||
 		req.DistributedQuantity < undoShoppingTaskItemPurchasedQuantity ||
 		req.ErrandTaskAssignmentUpdatedAt == nil || !req.ErrandTaskAssignmentUpdatedAt.IsValid() {
-		return nil, connect.NewError(errmsg.InvalidDistributingAssignmentRequest.Code, errmsg.InvalidDistributingAssignmentRequest)
+		return nil, connect.NewError(
+			errmsg.InvalidDistributingAssignmentRequest.Code,
+			errmsg.InvalidDistributingAssignmentRequest,
+		)
 	}
 
 	expectedUpdatedAt := req.ErrandTaskAssignmentUpdatedAt.AsTime().UTC()
@@ -1519,7 +1534,10 @@ func validateDistributingTaskAssignmentUpdate(
 	// totalAfterUpdate = 5 - 0 + 6 = 11
 	// 11 > 10  不允许（超过采购总量）
 	if totalAfterUpdate > int64(*row.PurchasedQuantity) {
-		return connect.NewError(errmsg.DistributedQuantityExceedsPurchased.Code, errmsg.DistributedQuantityExceedsPurchased)
+		return connect.NewError(
+			errmsg.DistributedQuantityExceedsPurchased.Code,
+			errmsg.DistributedQuantityExceedsPurchased,
+		)
 	}
 
 	return nil
@@ -1776,7 +1794,10 @@ func OnPaymentConfirmed(ctx context.Context, req *errandv1.OnPaymentConfirmedReq
 
 func OnAllPaymentsConfirmed(ctx context.Context, req *errandv1.OnAllPaymentsConfirmedRequest) error {
 	if req == nil || req.SourceType != "errand_task" || req.SourceId <= 0 {
-		return connect.NewError(errmsg.InvalidAllPaymentsConfirmedRequest.Code, errmsg.InvalidAllPaymentsConfirmedRequest)
+		return connect.NewError(
+			errmsg.InvalidAllPaymentsConfirmedRequest.Code,
+			errmsg.InvalidAllPaymentsConfirmedRequest,
+		)
 	}
 
 	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
