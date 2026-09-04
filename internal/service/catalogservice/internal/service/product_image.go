@@ -17,6 +17,7 @@ import (
 	_ "golang.org/x/image/webp"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/storage"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -93,73 +94,109 @@ func ProcessPicture(src io.ReadSeeker, declared string, limits ImageLimits) (Pro
 	}
 	limits = limits.withDefaults()
 
+	kind, err := sniffAndValidateDeclared(src, declared)
+	if err != nil {
+		return empty, err
+	}
+	cfg, err := decodeConfig(src, kind, limits)
+	if err != nil {
+		return empty, err
+	}
+	img, err := decodeImage(src, kind)
+	if err != nil {
+		return empty, err
+	}
+	processed, err := encodeImage(kind, img)
+	if err != nil {
+		return empty, err
+	}
+	if int64(len(processed.Data)) > limits.MaxOutputBytes {
+		return empty, ErrImageTooLarge
+	}
+	processed.Width = cfg.Width
+	processed.Height = cfg.Height
+	return processed, nil
+}
+
+func sniffAndValidateDeclared(src io.ReadSeeker, declared string) (imageKind, error) {
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
-		return empty, ErrImageInvalid
+		return imageKind{}, ErrImageInvalid
 	}
 	header := make([]byte, 12)
 	n, err := io.ReadFull(src, header)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		return empty, ErrImageInvalid
+		return imageKind{}, ErrImageInvalid
 	}
-
 	kind := sniffImage(header[:n])
 	if kind.mime == "" {
-		return empty, ErrImageUnsupported
+		return imageKind{}, ErrImageUnsupported
 	}
 	declared = strings.TrimSpace(strings.ToLower(declared))
 	if declared != "" {
 		declared, _, err = mime.ParseMediaType(declared)
 		if err != nil {
-			return empty, ErrImageUnsupported
+			return imageKind{}, ErrImageUnsupported
 		}
 		if declared != "application/octet-stream" && declared != kind.mime {
-			return empty, ErrImageUnsupported
+			return imageKind{}, ErrImageUnsupported
 		}
 	}
+	return kind, nil
+}
 
+func decodeConfig(src io.ReadSeeker, kind imageKind, limits ImageLimits) (image.Config, error) {
+	var cfg image.Config
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
-		return empty, ErrImageInvalid
+		return cfg, ErrImageInvalid
 	}
 	cfg, format, err := image.DecodeConfig(src)
 	if err != nil || format != kind.format {
-		return empty, ErrImageInvalid
+		return cfg, ErrImageInvalid
 	}
-	if cfg.Width <= 0 || cfg.Height <= 0 ||
-		cfg.Width > limits.MaxWidth || cfg.Height > limits.MaxHeight ||
-		int64(cfg.Width) > limits.MaxPixels/int64(cfg.Height) {
-		return empty, ErrImageInvalid
+	if !validDimensions(cfg, limits) {
+		return cfg, ErrImageInvalid
 	}
+	return cfg, nil
+}
 
+func validDimensions(cfg image.Config, limits ImageLimits) bool {
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return false
+	}
+	if cfg.Width > limits.MaxWidth || cfg.Height > limits.MaxHeight {
+		return false
+	}
+	return int64(cfg.Width) <= limits.MaxPixels/int64(cfg.Height)
+}
+
+func decodeImage(src io.ReadSeeker, kind imageKind) (image.Image, error) {
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
-		return empty, ErrImageInvalid
+		return nil, ErrImageInvalid
 	}
 	img, format, err := image.Decode(src)
 	if err != nil || format != kind.format {
-		return empty, ErrImageInvalid
+		return nil, ErrImageInvalid
 	}
+	return img, nil
+}
 
+func encodeImage(kind imageKind, img image.Image) (ProcessedImage, error) {
 	var output bytes.Buffer
 	contentType := "image/png"
 	extension := "png"
 	if kind.mime == "image/jpeg" {
 		if err := jpeg.Encode(&output, img, &jpeg.Options{Quality: 85}); err != nil {
-			return empty, ErrImageInvalid
+			return ProcessedImage{}, ErrImageInvalid
 		}
 		contentType = "image/jpeg"
 		extension = "jpg"
 	} else if err := png.Encode(&output, img); err != nil {
-		return empty, ErrImageInvalid
-	}
-
-	if int64(output.Len()) > limits.MaxOutputBytes {
-		return empty, ErrImageTooLarge
+		return ProcessedImage{}, ErrImageInvalid
 	}
 	return ProcessedImage{
 		Data:        output.Bytes(),
 		ContentType: contentType,
 		Extension:   extension,
-		Width:       cfg.Width,
-		Height:      cfg.Height,
 	}, nil
 }
 
@@ -253,13 +290,13 @@ func (s *ProductImageUploadService) Upload(
 		int64(len(processed.Data)),
 		processed.ContentType,
 	); err != nil {
-		_ = s.Store.Delete(ctx, key)
+		s.cleanup(ctx, key)
 		return "", ErrStorage
 	}
 	stored := true
 	defer func() {
 		if stored && err != nil {
-			_ = s.Store.Delete(ctx, key)
+			s.cleanup(ctx, key)
 		}
 	}()
 
@@ -278,4 +315,10 @@ func (s *ProductImageUploadService) Ready(ctx context.Context) error {
 		return ErrStorage
 	}
 	return s.Store.Ready(ctx)
+}
+
+func (s *ProductImageUploadService) cleanup(ctx context.Context, key string) {
+	if err := s.Store.Delete(ctx, key); err != nil {
+		log.Error().Err(err).Str("key", key).Msg("failed to delete stored object")
+	}
 }

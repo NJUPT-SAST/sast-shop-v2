@@ -13,6 +13,7 @@ import (
 
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/service"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -63,14 +64,7 @@ func (h *ProductImageUploadHandler) Handle(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	maxImageBytes := h.MaxImageBytes
-	if maxImageBytes <= 0 {
-		maxImageBytes = DefaultProductImageMaxBytes
-	}
-	maxRequestBytes := h.MaxRequestBytes
-	if maxRequestBytes <= 0 {
-		maxRequestBytes = maxImageBytes + 2*1024*1024
-	}
+	maxImageBytes, maxRequestBytes := normalizeUploadLimits(h.MaxImageBytes, h.MaxRequestBytes)
 	// Cap the complete request before multipart parsing. readPicture applies a
 	// second streaming guard so direct calls are bounded as well.
 	if r.Body != nil {
@@ -109,10 +103,7 @@ func (h *ProductImageUploadHandler) Handle(w http.ResponseWriter, r *http.Reques
 		writeUploadReadError(w, err)
 		return
 	}
-	defer func() {
-		_ = picture.Close()
-		_ = os.Remove(picture.Name())
-	}()
+	defer discardPicture(picture)
 
 	publicURL, err := h.Uploader.Upload(r.Context(), user.UserID, picture, declared)
 	if err != nil {
@@ -125,9 +116,7 @@ func (h *ProductImageUploadHandler) Handle(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(struct {
+	writeJSONResponse(w, http.StatusOK, struct {
 		URL string `json:"url"`
 	}{URL: publicURL})
 }
@@ -176,11 +165,17 @@ func setResponseHeaders(w http.ResponseWriter) {
 }
 
 func writeUploadError(w http.ResponseWriter, status int, code string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(struct {
+	writeJSONResponse(w, status, struct {
 		Code string `json:"code"`
 	}{Code: code})
+}
+
+func writeJSONResponse(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Error().Err(err).Msg("failed to encode JSON response")
+	}
 }
 
 func writeUploadReadError(w http.ResponseWriter, err error) {
@@ -264,26 +259,39 @@ func isRequestTooLarge(err error) bool {
 	return errors.As(err, &maxBytesErr)
 }
 
-func readPicture(r *http.Request, maxRequestBytes, maxImageBytes int64) (*os.File, string, error) {
-	if r == nil || r.Body == nil {
-		return nil, "", ErrMultipartInvalid
-	}
+func normalizeUploadLimits(maxImageBytes, maxRequestBytes int64) (int64, int64) {
 	if maxImageBytes <= 0 {
 		maxImageBytes = DefaultProductImageMaxBytes
 	}
 	if maxRequestBytes <= 0 {
 		maxRequestBytes = maxImageBytes + 2*1024*1024
 	}
+	return maxImageBytes, maxRequestBytes
+}
+
+func multipartBoundary(r *http.Request) (string, error) {
+	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") || params["boundary"] == "" {
+		return "", ErrMultipartInvalid
+	}
+	return params["boundary"], nil
+}
+
+func readPicture(r *http.Request, maxRequestBytes, maxImageBytes int64) (*os.File, string, error) {
+	maxImageBytes, maxRequestBytes = normalizeUploadLimits(maxImageBytes, maxRequestBytes)
+	if r == nil || r.Body == nil {
+		return nil, "", ErrMultipartInvalid
+	}
 	if r.ContentLength > maxRequestBytes {
 		return nil, "", ErrRequestTooLarge
 	}
-	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") || params["boundary"] == "" {
+	boundary, err := multipartBoundary(r)
+	if err != nil {
 		return nil, "", ErrMultipartInvalid
 	}
 
 	limitedBody := &requestLimitReader{r: r.Body, limit: maxRequestBytes}
-	reader := multipart.NewReader(limitedBody, params["boundary"])
+	reader := multipart.NewReader(limitedBody, boundary)
 	var picture *os.File
 	var declared string
 	for {
@@ -297,36 +305,9 @@ func readPicture(r *http.Request, maxRequestBytes, maxImageBytes int64) (*os.Fil
 			}
 			return closePictureOnError(picture, ErrMultipartInvalid)
 		}
-		if part.FormName() != "picture" || part.FileName() == "" || picture != nil {
-			_ = part.Close()
-			return closePictureOnError(picture, ErrMultipartInvalid)
-		}
-		declared = part.Header.Get("Content-Type")
-		if declared != "" {
-			declared, _, err = mime.ParseMediaType(declared)
-			if err != nil {
-				_ = part.Close()
-				return closePictureOnError(picture, ErrMultipartInvalid)
-			}
-		}
-		picture, err = os.CreateTemp("", "sast-product-image-*")
+		picture, declared, err = readPicturePart(part, picture, declared, maxImageBytes, limitedBody)
 		if err != nil {
-			_ = part.Close()
-			return nil, "", ErrMultipartInvalid
-		}
-		n, copyErr := io.Copy(picture, io.LimitReader(part, maxImageBytes+1))
-		_ = part.Close()
-		if n == 0 {
-			return closePictureOnError(picture, ErrPictureEmpty)
-		}
-		if n > maxImageBytes {
-			return closePictureOnError(picture, ErrPictureTooLarge)
-		}
-		if copyErr != nil {
-			if isRequestTooLarge(copyErr) || limitedBody.exceeded {
-				return closePictureOnError(picture, ErrRequestTooLarge)
-			}
-			return closePictureOnError(picture, ErrMultipartInvalid)
+			return closePictureOnError(picture, err)
 		}
 	}
 	if picture == nil {
@@ -341,10 +322,70 @@ func readPicture(r *http.Request, maxRequestBytes, maxImageBytes int64) (*os.Fil
 	return picture, declared, nil
 }
 
-func closePictureOnError(picture *os.File, err error) (*os.File, string, error) {
-	if picture != nil {
-		_ = picture.Close()
-		_ = os.Remove(picture.Name())
+func readPicturePart(
+	part *multipart.Part,
+	picture *os.File,
+	declared string,
+	maxImageBytes int64,
+	limitedBody *requestLimitReader,
+) (*os.File, string, error) {
+	if part.FormName() != "picture" || part.FileName() == "" || picture != nil {
+		closePart(part)
+		return picture, declared, ErrMultipartInvalid
 	}
+	declared = part.Header.Get("Content-Type")
+	if declared != "" {
+		var err error
+		declared, _, err = mime.ParseMediaType(declared)
+		if err != nil {
+			closePart(part)
+			return picture, declared, ErrMultipartInvalid
+		}
+	}
+	tmp, err := os.CreateTemp("", "sast-product-image-*")
+	if err != nil {
+		closePart(part)
+		return picture, declared, ErrMultipartInvalid
+	}
+	picture = tmp
+	n, copyErr := io.Copy(picture, io.LimitReader(part, maxImageBytes+1))
+	closePart(part)
+	switch {
+	case n == 0:
+		return picture, declared, ErrPictureEmpty
+	case n > maxImageBytes:
+		return picture, declared, ErrPictureTooLarge
+	}
+	if copyErr != nil {
+		if isRequestTooLarge(copyErr) || limitedBody.exceeded {
+			return picture, declared, ErrRequestTooLarge
+		}
+		return picture, declared, ErrMultipartInvalid
+	}
+	return picture, declared, nil
+}
+
+func closePart(part *multipart.Part) {
+	if err := part.Close(); err != nil {
+		log.Error().Err(err).Msg("failed to close multipart part")
+	}
+}
+
+func discardPicture(picture *os.File) {
+	if picture == nil {
+		return
+	}
+	if err := picture.Close(); err != nil {
+		log.Error().Err(err).Msg("failed to close temp picture")
+	}
+	// The path is generated by os.CreateTemp and never derived from user input.
+	// #nosec G703
+	if err := os.Remove(picture.Name()); err != nil {
+		log.Error().Err(err).Str("file", picture.Name()).Msg("failed to remove temp picture")
+	}
+}
+
+func closePictureOnError(picture *os.File, err error) (*os.File, string, error) {
+	discardPicture(picture)
 	return nil, "", err
 }

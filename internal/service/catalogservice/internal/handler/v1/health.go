@@ -2,7 +2,6 @@ package v1
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -30,17 +29,13 @@ func (h readinessHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeReadinessError(w, http.StatusServiceUnavailable, "SERVICE_NOT_READY")
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(struct {
+	writeJSONResponse(w, http.StatusOK, struct {
 		Status string `json:"status"`
 	}{Status: "ok"})
 }
 
 func writeReadinessError(w http.ResponseWriter, status int, code string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(struct {
+	writeJSONResponse(w, status, struct {
 		Code string `json:"code"`
 	}{Code: code})
 }
