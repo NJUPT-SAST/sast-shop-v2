@@ -12,4 +12,3 @@ type Biz struct {
 
 // Error 实现 error 接口，可直接作为 connect.NewError 的 err 参数。
 func (b Biz) Error() string { return b.Msg }
-

@@ -71,7 +71,12 @@ func TestProductImageUploadServiceStoresProcessedImageAndProbesURL(t *testing.T)
 		t.Fatalf("URL = %q, want %q", got, store.publicURL)
 	}
 	if store.putCalls != 1 || store.probeCalls != 1 || store.deleteCalls != 0 {
-		t.Fatalf("store calls = put:%d probe:%d delete:%d, want 1,1,0", store.putCalls, store.probeCalls, store.deleteCalls)
+		t.Fatalf(
+			"store calls = put:%d probe:%d delete:%d, want 1,1,0",
+			store.putCalls,
+			store.probeCalls,
+			store.deleteCalls,
+		)
 	}
 	if !strings.HasPrefix(store.putKey, "sast-shop/products/") || !strings.HasSuffix(store.putKey, ".jpg") {
 		t.Fatalf("object key = %q, want generated .jpg key under prefix", store.putKey)
@@ -99,7 +104,11 @@ func TestProductImageUploadServiceDeletesObjectWhenPublicURLFails(t *testing.T) 
 		{name: "probe error", publicURL: "https://cdn.example.com/products/abc.jpg", probeErr: errors.New("not readable")},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			store := &objectStoreStub{publicURL: testCase.publicURL, publicURLErr: testCase.urlErr, probeErr: testCase.probeErr}
+			store := &objectStoreStub{
+				publicURL:    testCase.publicURL,
+				publicURLErr: testCase.urlErr,
+				probeErr:     testCase.probeErr,
+			}
 			uploader := NewProductImageUploadService(store, "sast-shop/products", defaultImageLimits())
 			_, err := uploader.Upload(context.Background(), 42, bytes.NewReader(imageFixture(t, "jpeg")), "image/jpeg")
 			if !errors.Is(err, ErrStorage) {
@@ -124,7 +133,15 @@ func TestProductImageUploadServiceDoesNotStoreInvalidInput(t *testing.T) {
 	store := &objectStoreStub{publicURL: "https://cdn.example.com/products/abc.jpg"}
 	uploader := NewProductImageUploadService(store, "sast-shop/products", defaultImageLimits())
 
-	if _, err := uploader.Upload(context.Background(), 42, bytes.NewReader([]byte("not an image")), "image/jpeg"); !errors.Is(err, ErrImageUnsupported) {
+	if _, err := uploader.Upload(
+		context.Background(),
+		42,
+		bytes.NewReader([]byte("not an image")),
+		"image/jpeg",
+	); !errors.Is(
+		err,
+		ErrImageUnsupported,
+	) {
 		t.Fatalf("invalid input error = %v, want ErrImageUnsupported", err)
 	}
 	if store.putCalls != 0 || store.deleteCalls != 0 {
@@ -153,7 +170,15 @@ func TestProductImageUploadServiceRejectsInvalidUserOrStore(t *testing.T) {
 	input := imageFixture(t, "jpeg")
 	store := &objectStoreStub{publicURL: "https://cdn.example.com/products/abc.jpg"}
 	uploader := NewProductImageUploadService(store, "sast-shop/products", defaultImageLimits())
-	if _, err := uploader.Upload(context.Background(), 0, bytes.NewReader(input), "image/jpeg"); !errors.Is(err, ErrStorage) {
+	if _, err := uploader.Upload(
+		context.Background(),
+		0,
+		bytes.NewReader(input),
+		"image/jpeg",
+	); !errors.Is(
+		err,
+		ErrStorage,
+	) {
 		t.Fatalf("zero user ID error = %v, want ErrStorage", err)
 	}
 	if store.putCalls != 0 {
@@ -161,7 +186,15 @@ func TestProductImageUploadServiceRejectsInvalidUserOrStore(t *testing.T) {
 	}
 
 	noStore := NewProductImageUploadService(nil, "sast-shop/products", defaultImageLimits())
-	if _, err := noStore.Upload(context.Background(), 1, bytes.NewReader(input), "image/jpeg"); !errors.Is(err, ErrStorage) {
+	if _, err := noStore.Upload(
+		context.Background(),
+		1,
+		bytes.NewReader(input),
+		"image/jpeg",
+	); !errors.Is(
+		err,
+		ErrStorage,
+	) {
 		t.Fatalf("nil store error = %v, want ErrStorage", err)
 	}
 }

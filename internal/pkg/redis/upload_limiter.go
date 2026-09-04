@@ -24,14 +24,14 @@ return 0
 
 type UploadLimiter struct {
 	window time.Duration
-	limit int64
+	limit  int64
 }
+
 func NewUploadLimiter(window time.Duration, limit int64) *UploadLimiter {
 	return &UploadLimiter{window: window, limit: limit}
 }
 
 func (l *UploadLimiter) Allow(ctx context.Context, userID int64) (bool, error) {
-	
 	// redis未初始化
 	if Client == nil {
 		return false, ErrUploadLimiterUnavailable

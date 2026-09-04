@@ -61,7 +61,12 @@ type uploadServiceStub struct {
 	calls    int
 }
 
-func (u *uploadServiceStub) Upload(_ context.Context, userID int64, picture io.ReadSeeker, declared string) (string, error) {
+func (u *uploadServiceStub) Upload(
+	_ context.Context,
+	userID int64,
+	picture io.ReadSeeker,
+	declared string,
+) (string, error) {
 	u.calls++
 	u.userID = userID
 	u.declared = declared
@@ -72,7 +77,11 @@ func (u *uploadServiceStub) Upload(_ context.Context, userID int64, picture io.R
 	return u.url, u.err
 }
 
-func newUploadHandler(session *uploadSessionStoreStub, limiter *uploadLimiterStub, uploader *uploadServiceStub) *ProductImageUploadHandler {
+func newUploadHandler(
+	session *uploadSessionStoreStub,
+	limiter *uploadLimiterStub,
+	uploader *uploadServiceStub,
+) *ProductImageUploadHandler {
 	return &ProductImageUploadHandler{
 		SessionStore:    session,
 		Limiter:         limiter,
@@ -149,7 +158,12 @@ func TestProductImageUploadHandlerRejectsUnauthenticatedRequests(t *testing.T) {
 		t.Fatalf("error code = %q, want UPLOAD_UNAUTHENTICATED", code)
 	}
 	if session.calls != 0 || limiter.calls != 0 || uploader.calls != 0 {
-		t.Fatalf("unauthenticated request reached dependencies: session=%d limiter=%d uploader=%d", session.calls, limiter.calls, uploader.calls)
+		t.Fatalf(
+			"unauthenticated request reached dependencies: session=%d limiter=%d uploader=%d",
+			session.calls,
+			limiter.calls,
+			uploader.calls,
+		)
 	}
 }
 
@@ -159,7 +173,11 @@ func TestProductImageUploadHandlerRejectsInvalidSessionAndForbiddenRole(t *testi
 	t.Run("invalid session", func(t *testing.T) {
 		session := &uploadSessionStoreStub{err: errors.New("expired")}
 		handler := newUploadHandler(session, &uploadLimiterStub{allowed: true}, &uploadServiceStub{})
-		response := invokeUpload(t, handler, multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")))
+		response := invokeUpload(
+			t,
+			handler,
+			multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")),
+		)
 		if response.Code != http.StatusUnauthorized {
 			t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
 		}
@@ -170,7 +188,11 @@ func TestProductImageUploadHandlerRejectsInvalidSessionAndForbiddenRole(t *testi
 		limiter := &uploadLimiterStub{allowed: true}
 		uploader := &uploadServiceStub{url: "https://cdn.example.com/products/image.jpg"}
 		handler := newUploadHandler(session, limiter, uploader)
-		response := invokeUpload(t, handler, multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")))
+		response := invokeUpload(
+			t,
+			handler,
+			multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")),
+		)
 		if response.Code != http.StatusForbidden {
 			t.Fatalf("status = %d, want %d", response.Code, http.StatusForbidden)
 		}
@@ -190,13 +212,22 @@ func TestProductImageUploadHandlerUsesBearerTokenAndUserID(t *testing.T) {
 	limiter := &uploadLimiterStub{allowed: true}
 	uploader := &uploadServiceStub{url: "https://cdn.example.com/products/image.jpg"}
 	handler := newUploadHandler(session, limiter, uploader)
-	response := invokeUpload(t, handler, multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")))
+	response := invokeUpload(
+		t,
+		handler,
+		multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")),
+	)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%q", response.Code, http.StatusOK, response.Body.String())
 	}
 	if session.lastToken != "session-token" || limiter.userID != 42 || uploader.userID != 42 {
-		t.Fatalf("identity propagation = token %q, limiter user %d, uploader user %d", session.lastToken, limiter.userID, uploader.userID)
+		t.Fatalf(
+			"identity propagation = token %q, limiter user %d, uploader user %d",
+			session.lastToken,
+			limiter.userID,
+			uploader.userID,
+		)
 	}
 }
 
@@ -213,7 +244,9 @@ func TestProductImageUploadHandlerRequiresPictureMultipartFile(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			session := &uploadSessionStoreStub{user: &rpcinterceptor.AuthUser{UserID: 1, Role: "user", Status: "active"}}
+			session := &uploadSessionStoreStub{
+				user: &rpcinterceptor.AuthUser{UserID: 1, Role: "user", Status: "active"},
+			}
 			limiter := &uploadLimiterStub{allowed: true}
 			uploader := &uploadServiceStub{url: "https://cdn.example.com/products/image.jpg"}
 			handler := newUploadHandler(session, limiter, uploader)
@@ -288,11 +321,17 @@ func TestProductImageUploadHandlerMapsLimiterOutcomes(t *testing.T) {
 		{name: "unavailable", allow: false, err: errors.New("redis down"), status: http.StatusServiceUnavailable, code: "UPLOAD_UNAVAILABLE"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			session := &uploadSessionStoreStub{user: &rpcinterceptor.AuthUser{UserID: 7, Role: "user", Status: "active"}}
+			session := &uploadSessionStoreStub{
+				user: &rpcinterceptor.AuthUser{UserID: 7, Role: "user", Status: "active"},
+			}
 			limiter := &uploadLimiterStub{allowed: testCase.allow, err: testCase.err}
 			uploader := &uploadServiceStub{url: "https://cdn.example.com/products/image.jpg"}
 			handler := newUploadHandler(session, limiter, uploader)
-			response := invokeUpload(t, handler, multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")))
+			response := invokeUpload(
+				t,
+				handler,
+				multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")),
+			)
 			if response.Code != testCase.status {
 				t.Fatalf("status = %d, want %d", response.Code, testCase.status)
 			}
@@ -320,10 +359,16 @@ func TestProductImageUploadHandlerMapsUploaderErrors(t *testing.T) {
 		{name: "storage", err: service.ErrStorage, status: http.StatusServiceUnavailable, code: "UPLOAD_STORAGE_FAILED"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			session := &uploadSessionStoreStub{user: &rpcinterceptor.AuthUser{UserID: 7, Role: "user", Status: "active"}}
+			session := &uploadSessionStoreStub{
+				user: &rpcinterceptor.AuthUser{UserID: 7, Role: "user", Status: "active"},
+			}
 			uploader := &uploadServiceStub{err: testCase.err}
 			handler := newUploadHandler(session, &uploadLimiterStub{allowed: true}, uploader)
-			response := invokeUpload(t, handler, multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")))
+			response := invokeUpload(
+				t,
+				handler,
+				multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")),
+			)
 			if response.Code != testCase.status {
 				t.Fatalf("status = %d, want %d", response.Code, testCase.status)
 			}
@@ -347,10 +392,22 @@ func TestProductImageUploadHandlerEnforcesImageByteBoundary(t *testing.T) {
 		{name: "over max", imageBytes: int(DefaultProductImageMaxBytes) + 1, status: http.StatusRequestEntityTooLarge, calls: 0},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			session := &uploadSessionStoreStub{user: &rpcinterceptor.AuthUser{UserID: 7, Role: "user", Status: "active"}}
+			session := &uploadSessionStoreStub{
+				user: &rpcinterceptor.AuthUser{UserID: 7, Role: "user", Status: "active"},
+			}
 			uploader := &uploadServiceStub{url: "https://cdn.example.com/products/image.jpg"}
 			handler := newUploadHandler(session, &uploadLimiterStub{allowed: true}, uploader)
-			response := invokeUpload(t, handler, multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", bytes.Repeat([]byte{'x'}, testCase.imageBytes)))
+			response := invokeUpload(
+				t,
+				handler,
+				multipartUploadRequest(
+					t,
+					"picture",
+					"image.jpg",
+					"image/jpeg",
+					bytes.Repeat([]byte{'x'}, testCase.imageBytes),
+				),
+			)
 			if response.Code != testCase.status {
 				t.Fatalf("status = %d, want %d", response.Code, testCase.status)
 			}
@@ -376,10 +433,16 @@ func TestProductImageUploadHandlerReturnsURLOnlyForValidPublicHTTPSURL(t *testin
 		{name: "insecure scheme", url: "http://cdn.example.com/products/abc.jpg", status: http.StatusServiceUnavailable, code: "UPLOAD_STORAGE_FAILED"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			session := &uploadSessionStoreStub{user: &rpcinterceptor.AuthUser{UserID: 7, Role: "user", Status: "active"}}
+			session := &uploadSessionStoreStub{
+				user: &rpcinterceptor.AuthUser{UserID: 7, Role: "user", Status: "active"},
+			}
 			uploader := &uploadServiceStub{url: testCase.url}
 			handler := newUploadHandler(session, &uploadLimiterStub{allowed: true}, uploader)
-			response := invokeUpload(t, handler, multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")))
+			response := invokeUpload(
+				t,
+				handler,
+				multipartUploadRequest(t, "picture", "image.jpg", "image/jpeg", []byte("image")),
+			)
 			if response.Code != testCase.status {
 				t.Fatalf("status = %d, want %d; body=%q", response.Code, testCase.status, response.Body.String())
 			}

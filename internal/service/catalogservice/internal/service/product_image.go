@@ -218,14 +218,23 @@ type ProductImageUploadService struct {
 	Limits ImageLimits
 }
 
-func NewProductImageUploadService(store storage.ObjectStore, prefix string, limits ImageLimits) *ProductImageUploadService {
+func NewProductImageUploadService(
+	store storage.ObjectStore,
+	prefix string,
+	limits ImageLimits,
+) *ProductImageUploadService {
 	if strings.TrimSpace(prefix) == "" {
 		prefix = DefaultProductImagePath
 	}
 	return &ProductImageUploadService{Store: store, Prefix: prefix, Limits: limits}
 }
 
-func (s *ProductImageUploadService) Upload(ctx context.Context, userID int64, src io.ReadSeeker, declared string) (result string, err error) {
+func (s *ProductImageUploadService) Upload(
+	ctx context.Context,
+	userID int64,
+	src io.ReadSeeker,
+	declared string,
+) (result string, err error) {
 	if s == nil || s.Store == nil || userID <= 0 {
 		return "", ErrStorage
 	}
@@ -237,7 +246,13 @@ func (s *ProductImageUploadService) Upload(ctx context.Context, userID int64, sr
 	if err != nil {
 		return "", err
 	}
-	if err := s.Store.Put(ctx, key, bytes.NewReader(processed.Data), int64(len(processed.Data)), processed.ContentType); err != nil {
+	if err := s.Store.Put(
+		ctx,
+		key,
+		bytes.NewReader(processed.Data),
+		int64(len(processed.Data)),
+		processed.ContentType,
+	); err != nil {
 		_ = s.Store.Delete(ctx, key)
 		return "", ErrStorage
 	}
