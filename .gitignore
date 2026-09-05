@@ -37,8 +37,6 @@ gen
 # Go debug programs
 __debug_bin*
 
-# Caddy gateway
-Caddyfile
 
 # Claude Code
 CLAUDE.md

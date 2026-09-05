@@ -12,6 +12,8 @@ run-%:
 
 run-all:
 	@trap 'echo "Stopping all services..."; kill 0' INT TERM; \
+	echo "Starting caddy gateway (:6660) ..."; \
+	(caddy run --config Caddyfile 2>&1 | sed -u "s/^/[caddy] /") & \
 	for svc in $(SERVICES); do \
 		echo "Starting $$svc ..."; \
 		(go run ./internal/service/$$svc/cmd/app 2>&1 | sed -u "s/^/[$$svc] /") & \
