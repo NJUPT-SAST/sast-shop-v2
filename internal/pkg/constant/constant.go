@@ -24,6 +24,10 @@ const (
 	FeishuDefaultAppID     = "your_feishu_app_id"
 	FeishuDefaultAppSecret = "your_feishu_app_secret" //nolint:gosec
 
+	// COS 配置占位符（与 config envDefault 保持一致，用于 Init 校验）
+	CosDefaultSecretID  = "your_cos_secret_id"
+	CosDefaultSecretKey = "your_cos_secret_key" //nolint:gosec
+
 	// Feishu SDK 与缓存 Redis key（项目级前缀，不含服务名）
 	FeishuSDKTokenKeyPrefix      = "feishu:sdk:" //nolint:gosec
 	FeishuJSAPITicketKey         = "feishu:jsapi_ticket"
