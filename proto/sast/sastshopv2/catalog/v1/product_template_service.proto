@@ -52,6 +52,12 @@ message GetProductTemplateByBarcodeResponse {
   repeated Item items = 1;
 }
 
+message DeleteProductTemplateRequest {
+  int64 product_template_id = 1;
+}
+
+message DeleteProductTemplateResponse {}
+
 service ProductTemplateService {
   // 店铺详情-跑腿-获取商品模板列表
   rpc GetProductTemplateList(GetProductTemplateListRequest) returns (GetProductTemplateListResponse);
@@ -64,4 +70,7 @@ service ProductTemplateService {
 
   // 根据条形码获取商品模板
   rpc GetProductTemplateByBarcode(GetProductTemplateByBarcodeRequest) returns (GetProductTemplateByBarcodeResponse);
+
+  // 删除商品模板
+  rpc DeleteProductTemplate(DeleteProductTemplateRequest) returns (DeleteProductTemplateResponse);
 }
