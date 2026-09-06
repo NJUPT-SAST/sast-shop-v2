@@ -1,0 +1,109 @@
+name: Detect changes
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: '"ci" (module paths, pkg always included) or "deploy" (short service names)'
+        type: string
+        required: true
+      dispatch-service:
+        description: 'Explicit service from workflow_dispatch; non-empty bypasses diffing'
+        type: string
+        required: false
+        default: ""
+    outputs:
+      modules:
+        description: Module dirs for the CI matrix
+        value: ${{ jobs.detect.outputs.modules }}
+      services:
+        description: Short service names for the deploy matrix
+        value: ${{ jobs.detect.outputs.services }}
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.filter.outputs.modules }}
+      services: ${{ steps.filter.outputs.services }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Default depth 1 does not contain github.event.before on push,
+          # which silently forced the old detection to always run everything.
+          fetch-depth: 0
+
+      - name: Determine changed services and modules
+        id: filter
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODE="${{ inputs.mode }}"
+          DISPATCH_SVC="${{ inputs.dispatch-service }}"
+          SERVICES="userservice catalogservice paymentservice spotservice errandservice"
+
+          emit_json() {
+            # $@: items to quote into a JSON array
+            local out="["
+            local first=1
+            local item
+            for item in "$@"; do
+              if [ "$first" = "1" ]; then first=0; else out="$out,"; fi
+              out="$out\"$item\""
+            done
+            echo "$out]"
+          }
+
+          # workflow_dispatch with an explicit service bypasses diffing entirely.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "$DISPATCH_SVC" ]; then
+            echo "services=$(emit_json "$DISPATCH_SVC")" >> "$GITHUB_OUTPUT"
+            echo "modules=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # On pull_request compare against the base branch, otherwise the previous commit.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+
+          # First push, force-push that rewrote history, or a shallow clone
+          # missing the object: fall back to running everything.
+          CHANGED=""
+          if [ -n "$BASE" ] && [ "$BASE" != "0000000000000000000000000000000000000000" ] \
+             && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            CHANGED=$(git diff --name-only "$BASE" HEAD)
+          fi
+
+          # Changes to these must rebuild/relint/redeploy everything.
+          if [ "$MODE" = "deploy" ]; then
+            ALL_TRIGGERS='^internal/pkg/|^proto/|^buf\.(yaml|lock|gen\.yaml)$|^Dockerfile$|^\.dockerignore$|^deploy/|^\.github/workflows/(deploy|detect-changes)\.yml$'
+          else
+            ALL_TRIGGERS='^internal/pkg/|^proto/|^buf\.(yaml|lock|gen\.yaml)$|^go\.work$|^\.golangci\.yml$|^\.github/workflows/(ci|detect-changes)\.yml$'
+          fi
+
+          SVC_LIST=""
+          if [ -z "$CHANGED" ] || grep -qE "$ALL_TRIGGERS" <<<"$CHANGED"; then
+            SVC_LIST=$SERVICES
+          else
+            for SVC in $SERVICES; do
+              if grep -qE "^internal/service/$SVC/" <<<"$CHANGED"; then
+                SVC_LIST="$SVC_LIST $SVC"
+              fi
+            done
+            SVC_LIST="${SVC_LIST# }"
+          fi
+
+          if [ "$MODE" = "deploy" ]; then
+            echo "services=$(emit_json $SVC_LIST)" >> "$GITHUB_OUTPUT"
+            echo "modules=[]" >> "$GITHUB_OUTPUT"
+          else
+            # CI mode: internal/pkg always runs; append changed services as dir paths.
+            MOD_LIST="internal/pkg"
+            for SVC in $SVC_LIST; do
+              MOD_LIST="$MOD_LIST internal/service/$SVC"
+            done
+            echo "modules=$(emit_json $MOD_LIST)" >> "$GITHUB_OUTPUT"
+            echo "services=[]" >> "$GITHUB_OUTPUT"
+          fi
