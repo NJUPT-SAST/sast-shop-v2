@@ -35,6 +35,13 @@ type Config struct {
 	Feishu_AppSecret string `env:"FEISHU_APP_SECRET" envDefault:"your_feishu_app_secret"`
 
 	Feishu_REDIRECT_URL string `env:"FEISHU_REDIRECT_URL" envDefault:"http://127.0.0.1:8080/api/v1/auth/feishu/callback"`
+
+	// Object storage configuration (Tencent Cloud COS)
+	Cos_SecretID   string `env:"COS_SECRET_ID"    envDefault:"your_cos_secret_id"`
+	Cos_SecretKey  string `env:"COS_SECRET_KEY"   envDefault:"your_cos_secret_key"` //nolint:gosec
+	Cos_BucketURL  string `env:"COS_BUCKET_URL"   envDefault:""`
+	Cos_CDNBaseURL string `env:"COS_CDN_BASE_URL" envDefault:""`
+
 	// App configuration
 	AppEnv Environment `env:"APP_ENV" envDefault:"development"`
 
