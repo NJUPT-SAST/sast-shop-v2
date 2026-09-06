@@ -160,6 +160,57 @@ This project is in early development. Currently implemented:
 
 No tests exist yet. Contributions are welcome.
 
+## Deployment
+
+Production deployment is container-based: every push to `main` builds Docker images and pushes them to Tencent Cloud Container Registry (TCR), then upgrades the changed services on the server over SSH.
+
+### Flow
+
+```
+push to main
+  → detect changed services (changes to internal/pkg, proto/, Dockerfile → all services)
+  → build & push ccr.ccs.tencentyun.com/<namespace>/sast-shop-<service>:<short-sha> to TCR
+  → SSH: pull image, rotate sast/<service>:current → backup, tag new image as current
+  → docker compose up -d --no-deps <service>
+```
+
+Manual deploy: Actions → Deploy → Run workflow (optionally pick a single service).
+
+### GitHub configuration
+
+| Kind | Name | Description |
+|---|---|---|
+| Secret | `TCR_USERNAME` / `TCR_PASSWORD` | TCR credentials for pushing images (long-term token recommended) |
+| Secret | `SERVER_HOST` / `SERVER_USER` / `SSH_PRIVATE_KEY` | Deployment server SSH access |
+| Variable | `TCR_NAMESPACE` | TCR namespace, e.g. `sast` |
+| Variable | `IMAGE_PREFIX` | TCR repository name prefix (default `sast-shop`) |
+| Variable | `COMPOSE_DIR` | Server directory holding `docker-compose.yml` (default `/data/sast-shop-v2`) |
+
+### One-time server setup
+
+1. Copy the compose template: `mkdir -p /data/sast-shop-v2 && cp deploy/docker-compose.yml /data/sast-shop-v2/`
+2. Create `/data/sast-shop-v2/.env` from `.env.example` with production values. Required:
+   - real `REDIS_HOST`/`REDIS_PORT` — services ping Redis at startup and panic on failure
+   - `DB_*` database credentials
+   - `APP_ENV=production` plus real Feishu credentials (`FEISHU_APP_ID`, `FEISHU_APP_SECRET`) — with `APP_ENV=development` the `X-Dev-User-ID` auth bypass is enabled, which must not happen in production
+   - COS variables are optional — catalogservice degrades gracefully without them
+3. Apply migrations once against the production database:
+   `psql "$DATABASE_URL" -f migrations/001_init.sql`
+4. Restrict ports 1323–1327 to loopback on the firewall — services bind `0.0.0.0`; host Caddy reaches them at `127.0.0.1`.
+5. Ensure the server has Docker with the Compose v2 plugin.
+
+### Manual rollback
+
+Each deploy rotates the previous image to `sast/<service>:backup`. To roll back:
+
+```bash
+cd /data/sast-shop-v2
+docker tag sast/userservice:backup sast/userservice:current
+docker compose up -d --no-deps userservice
+```
+
+> If the TCR repositories are private, log the server in once with `docker login ccr.ccs.tencentyun.com`.
+
 ## License
 
 MIT
