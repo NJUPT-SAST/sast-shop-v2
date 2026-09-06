@@ -1,0 +1,3 @@
+# 统一文本文件换行符为 LF，避免跨平台 CRLF 造成大量无意义的 diff
+# 随仓库共享、对所有协作者生效，比 core.autocrlf 更可靠
+* text=auto eol=lf
