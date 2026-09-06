@@ -20,67 +20,9 @@ env:
 
 jobs:
   changes:
-    name: Detect changed modules
-    runs-on: ubuntu-latest
-    outputs:
-      modules: ${{ steps.filter.outputs.modules }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Determine changed modules
-        id: filter
-        run: |
-          # On push to main, compare against the previous commit.
-          # On pull_request, compare against the base branch.
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE=${{ github.event.pull_request.base.sha }}
-          else
-            BASE=${{ github.event.before }}
-          fi
-
-          ALL_MODULES='["internal/pkg","internal/service/userservice","internal/service/catalogservice","internal/service/paymentservice","internal/service/spotservice","internal/service/errandservice"]'
-
-          # Fall back to running everything when BASE is unknown or unreachable
-          # (first push, force-push that rewrote history, shallow clone missing the object).
-          if [ "$BASE" = "0000000000000000000000000000000000000000" ] || [ -z "$BASE" ]; then
-            echo "modules=$ALL_MODULES" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            echo "modules=$ALL_MODULES" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          CHANGED=$(git diff --name-only "$BASE" HEAD)
-
-          PKG_CHANGED=false
-          MODULES='[]'
-
-          # Check if shared lib changed — if so, all modules must run.
-          if echo "$CHANGED" | grep -qE '^internal/pkg/|^\.golangci\.yml|^go\.work|^proto/|^buf\.gen\.yaml|^buf\.lock|^buf\.yaml'; then
-            PKG_CHANGED=true
-          fi
-          # Also run everything when CI config itself changes.
-          if echo "$CHANGED" | grep -qE '^\.github/workflows/ci\.yml'; then
-            PKG_CHANGED=true
-          fi
-
-          if [ "$PKG_CHANGED" = "true" ]; then
-            echo "modules=$ALL_MODULES" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Otherwise collect only the services that changed, always including pkg.
-          RESULT='["internal/pkg"'
-          for SVC in userservice catalogservice paymentservice spotservice errandservice; do
-            if echo "$CHANGED" | grep -qE "^internal/service/$SVC/"; then
-              RESULT="$RESULT,\"internal/service/$SVC\""
-            fi
-          done
-          RESULT="$RESULT]"
-
-          # If nothing service-specific changed (e.g. only proto/docs), still run pkg.
-          echo "modules=$RESULT" >> "$GITHUB_OUTPUT"
+    uses: ./.github/workflows/detect-changes.yml
+    with:
+      mode: ci
 
   lint:
     name: Lint (${{ matrix.module }})

@@ -26,6 +26,7 @@ const (
 	DefaultMaxImagePixels   = 16 * 1024 * 1024
 	DefaultMaxOutputBytes   = 10 * 1024 * 1024
 	DefaultProductImagePath = "sast-shop/products"
+	DefaultDailyQuotaBytes  = 100 * 1024 * 1024 // 每日每用户 100MB
 )
 
 var (
@@ -248,22 +249,34 @@ func ValidatePublicURL(raw string) bool {
 	return parsed.IsAbs()
 }
 
+// UploadQuota 按用户统计每日上传字节数，Allow 只查询不计数，Commit 在存储成功后累加。
+type UploadQuota interface {
+	Allow(ctx context.Context, userID, size int64) (bool, error)
+	Commit(ctx context.Context, userID, size int64) error
+}
+
 // ProductImageUploadService 协调一张产品图片的处理、存储和公开可读性验证。
 type ProductImageUploadService struct {
 	Store  storage.ObjectStore
 	Prefix string
 	Limits ImageLimits
+	Quota  UploadQuota
 }
 
 func NewProductImageUploadService(
 	store storage.ObjectStore,
 	prefix string,
 	limits ImageLimits,
+	quota ...UploadQuota,
 ) *ProductImageUploadService {
 	if strings.TrimSpace(prefix) == "" {
 		prefix = DefaultProductImagePath
 	}
-	return &ProductImageUploadService{Store: store, Prefix: prefix, Limits: limits}
+	svc := &ProductImageUploadService{Store: store, Prefix: prefix, Limits: limits}
+	if len(quota) > 0 {
+		svc.Quota = quota[0]
+	}
+	return svc
 }
 
 func (s *ProductImageUploadService) Upload(
@@ -283,15 +296,23 @@ func (s *ProductImageUploadService) Upload(
 	if err != nil {
 		return "", err
 	}
+	processedSize := int64(len(processed.Data))
+	if err := s.reserveQuota(ctx, userID, processedSize); err != nil {
+		return "", err
+	}
 	if err := s.Store.Put(
 		ctx,
 		key,
 		bytes.NewReader(processed.Data),
-		int64(len(processed.Data)),
+		processedSize,
 		processed.ContentType,
 	); err != nil {
 		s.cleanup(ctx, key)
 		return "", ErrStorage
+	}
+	if err := s.commitQuota(ctx, userID, processedSize); err != nil {
+		s.cleanup(ctx, key)
+		return "", err
 	}
 	stored := true
 	defer func() {
@@ -315,6 +336,32 @@ func (s *ProductImageUploadService) Ready(ctx context.Context) error {
 		return ErrStorage
 	}
 	return s.Store.Ready(ctx)
+}
+
+// reserveQuota 检查用户当日配额是否还装得下 size 字节，未配置配额时直接放行。
+func (s *ProductImageUploadService) reserveQuota(ctx context.Context, userID, size int64) error {
+	if s.Quota == nil {
+		return nil
+	}
+	allowed, err := s.Quota.Allow(ctx, userID, size)
+	if err != nil {
+		return ErrQuotaUnavailable
+	}
+	if !allowed {
+		return ErrQuotaExceeded
+	}
+	return nil
+}
+
+// commitQuota 在对象存储成功后累计字节数，未配置配额时直接返回。
+func (s *ProductImageUploadService) commitQuota(ctx context.Context, userID, size int64) error {
+	if s.Quota == nil {
+		return nil
+	}
+	if err := s.Quota.Commit(ctx, userID, size); err != nil {
+		return ErrQuotaUnavailable
+	}
+	return nil
 }
 
 func (s *ProductImageUploadService) cleanup(ctx context.Context, key string) {

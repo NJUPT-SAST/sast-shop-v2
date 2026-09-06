@@ -1,0 +1,56 @@
+# Server-side template. Copy to $COMPOSE_DIR (default /data/sast-shop-v2)
+# together with a .env built from .env.example.
+#
+# The sast/<service>:current / :backup tags are rotated by the CD pipeline
+# (deploy.yml); never edit them here.
+
+name: sast-shop-v2
+
+services:
+  userservice:
+    image: sast/userservice:current
+    pull_policy: never # current/backup are local tags; never contact a registry
+    restart: unless-stopped
+    network_mode: host # app binds :1323; host Caddy at 127.0.0.1:1323 keeps working
+    env_file: .env
+
+  catalogservice:
+    image: sast/catalogservice:current
+    pull_policy: never
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+
+  paymentservice:
+    image: sast/paymentservice:current
+    pull_policy: never
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+
+  spotservice:
+    image: sast/spotservice:current
+    pull_policy: never
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+
+  errandservice:
+    image: sast/errandservice:current
+    pull_policy: never
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+
+# Deliberately omitted:
+# - No healthcheck: only catalogservice has an endpoint (/health/ready) and it
+#   503s when COS is unconfigured — a wrong healthcheck + unless-stopped would
+#   be a restart loop.
+# - No depends_on: PostgreSQL/Redis run outside compose (host services), same
+#   as the dev topology.
+#
+# Bridge-mode alternative (if host networking is not wanted): replace
+# `network_mode: host` with the two lines below per service, and in .env set
+# DB_HOST/REDIS_HOST/*_SERVICE_URL to host.docker.internal.
+#     ports: ["127.0.0.1:1323:1323"]
+#     extra_hosts: ["host.docker.internal:host-gateway"]
