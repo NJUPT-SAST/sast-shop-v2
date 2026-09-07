@@ -67,6 +67,15 @@ message UpdateSpotGoodsPriceRequest {
 
 message UpdateSpotGoodsPriceResponse {}
 
+message CloseSpotGoodsRequest {
+  // 现货商品 ID
+  int64 spot_goods_id = 1;
+  // 前端读取现货商品时拿到的 updated_at，用于下架并发校验
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message CloseSpotGoodsResponse {}
+
 service SpotGoodsService {
   // 获取指定店铺下的现货商品列表
   rpc ListSpotGoods(ListSpotGoodsRequest) returns (ListSpotGoodsResponse);
@@ -82,4 +91,7 @@ service SpotGoodsService {
 
   // 卖家调整现货商品价格
   rpc UpdateSpotGoodsPrice(UpdateSpotGoodsPriceRequest) returns (UpdateSpotGoodsPriceResponse);
+
+  // 卖家下架现货商品，下架后不再出现在现货列表中且不能继续下单
+  rpc CloseSpotGoods(CloseSpotGoodsRequest) returns (CloseSpotGoodsResponse);
 }

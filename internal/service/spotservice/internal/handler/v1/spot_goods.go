@@ -143,6 +143,32 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsPrice(
 	return connect.NewResponse(&spotv1.UpdateSpotGoodsPriceResponse{}), nil
 }
 
+func (s *SpotGoodsServiceServer) CloseSpotGoods(
+	ctx context.Context,
+	r *connect.Request[spotv1.CloseSpotGoodsRequest],
+) (*connect.Response[spotv1.CloseSpotGoodsResponse], error) {
+	user, ok := rpcinterceptor.UserFromContext(ctx)
+	if !ok {
+		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
+			SpotError: &spotv1.SpotError{
+				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
+			},
+		}, "user not found in context")
+	}
+
+	if err := service.CloseSpotGoods(
+		ctx,
+		user.UserID,
+		r.Msg.SpotGoodsId,
+		r.Msg.UpdatedAt,
+	); err != nil {
+		log.Error().Err(err).Msgf("Failed to close spot good for goodsID: %d", r.Msg.SpotGoodsId)
+		return nil, err
+	}
+
+	return connect.NewResponse(&spotv1.CloseSpotGoodsResponse{}), nil
+}
+
 func InitSpotGoodsServiceHandler(e *echo.Echo, opts ...connect.HandlerOption) {
 	apiPath, apiHandler := spotv1connect.NewSpotGoodsServiceHandler(&SpotGoodsServiceServer{}, opts...)
 	log.Debug().Msgf("SpotGoodsService API registered at path: %s", apiPath)

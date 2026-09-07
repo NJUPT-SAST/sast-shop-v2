@@ -85,6 +85,30 @@ func UpdateSpotGoodsStockTx(
 	return rows, nil
 }
 
+func CloseSpotGoods(
+	ctx context.Context,
+	goodsID int64,
+	updatedAt time.Time,
+) (int64, error) {
+	now := time.Now()
+	result, err := postgres.DB.NewUpdate().
+		Model((*model.SpotGoods)(nil)).
+		Set("closed_at = ?", now).
+		Set("updated_at = ?", now).
+		Where("id = ?", goodsID).
+		Where("closed_at IS NULL").
+		Where("updated_at = ?", updatedAt).
+		Exec(ctx)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return rows, nil
+}
+
 func UpdateSpotGoodsPrice(
 	ctx context.Context,
 	goodsID int64,
