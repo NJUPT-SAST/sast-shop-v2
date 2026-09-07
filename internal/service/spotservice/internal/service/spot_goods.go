@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"math"
 
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
@@ -12,6 +13,7 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/timeutil"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/repository"
@@ -256,6 +258,45 @@ func UpdateSpotGoodsStock(
 				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 			},
 		}, "")
+	}
+	return nil
+}
+
+func CloseSpotGoods(
+	ctx context.Context,
+	callerID int64,
+	goodsID int64,
+	updatedAt *timestamppb.Timestamp,
+) error {
+	if callerID <= 0 || goodsID <= 0 || updatedAt == nil || !updatedAt.IsValid() {
+		return connect.NewError(connect.CodeInvalidArgument, errmsg.SpotGoodsVersionConflict)
+	}
+
+	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return connect.NewError(connect.CodeNotFound, errmsg.SpotGoodsNotFound)
+		}
+		log.Error().Err(err).Int64("goods_id", goodsID).Msg("failed to get spot good before closing")
+		return spotInternalError()
+	}
+	if goods.SellerID != callerID {
+		return connect.NewError(connect.CodePermissionDenied, errmsg.SpotPermissionDenied)
+	}
+	if goods.ClosedAt != nil {
+		return connect.NewError(connect.CodeFailedPrecondition, errmsg.SpotGoodsClosed)
+	}
+	if !timeutil.SameUpdatedAtSecond(goods.UpdatedAt, updatedAt.AsTime()) {
+		return connect.NewError(connect.CodeAborted, errmsg.SpotGoodsVersionConflict)
+	}
+
+	rows, err := repository.CloseSpotGoods(ctx, goodsID, updatedAt.AsTime())
+	if err != nil {
+		log.Error().Err(err).Int64("goods_id", goodsID).Msg("failed to close spot good")
+		return spotInternalError()
+	}
+	if rows == 0 {
+		return connect.NewError(connect.CodeAborted, errmsg.SpotGoodsVersionConflict)
 	}
 	return nil
 }
