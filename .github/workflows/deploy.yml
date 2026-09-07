@@ -35,7 +35,7 @@ jobs:
     if: ${{ needs.changes.outputs.services != '[]' }}
     runs-on: ubuntu-latest
     env:
-      # TCR repo naming: <namespace>/<IMAGE_PREFIX>-<service>, e.g. sast/sast-shop-paymentservice
+      # TCR repo naming: <USERNAME>/<IMAGE_PREFIX>-<service>, e.g. sast/sast-shop-paymentservice
       IMAGE_PREFIX: ${{ vars.IMAGE_PREFIX || 'sast-shop' }}
     strategy:
       fail-fast: false
@@ -46,8 +46,8 @@ jobs:
 
       - name: Check required configuration
         run: |
-          if [ -z "${{ vars.TCR_NAMESPACE }}" ]; then
-            echo "::error::Repository variable TCR_NAMESPACE is not set. Add it under Settings → Secrets and variables → Actions → Variables." >&2
+          if [ -z "${{ vars.TCR_USERNAME }}" ]; then
+            echo "::error::Repository variable TCR_USERNAME is not set. Add it under Settings → Secrets and variables → Actions → Variables." >&2
             exit 1
           fi
 
@@ -69,7 +69,7 @@ jobs:
           file: Dockerfile
           build-args: SERVICE=${{ matrix.service }}
           push: true
-          tags: ccr.ccs.tencentyun.com/${{ vars.TCR_NAMESPACE }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ steps.meta.outputs.sha }}
+          tags: ccr.ccs.tencentyun.com/${{ vars.TCR_USERNAME }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ steps.meta.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
@@ -101,20 +101,20 @@ jobs:
         env:
           SVC: ${{ matrix.service }}
           SHA: ${{ steps.meta.outputs.sha }}
-          TCR_NAMESPACE: ${{ vars.TCR_NAMESPACE }}
+          TCR_USERNAME: ${{ vars.TCR_USERNAME }}
           IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
           COMPOSE_DIR: ${{ vars.COMPOSE_DIR || '/data/sast-shop-v2' }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: SVC,SHA,TCR_NAMESPACE,IMAGE_PREFIX,COMPOSE_DIR
+          envs: SVC,SHA,TCR_USERNAME,IMAGE_PREFIX,COMPOSE_DIR
           command_timeout: 10m
           # Runs on the server (POSIX sh compatible; not bash-only).
           script: |
             set -eu
             cd "$COMPOSE_DIR"
-            REMOTE="ccr.ccs.tencentyun.com/$TCR_NAMESPACE/${IMAGE_PREFIX}-${SVC}:${SHA}"
+            REMOTE="ccr.ccs.tencentyun.com/$TCR_USERNAME/${IMAGE_PREFIX}-${SVC}:${SHA}"
 
             # Public repo, anonymous pull; retry 3x (TCR shared storage may lag after push).
             for i in 1 2 3; do

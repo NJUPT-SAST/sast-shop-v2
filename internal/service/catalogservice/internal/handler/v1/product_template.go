@@ -95,6 +95,24 @@ func (s *ProductTemplateServiceServer) GetProductTemplateByBarcode(
 	}), nil
 }
 
+func (s *ProductTemplateServiceServer) DeleteProductTemplate(
+	ctx context.Context,
+	r *connect.Request[catalogv1.DeleteProductTemplateRequest],
+) (*connect.Response[catalogv1.DeleteProductTemplateResponse], error) {
+	authUser, ok := interceptor.UserFromContext(ctx)
+	if !ok {
+		return nil, catalogError()
+	}
+	if authUser.Role == "admin" {
+		return nil, permissionDeniedError()
+	}
+
+	if err := service.DeleteProductTemplate(ctx, r.Msg.ProductTemplateId, authUser.UserID); err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&catalogv1.DeleteProductTemplateResponse{}), nil
+}
+
 func InitProductTemplateServiceHandler(e *echo.Echo, opts ...connect.HandlerOption) {
 	apiPath, apiHandler := catalogv1connect.NewProductTemplateServiceHandler(&ProductTemplateServiceServer{}, opts...)
 	log.Debug().Msgf("ProductTemplateService API registered at path: %s", apiPath)

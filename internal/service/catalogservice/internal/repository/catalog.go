@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/model"
@@ -77,6 +79,7 @@ func ListProductTemplates(
 	err := postgres.DB.NewSelect().
 		Model(&pts).
 		Where("store_id = ?", storeID).
+		Where("status != ?", model.CatalogStatusRemoved).
 		Order("id DESC").
 		Limit(limit).
 		Offset(offset).
@@ -89,6 +92,7 @@ func CountProductTemplates(ctx context.Context, storeID int64) (int, error) {
 	return postgres.DB.NewSelect().
 		Model((*model.CatalogProductTemplate)(nil)).
 		Where("store_id = ?", storeID).
+		Where("status != ?", model.CatalogStatusRemoved).
 		Count(ctx)
 }
 
@@ -111,11 +115,83 @@ func CreateImage(ctx context.Context, image *model.CatalogProductImage) error {
 }
 
 // UpdateProductTemplate 部分更新商品模板，updates 为需要更新的列名→值映射。
-func UpdateProductTemplate(ctx context.Context, id int64, updates map[string]any) error {
-	_, err := postgres.DB.NewUpdate().
+func UpdateProductTemplate(ctx context.Context, db bun.IDB, id int64, updates map[string]any) error {
+	_, err := db.NewUpdate().
 		Model(&updates).
 		TableExpr("catalog.catalog_product_template").
 		Where("id = ?", id).
+		Exec(ctx)
+	return err
+}
+
+// SoftDeleteProductTemplate 软删除商品模板，将状态置为 removed。
+func SoftDeleteProductTemplate(ctx context.Context, id int64) error {
+	_, err := postgres.DB.NewUpdate().
+		TableExpr("catalog.catalog_product_template").
+		Set("status = ?", model.CatalogStatusRemoved).
+		Where("id = ?", id).
+		Exec(ctx)
+	return err
+}
+
+// UpsertBarcodeByProductTemplateID 更新商品模板的第一个条码；若不存在则新建。
+func UpsertBarcodeByProductTemplateID(ctx context.Context, db bun.IDB, ptID int64, barcode string) error {
+	var b model.CatalogProductBarcode
+	err := db.NewSelect().
+		Model(&b).
+		Where("product_template_id = ?", ptID).
+		Limit(1).
+		For("UPDATE").
+		Scan(ctx)
+	if err == nil {
+		_, err = db.NewUpdate().
+			TableExpr("catalog.catalog_product_barcode").
+			Set("barcode = ?", barcode).
+			Where("id = ?", b.ID).
+			Exec(ctx)
+		return err
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = db.NewInsert().
+			Model(&model.CatalogProductBarcode{ProductTemplateID: ptID, Barcode: barcode}).
+			Exec(ctx)
+		return err
+	}
+	return err
+}
+
+// UpsertImageByProductTemplateID 更新商品模板的第一张图片；若不存在则新建。
+func UpsertImageByProductTemplateID(ctx context.Context, db bun.IDB, ptID int64, imageURL string) error {
+	var img model.CatalogProductImage
+	err := db.NewSelect().
+		Model(&img).
+		Where("product_template_id = ?", ptID).
+		Order("sort_order ASC").
+		Limit(1).
+		For("UPDATE").
+		Scan(ctx)
+	if err == nil {
+		_, err = db.NewUpdate().
+			TableExpr("catalog.catalog_product_image").
+			Set("image_url = ?", imageURL).
+			Where("id = ?", img.ID).
+			Exec(ctx)
+		return err
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = db.NewInsert().
+			Model(&model.CatalogProductImage{ProductTemplateID: ptID, ImageURL: imageURL, SortOrder: 0}).
+			Exec(ctx)
+		return err
+	}
+	return err
+}
+
+// DeleteImagesByProductTemplateID 删除商品模板的全部图片。
+func DeleteImagesByProductTemplateID(ctx context.Context, db bun.IDB, ptID int64) error {
+	_, err := db.NewDelete().
+		Model((*model.CatalogProductImage)(nil)).
+		Where("product_template_id = ?", ptID).
 		Exec(ctx)
 	return err
 }
