@@ -19,6 +19,9 @@ on:
       services:
         description: Short service names for the deploy matrix
         value: ${{ jobs.detect.outputs.services }}
+      all_modules:
+        description: Every module dir (fixed full list) so CI matrix checks always exist
+        value: ${{ jobs.detect.outputs.all_modules }}
 
 jobs:
   detect:
@@ -26,6 +29,7 @@ jobs:
     outputs:
       modules: ${{ steps.filter.outputs.modules }}
       services: ${{ steps.filter.outputs.services }}
+      all_modules: ${{ steps.filter.outputs.all_modules }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -41,6 +45,15 @@ jobs:
           MODE="${{ inputs.mode }}"
           DISPATCH_SVC="${{ inputs.dispatch-service }}"
           SERVICES="userservice catalogservice paymentservice spotservice errandservice"
+
+          # Fixed list of every module in the workspace (single source of
+          # truth for CI's matrix). Emitted as all_modules so each
+          # "Lint/Build (<module>)" check always exists, which lets branch
+          # protection require those check names safely.
+          ALL_MODULES="internal/pkg"
+          for SVC in $SERVICES; do
+            ALL_MODULES="$ALL_MODULES internal/service/$SVC"
+          done
 
           emit_json() {
             # $@: items to quote into a JSON array
@@ -58,6 +71,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "$DISPATCH_SVC" ]; then
             echo "services=$(emit_json "$DISPATCH_SVC")" >> "$GITHUB_OUTPUT"
             echo "modules=[]" >> "$GITHUB_OUTPUT"
+            echo "all_modules=$(emit_json $ALL_MODULES)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -98,6 +112,7 @@ jobs:
           if [ "$MODE" = "deploy" ]; then
             echo "services=$(emit_json $SVC_LIST)" >> "$GITHUB_OUTPUT"
             echo "modules=[]" >> "$GITHUB_OUTPUT"
+            echo "all_modules=[]" >> "$GITHUB_OUTPUT"
           else
             # CI mode: internal/pkg always runs; append changed services as dir paths.
             MOD_LIST="internal/pkg"
@@ -106,4 +121,5 @@ jobs:
             done
             echo "modules=$(emit_json $MOD_LIST)" >> "$GITHUB_OUTPUT"
             echo "services=[]" >> "$GITHUB_OUTPUT"
+            echo "all_modules=$(emit_json $ALL_MODULES)" >> "$GITHUB_OUTPUT"
           fi

@@ -24,20 +24,31 @@ jobs:
     with:
       mode: ci
 
+  # The matrix is the FIXED full module list (all_modules from
+  # detect-changes.yml), not the changed-module list. Every leg therefore
+  # always creates a check run, so branch protection can safely require
+  # names like "Build (internal/service/catalogservice)" — unchanged
+  # modules succeed immediately via the skip step instead of leaving the
+  # check "Expected — waiting to be reported" forever.
   lint:
     name: Lint (${{ matrix.module }})
     needs: changes
-    if: ${{ needs.changes.outputs.modules != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        module: ${{ fromJson(needs.changes.outputs.modules) }}
+        module: ${{ fromJson(needs.changes.outputs.all_modules) }}
 
     steps:
+      - name: Skip (module unchanged)
+        if: ${{ !contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
+        run: echo "Module ${{ matrix.module }} not in changed set — skipping"
+
       - uses: actions/checkout@v6
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
 
       - uses: actions/setup-go@v6
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
@@ -49,13 +60,16 @@ jobs:
             internal/service/errandservice/go.sum
 
       - uses: bufbuild/buf-setup-action@v1
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         with:
           github_token: ${{ github.token }}
 
       - name: Generate proto
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         run: make proto
 
       - name: Lint
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
@@ -64,29 +78,37 @@ jobs:
   build:
     name: Build (${{ matrix.module }})
     needs: changes
-    if: ${{ needs.changes.outputs.modules != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        module: ${{ fromJson(needs.changes.outputs.modules) }}
+        module: ${{ fromJson(needs.changes.outputs.all_modules) }}
 
     steps:
+      - name: Skip (module unchanged)
+        if: ${{ !contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
+        run: echo "Module ${{ matrix.module }} not in changed set — skipping"
+
       - uses: actions/checkout@v6
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
 
       - uses: actions/setup-go@v6
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.sum
 
       - uses: bufbuild/buf-setup-action@v1
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         with:
           github_token: ${{ github.token }}
 
       - name: Generate proto
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         run: make proto
 
       - name: Build
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         working-directory: ${{ matrix.module }}
         run: go build ./...
 
