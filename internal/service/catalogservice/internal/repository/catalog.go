@@ -97,20 +97,20 @@ func CountProductTemplates(ctx context.Context, storeID int64) (int, error) {
 }
 
 // CreateProductTemplate 创建商品模板。
-func CreateProductTemplate(ctx context.Context, pt *model.CatalogProductTemplate) error {
-	_, err := postgres.DB.NewInsert().Model(pt).Exec(ctx)
+func CreateProductTemplate(ctx context.Context, db bun.IDB, pt *model.CatalogProductTemplate) error {
+	_, err := db.NewInsert().Model(pt).Exec(ctx)
 	return err
 }
 
 // CreateBarcode 创建商品条码记录。
-func CreateBarcode(ctx context.Context, barcode *model.CatalogProductBarcode) error {
-	_, err := postgres.DB.NewInsert().Model(barcode).Exec(ctx)
+func CreateBarcode(ctx context.Context, db bun.IDB, barcode *model.CatalogProductBarcode) error {
+	_, err := db.NewInsert().Model(barcode).Exec(ctx)
 	return err
 }
 
 // CreateImage 创建商品图片记录。
-func CreateImage(ctx context.Context, image *model.CatalogProductImage) error {
-	_, err := postgres.DB.NewInsert().Model(image).Exec(ctx)
+func CreateImage(ctx context.Context, db bun.IDB, image *model.CatalogProductImage) error {
+	_, err := db.NewInsert().Model(image).Exec(ctx)
 	return err
 }
 
@@ -201,6 +201,20 @@ func GetBarcodeByCode(ctx context.Context, barcode string) (*model.CatalogProduc
 	var b model.CatalogProductBarcode
 	err := postgres.DB.NewSelect().Model(&b).Where("barcode = ?", barcode).Scan(ctx)
 	return &b, err
+}
+
+// Return the most recently updated matching template in each store, matching
+// the browser's one-candidate-per-store barcode selection contract.
+func ListProductTemplatesByBarcode(ctx context.Context, barcode string) ([]*model.CatalogProductTemplate, error) {
+	var templates []*model.CatalogProductTemplate
+	err := postgres.DB.NewSelect().Model(&templates).
+		ColumnExpr("DISTINCT ON (cpt.store_id) cpt.*").
+		Join("JOIN catalog.catalog_product_barcode AS cpb ON cpb.product_template_id = cpt.id").
+		Where("cpb.barcode = ?", barcode).
+		Where("cpt.status = ?", model.CatalogStatusActive).
+		OrderExpr("cpt.store_id ASC, cpt.updated_at DESC, cpt.id DESC").
+		Scan(ctx)
+	return templates, err
 }
 
 // GetBarcodeByProductTemplateID 获取商品模板的第一个条码。

@@ -13,6 +13,8 @@ import (
 	spotv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/spot/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/timeutil"
@@ -34,7 +36,7 @@ var (
 	ErrSpotOrderPermissionDenied      = errors.New("permission denied for spot order")
 	ErrSpotOrderVersionConflict       = errors.New("spot order updated_at version conflict")
 	ErrInvalidSpotOrderStatus         = errors.New("invalid spot order status")
-	ErrCannotPurchaseOwnGoods         = errors.New("cannot purchase own goods")
+	ErrCannotPurchaseOwnGoods         = errmsg.SpotCannotPurchaseOwnGoods
 )
 
 const (
@@ -66,6 +68,12 @@ func ListSpotOrder(
 		statusFilter = &status
 	}
 
+	if statusFilter == nil || *statusFilter == model.SpotOrderStatusPendingPayment ||
+		*statusFilter == model.SpotOrderStatusPaid {
+		if err := syncPendingSpotOrderPayments(ctx, userID, req.StoreId, perspective); err != nil {
+			return nil, err
+		}
+	}
 	page, pageSize := normalizePage(req.Page, req.PageSize)
 	records, total, err := repository.ListSpotOrders(
 		ctx,
@@ -74,7 +82,7 @@ func ListSpotOrder(
 		perspective,
 		statusFilter,
 		int(pageSize),
-		int((page-1)*pageSize),
+		(int(page)-1)*int(pageSize),
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to list spot orders")
@@ -125,6 +133,28 @@ func GetSpotOrderDetail(
 	if !canReadSpotOrder(userID, record) {
 		return nil, connect.NewError(connect.CodePermissionDenied, ErrSpotOrderPermissionDenied)
 	}
+	if record.Status == model.SpotOrderStatusPendingPayment && record.PaymentBillID != nil {
+		bill, err := getBill(ctx, record.PaymentBillID)
+		if err != nil {
+			return nil, err
+		}
+		if err := syncSpotOrderPayment(
+			ctx,
+			postgres.DB,
+			record.ID,
+			record.PaymentBillID,
+			record.TotalAmountCents,
+			bill,
+		); err != nil {
+			return nil, err
+		}
+		// Re-read after the conditional update so a concurrent cancellation or
+		// completion is returned as persisted, rather than projected as paid.
+		record, err = repository.GetSpotOrderRecord(ctx, req.SpotOrderId)
+		if err != nil {
+			return nil, spotInternalError()
+		}
+	}
 	return buildSpotOrderDetail(ctx, record)
 }
 
@@ -172,10 +202,10 @@ func cancelSpotOrderInTx(
 	if err := validateCancelableSpotOrder(order, userID, req.UpdatedAt.AsTime()); err != nil {
 		return err
 	}
-	if err := releaseSpotOrderStock(ctx, tx, order, userID); err != nil {
+	if err := cancelSpotOrderBill(ctx, order); err != nil {
 		return err
 	}
-	if err := cancelSpotOrderBill(ctx, order); err != nil {
+	if err := releaseSpotOrderStock(ctx, tx, order, userID); err != nil {
 		return err
 	}
 	return markSpotOrderCancelled(ctx, tx, order)
@@ -242,7 +272,17 @@ func cancelSpotOrderBill(ctx context.Context, order *model.SpotOrder) error {
 	if order.PaymentBillID == nil {
 		return nil
 	}
-	_, err := client.PaymentInternalServiceClient.CancelBillBySource(
+	bill, err := getBill(ctx, order.PaymentBillID)
+	if err != nil {
+		return err
+	}
+	if err := validateSpotOrderBill(order.ID, order.PaymentBillID, order.TotalAmountCents, bill); err != nil {
+		return err
+	}
+	if bill.Status == paymentv1.BillStatus_BILL_STATUS_COMPLETED {
+		return connect.NewError(connect.CodeFailedPrecondition, ErrInvalidSpotOrderStatus)
+	}
+	_, err = client.PaymentInternalServiceClient.CancelBillBySource(
 		ctx,
 		connect.NewRequest(&paymentv1.CancelBillBySourceRequest{
 			SourceType: "spot_order",
@@ -307,18 +347,18 @@ func completeSpotOrderInTx(
 	userID int64,
 	req *spotv1.CompleteSpotOrderRequest,
 ) error {
-	order, goods, err := lockOrderAndGoods(ctx, tx, req.SpotOrderId)
+	order, _, err := lockOrderAndGoods(ctx, tx, req.SpotOrderId)
 	if err != nil {
 		return err
 	}
-	if goods.SellerID != userID {
+	if order.PurchaserID != userID {
 		return connect.NewError(connect.CodePermissionDenied, ErrSpotOrderPermissionDenied)
 	}
 	if !order.UpdatedAt.UTC().Equal(req.UpdatedAt.AsTime().UTC()) {
 		return connect.NewError(connect.CodeAborted, ErrSpotOrderVersionConflict)
 	}
-	if order.Status != model.SpotOrderStatusPaid {
-		return connect.NewError(connect.CodeFailedPrecondition, ErrInvalidSpotOrderStatus)
+	if err := ensureSpotOrderPaymentCompleted(ctx, tx, order); err != nil {
+		return err
 	}
 	if _, err := repository.MarkSpotOrderCompleted(ctx, tx, order.ID); err != nil {
 		log.Error().
@@ -827,6 +867,9 @@ func getUser(ctx context.Context, userID int64) (*userv1.UserInfo, error) {
 func getBill(ctx context.Context, billID *int64) (*paymentv1.Bill, error) {
 	if billID == nil || *billID <= 0 {
 		return nil, nil
+	}
+	if client.PaymentInternalServiceClient == nil {
+		return nil, spotInternalError()
 	}
 	resp, err := client.PaymentInternalServiceClient.BatchGetBills(
 		ctx,

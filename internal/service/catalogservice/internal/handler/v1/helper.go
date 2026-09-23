@@ -41,6 +41,10 @@ func productTemplateForbiddenError() *connect.Error {
 
 // mapServiceError 将 service 层哨兵错误映射为 Connect 错误。
 func mapServiceError(err error) *connect.Error {
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr
+	}
 	switch {
 	case errors.Is(err, service.ErrStoreNotFound):
 		return storeNotFoundError()

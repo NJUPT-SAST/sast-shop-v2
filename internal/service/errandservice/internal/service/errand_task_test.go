@@ -99,3 +99,10 @@ func TestIsValidShoppingTaskItemPurchasedQuantityAllowsUndo(t *testing.T) {
 		})
 	}
 }
+
+func TestCeilDivideDoesNotOverflow(t *testing.T) {
+	t.Parallel()
+	if got := ceilDivide(maxInt32Value, 2); got != 1073741824 {
+		t.Fatalf("ceilDivide(maxInt32Value, 2) = %d, want 1073741824", got)
+	}
+}

@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
@@ -38,6 +40,9 @@ func GetSpotGoodsLength(ctx context.Context, storeID int64) (int, error) {
 func GetSpotGoodsByID(ctx context.Context, goodsID int64) (*model.SpotGoods, error) {
 	var goods model.SpotGoods
 	err := postgres.DB.NewSelect().Model(&goods).Where("id = ?", goodsID).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
 	return &goods, err
 }
 

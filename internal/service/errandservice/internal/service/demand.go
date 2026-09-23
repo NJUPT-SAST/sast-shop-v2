@@ -201,7 +201,7 @@ func GetDemandList(
 		return nil, 0, ErrInternal
 	}
 	if len(aggregations) == 0 {
-		return []*DemandByStoreResult{}, 0, nil
+		return []*DemandByStoreResult{}, totalCount, nil
 	}
 
 	// 3. 逐个查询店铺名称
@@ -210,6 +210,13 @@ func GetDemandList(
 	// 4. 按店铺名过滤（前端搜索）
 	if storeName != "" {
 		aggregations = filterByStoreName(aggregations, storeMap, storeName)
+		totalCount = len(aggregations)
+		start := (int(page) - 1) * int(pageSize)
+		if start >= totalCount {
+			return []*DemandByStoreResult{}, totalCount, nil
+		}
+		end := min(start+int(pageSize), totalCount)
+		aggregations = aggregations[start:end]
 	}
 
 	// 5. 收集各店铺的买家 ID → 批量查头像

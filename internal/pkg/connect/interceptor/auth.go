@@ -34,7 +34,7 @@ const userContextKey contextKey = "auth_user"
 // UserFromContext retrieves the authenticated user from context.
 func UserFromContext(ctx context.Context) (*AuthUser, bool) {
 	user, ok := ctx.Value(userContextKey).(*AuthUser)
-	return user, ok
+	return user, ok && user != nil
 }
 
 // SetUserToContext injects an authenticated user into context.
@@ -63,6 +63,9 @@ func AuthRequired(store SessionStore, logger zerolog.Logger, allowDevBypass bool
 				logger.Error().Err(err).Msg("session lookup failed")
 				return nil, connect.NewError(errmsg.Unauthenticated.Code, errmsg.Unauthenticated)
 			}
+			if !isActiveUser(user) {
+				return nil, connect.NewError(errmsg.Unauthenticated.Code, errmsg.Unauthenticated)
+			}
 
 			return next(SetUserToContext(ctx, user), req)
 		}
@@ -75,14 +78,18 @@ func devBypass(ctx context.Context, store SessionStore, req connect.AnyRequest) 
 		return nil, false
 	}
 	userID, err := strconv.ParseInt(devUserID, 10, 64)
-	if err != nil {
+	if err != nil || userID <= 0 {
 		return nil, false
 	}
 	user, err := store.GetUserByID(ctx, userID)
-	if err != nil {
+	if err != nil || !isActiveUser(user) {
 		return nil, false
 	}
 	return user, true
+}
+
+func isActiveUser(user *AuthUser) bool {
+	return user != nil && user.UserID > 0 && strings.EqualFold(strings.TrimSpace(user.Status), "active")
 }
 
 func extractToken(req connect.AnyRequest) string {

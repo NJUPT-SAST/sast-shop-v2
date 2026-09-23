@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -58,7 +59,7 @@ func TestValidateSpotOrderParticipantsRejectsOwnGoods(t *testing.T) {
 	if code := connect.CodeOf(err); code != connect.CodeFailedPrecondition {
 		t.Fatalf("code = %v, want %v; err = %v", code, connect.CodeFailedPrecondition, err)
 	}
-	if err.Error() != "cannot purchase own goods" {
+	if !errors.Is(err, ErrCannotPurchaseOwnGoods) {
 		t.Fatalf("error = %v, want own-goods validation error", err)
 	}
 }

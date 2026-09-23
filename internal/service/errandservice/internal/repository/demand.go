@@ -42,25 +42,27 @@ func GetDemandListByStore(
 ) ([]*DemandListAggregation, int, error) {
 	query := postgres.DB.NewSelect().
 		ColumnExpr("store_id").
-		ColumnExpr("SUM(estimated_unit_price_cents * quantity) AS total_origin_unit_price_cents").
-		ColumnExpr("SUM(service_fee_per_unit_cents * quantity) AS total_service_fee_cents").
+		ColumnExpr("SUM(estimated_unit_price_cents::bigint * quantity) AS total_origin_unit_price_cents").
+		ColumnExpr("SUM(service_fee_per_unit_cents::bigint * quantity) AS total_service_fee_cents").
 		ColumnExpr("MAX(updated_at) AS latest_updated_at").
 		TableExpr("errand.errand_demand_item").
 		Where("status = ?", model.ErrandDemandItemStatusOpen).
 		Group("store_id").
-		Order("latest_updated_at DESC")
+		Order("latest_updated_at DESC", "store_id ASC")
 
 	totalCount, err := query.Count(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	offset := (page - 1) * pageSize
+	offset := (int(page) - 1) * int(pageSize)
 	var results []*DemandListAggregation
-	err = query.
-		Limit(int(pageSize)).
-		Offset(int(offset)).
-		Scan(ctx, &results)
+	// Store names live in catalogservice. Name searches must filter the full
+	// aggregated set in the service layer before applying pagination.
+	if storeName == "" {
+		query = query.Limit(int(pageSize)).Offset(offset)
+	}
+	err = query.Scan(ctx, &results)
 
 	return results, totalCount, err
 }
@@ -231,11 +233,11 @@ func GetDemandsByRequester(
 		return nil, 0, err
 	}
 
-	offset := (page - 1) * pageSize
+	offset := (int(page) - 1) * int(pageSize)
 	var demands []*model.ErrandDemand
 	err = query.
 		Limit(int(pageSize)).
-		Offset(int(offset)).
+		Offset(offset).
 		Scan(ctx, &demands)
 	return demands, totalCount, err
 }

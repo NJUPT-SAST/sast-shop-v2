@@ -88,9 +88,9 @@ func (s *BillServiceServer) TransitionBill(
 	ctx context.Context,
 	r *connect.Request[paymentv1.TransitionBillRequest],
 ) (*connect.Response[paymentv1.TransitionBillResponse], error) {
-	authUser, ok := interceptor.UserFromContext(ctx)
-	if !ok {
-		return nil, paymentError()
+	userID, err := interceptor.UserIDFromContext(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	updatedAt, connErr := requireUpdatedAt(r.Msg.UpdatedAt)
@@ -103,7 +103,7 @@ func (s *BillServiceServer) TransitionBill(
 		r.Msg.BillId,
 		r.Msg.TargetStatus,
 		updatedAt,
-		authUser.UserID,
+		userID,
 	)
 	if err != nil {
 		return nil, mapServiceError(err)
