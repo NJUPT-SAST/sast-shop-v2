@@ -43,6 +43,9 @@ func CreateBill(
 	if err := requireBillUser(ctx, payerId, payeeId); err != nil {
 		return nil, err
 	}
+	if sourceType != nil && *sourceType == westPocketSource {
+		return nil, ErrBillPermissionDenied
+	}
 	if payerId <= 0 || payeeId <= 0 || amountCents < 0 ||
 		(sourceType == nil) != (sourceId == nil) ||
 		(sourceType != nil && (*sourceType == "" || *sourceId <= 0)) {
@@ -129,6 +132,9 @@ func PayBill(
 	if err := requireBillUser(ctx, bill.PayerID); err != nil {
 		return nil, err
 	}
+	if err := requireWestPocketCollecting(ctx, bill); err != nil {
+		return nil, err
+	}
 	if bill.Status != model.PaymentBillStatusUnpaid {
 		return nil, ErrInvalidBillStatus
 	}
@@ -138,6 +144,9 @@ func PayBill(
 
 	ch, ok := model.ProtoChannelToModel(channel)
 	if !ok {
+		return nil, ErrInvalidChannel
+	}
+	if bill.SourceType != nil && *bill.SourceType == westPocketSource && ch != model.PaymentChannelWechat {
 		return nil, ErrInvalidChannel
 	}
 
@@ -182,6 +191,9 @@ func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time)
 	}
 
 	if err := requireBillUser(ctx, bill.PayeeID); err != nil {
+		return nil, err
+	}
+	if err := requireWestPocketCollecting(ctx, bill); err != nil {
 		return nil, err
 	}
 	if bill.Status != model.PaymentBillStatusSubmitted {
@@ -251,6 +263,9 @@ func TransitionBill(
 	if operatorID != bill.PayeeID {
 		return nil, ErrBillPermissionDenied
 	}
+	if err := requireWestPocketCollecting(ctx, bill); err != nil {
+		return nil, err
+	}
 	if !sameUpdatedAtVersion(bill.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
@@ -309,6 +324,9 @@ func SupplementSerialNumber(
 	if bill.Status != model.PaymentBillStatusSubmitted {
 		return nil, ErrInvalidBillStatus
 	}
+	if err := requireWestPocketCollecting(ctx, bill); err != nil {
+		return nil, err
+	}
 	if !sameUpdatedAtVersion(bill.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
@@ -342,6 +360,9 @@ func CreateBillForOrder(
 	}
 	if payerID == payeeID {
 		return nil, ErrSelfPayment
+	}
+	if sourceType == westPocketSource {
+		return createWestPocketBill(ctx, sourceID, payerID, payeeID, amountCents)
 	}
 
 	bill, err := repository.GetBillBySource(ctx, sourceType, sourceID, payerID)
@@ -419,6 +440,9 @@ func requireBillUser(ctx context.Context, allowedUserIDs ...int64) error {
 }
 
 func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) error {
+	if sourceType == westPocketSource {
+		return ErrInvalidBillStatus
+	}
 	_, err := repository.CancelBillBySource(ctx, sourceType, sourceID, payerID)
 	if errors.Is(err, repository.ErrBillAlreadyCompleted) {
 		return ErrInvalidBillStatus

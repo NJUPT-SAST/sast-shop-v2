@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
           MODE="${{ inputs.mode }}"
           DISPATCH_SVC="${{ inputs.dispatch-service }}"
-          SERVICES="userservice catalogservice paymentservice spotservice errandservice"
+          SERVICES="userservice catalogservice paymentservice spotservice errandservice westpocketservice"
 
           # Fixed list of every module in the workspace (single source of
           # truth for CI's matrix). Emitted as all_modules so each

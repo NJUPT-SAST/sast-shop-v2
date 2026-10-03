@@ -58,6 +58,7 @@ jobs:
             internal/service/paymentservice/go.sum
             internal/service/spotservice/go.sum
             internal/service/errandservice/go.sum
+            internal/service/westpocketservice/go.sum
 
       - uses: bufbuild/buf-setup-action@v1
         if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
@@ -112,8 +113,7 @@ jobs:
         working-directory: ${{ matrix.module }}
         run: go build ./...
 
-      # TODO: uncomment after tests are added
-      # - name: Test
-      #   working-directory: ${{ matrix.module }}
-      #   run: go test -race -count=1 ./...
-      # For integration tests (PostgreSQL/Redis), consider testcontainers-go
+      - name: Test
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
+        working-directory: ${{ matrix.module }}
+        run: go test -race -count=1 ./...

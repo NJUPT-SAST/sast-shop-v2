@@ -1,59 +1,136 @@
 name: Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
       service:
-        description: >-
-          Deploy a single service (userservice, catalogservice, paymentservice,
-          spotservice or errandservice). Leave empty to auto-detect from changes.
-        required: false
-        type: string
-        default: ""
+        description: Service to rebuild and deploy after successful CI on current main
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - userservice
+          - catalogservice
+          - paymentservice
+          - spotservice
+          - errandservice
+          - westpocketservice
 
-# Deploys must never be cancelled mid-SSH (tag rotation could be left
-# half-done). Queued runs deploy in order; the newest sha deploys last.
+# One queue for both triggers. Never interrupt an active SSH deployment.
+# GitHub does not guarantee queue order; both gates below reject stale revisions.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: sast-shop-backend-production
   cancel-in-progress: false
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
-  changes:
-    uses: ./.github/workflows/detect-changes.yml
-    with:
-      mode: deploy
-      dispatch-service: ${{ inputs.service || '' }}
+  prepare:
+    name: Validate deployment revision
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.revision.outputs.deploy }}
+      revision: ${{ steps.revision.outputs.revision }}
+      services: ${{ steps.revision.outputs.services }}
+      services_list: ${{ steps.revision.outputs.services_list }}
+      tcr_namespace: ${{ steps.revision.outputs.tcr_namespace }}
+      image_prefix: ${{ steps.revision.outputs.image_prefix }}
+    steps:
+      - name: Require current main and successful CI for the exact SHA
+        id: revision
+        uses: actions/github-script@v7
+        env:
+          REQUESTED_SERVICE: ${{ inputs.service || 'all' }}
+          TCR_NAMESPACE: ${{ vars.TCR_NAMESPACE }}
+          IMAGE_PREFIX: ${{ vars.IMAGE_PREFIX || 'sast-shop' }}
+        with:
+          script: |
+            core.setOutput('deploy', 'false');
+            const allServices = [
+              'userservice', 'catalogservice', 'paymentservice',
+              'spotservice', 'errandservice', 'westpocketservice',
+            ];
+            const requested = process.env.REQUESTED_SERVICE;
+            if (requested !== 'all' && !allServices.includes(requested)) {
+              throw new Error('Unknown service');
+            }
+            for (const key of ['TCR_NAMESPACE', 'IMAGE_PREFIX']) {
+              if (!/^[a-z0-9][a-z0-9._-]{0,62}$/.test(process.env[key] || '')) {
+                throw new Error(`${key} must be a lowercase registry path component`);
+              }
+            }
+            const automatic = context.eventName === 'workflow_run';
+            const run = context.payload.workflow_run;
+            if (automatic && (
+              run.conclusion !== 'success' || run.event !== 'push' ||
+              run.head_branch !== 'main' ||
+              run.head_repository?.full_name !== `${context.repo.owner}/${context.repo.repo}`
+            )) {
+              throw new Error('Only successful main pushes in this repository may deploy');
+            }
+            if (!automatic && context.ref !== 'refs/heads/main') {
+              throw new Error('Manual deployments must select the main branch');
+            }
+            const revision = automatic ? run.head_sha : context.sha;
+            if (!/^[0-9a-f]{40}$/.test(revision)) {
+              throw new Error('Expected a full commit SHA');
+            }
+            const { data: main } = await github.rest.git.getRef({
+              ...context.repo, ref: 'heads/main',
+            });
+            if (main.object.sha !== revision) {
+              if (!automatic) throw new Error('main advanced; dispatch a new deployment');
+              core.notice(`Skipping superseded revision ${revision}`);
+              return;
+            }
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              ...context.repo, workflow_id: 'ci.yml', branch: 'main',
+              event: 'push', head_sha: revision, per_page: 100,
+            });
+            const ci = data.workflow_runs.find(candidate =>
+              candidate.head_sha === revision && candidate.head_branch === 'main' &&
+              candidate.event === 'push' &&
+              candidate.head_repository?.full_name === `${context.repo.owner}/${context.repo.repo}`
+            );
+            if (!ci || ci.status !== 'completed' || ci.conclusion !== 'success') {
+              throw new Error('The latest push CI for this exact SHA must finish successfully');
+            }
+            const services = requested === 'all' ? allServices : [requested];
+            core.setOutput('revision', revision);
+            core.setOutput('services', JSON.stringify(services));
+            core.setOutput('services_list', services.join(' '));
+            core.setOutput('tcr_namespace', process.env.TCR_NAMESPACE);
+            core.setOutput('image_prefix', process.env.IMAGE_PREFIX);
+            core.setOutput('deploy', 'true');
 
   build-push:
     name: Build & push (${{ matrix.service }})
-    needs: changes
-    if: ${{ needs.changes.outputs.services != '[]' }}
+    needs: prepare
+    if: needs.prepare.outputs.deploy == 'true'
     runs-on: ubuntu-latest
-    env:
-      # TCR repo naming: <namespace>/<IMAGE_PREFIX>-<service>, e.g. sast/sast-shop-paymentservice
-      IMAGE_PREFIX: ${{ vars.IMAGE_PREFIX || 'sast-shop' }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        service: ${{ fromJson(needs.changes.outputs.services) }}
+        service: ${{ fromJSON(needs.prepare.outputs.services) }}
     steps:
       - uses: actions/checkout@v6
-
-      - name: Check required configuration
-        run: |
-          if [ -z "${{ vars.TCR_NAMESPACE }}" ]; then
-            echo "::error::Repository variable TCR_NAMESPACE is not set. Add it under Settings → Secrets and variables → Actions → Variables." >&2
-            exit 1
-          fi
-
-      - name: Short sha
-        id: meta
-        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        with:
+          ref: ${{ needs.prepare.outputs.revision }}
+          persist-credentials: false
 
       - uses: docker/setup-buildx-action@v3
 
@@ -67,78 +144,102 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          build-args: SERVICE=${{ matrix.service }}
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            BUILD_REVISION=${{ needs.prepare.outputs.revision }}
           push: true
-          tags: ccr.ccs.tencentyun.com/${{ vars.TCR_NAMESPACE }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ steps.meta.outputs.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ccr.ccs.tencentyun.com/${{ needs.prepare.outputs.tcr_namespace }}/${{ needs.prepare.outputs.image_prefix }}-${{ matrix.service }}:sha-${{ needs.prepare.outputs.revision }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
           provenance: false
 
   deploy:
-    name: Deploy (${{ matrix.service }})
-    needs: build-push
-    if: ${{ needs.changes.outputs.services != '[]' }}
+    name: Deploy services in sequence
+    needs: [prepare, build-push]
+    if: needs.prepare.outputs.deploy == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      IMAGE_PREFIX: ${{ vars.IMAGE_PREFIX || 'sast-shop' }}
-    strategy:
-      fail-fast: false
-      # Load-bearing: parallel legs would interleave `compose up` and
-      # `image prune` against the single compose project on the server.
-      max-parallel: 1
-      matrix:
-        service: ${{ fromJson(needs.changes.outputs.services) }}
+    timeout-minutes: 60
+    environment:
+      name: production
+      url: https://api.sast.fun
     steps:
-      - name: Short sha
-        id: meta
-        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-
-      # TODO: pin the action to a full commit SHA after the first successful
-      # run, matching the convention in buf.yml.
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.2
+      # Recheck after builds and any environment approval delay. An old CI run
+      # must never overwrite a newer main revision that reached the server.
+      - name: Check main again before contacting the server
+        id: current
+        uses: actions/github-script@v7
         env:
-          SVC: ${{ matrix.service }}
-          SHA: ${{ steps.meta.outputs.sha }}
-          TCR_NAMESPACE: ${{ vars.TCR_NAMESPACE }}
-          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
-          COMPOSE_DIR: ${{ vars.COMPOSE_DIR || '/data/sast-shop-v2' }}
+          REVISION: ${{ needs.prepare.outputs.revision }}
+        with:
+          script: |
+            const { data: main } = await github.rest.git.getRef({
+              ...context.repo, ref: 'heads/main',
+            });
+            const current = main.object.sha === process.env.REVISION;
+            core.setOutput('deploy', String(current));
+            if (!current) core.notice('main advanced during the build; skipping deployment');
+
+      - name: Validate SSH configuration
+        if: steps.current.outputs.deploy == 'true'
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_SSH_FINGERPRINT: ${{ secrets.SERVER_SSH_FINGERPRINT }}
+          TCR_USERNAME: ${{ secrets.TCR_USERNAME }}
+          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
+        run: |
+          set -eu
+          for key in SERVER_HOST SERVER_USER SSH_PRIVATE_KEY SERVER_SSH_FINGERPRINT TCR_USERNAME TCR_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Required secret $key is not set" >&2
+              exit 1
+            fi
+          done
+          case "$SERVER_SSH_FINGERPRINT" in
+            SHA256:*) ;;
+            *) echo '::error::SERVER_SSH_FINGERPRINT must be an OpenSSH SHA256 fingerprint' >&2; exit 1 ;;
+          esac
+
+      - name: Deploy over verified SSH
+        if: steps.current.outputs.deploy == 'true'
+        uses: appleboy/ssh-action@2ead5e36573f08b82fbfce1504f1a4b05a647c6f # v1.2.2
+        env:
+          SERVICES: ${{ needs.prepare.outputs.services_list }}
+          REVISION: ${{ needs.prepare.outputs.revision }}
+          TCR_NAMESPACE: ${{ needs.prepare.outputs.tcr_namespace }}
+          IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
+          TCR_USERNAME: ${{ secrets.TCR_USERNAME }}
+          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: SVC,SHA,TCR_NAMESPACE,IMAGE_PREFIX,COMPOSE_DIR
-          command_timeout: 10m
-          # Runs on the server (POSIX sh compatible; not bash-only).
+          fingerprint: ${{ secrets.SERVER_SSH_FINGERPRINT }}
+          envs: SERVICES,REVISION,TCR_NAMESPACE,IMAGE_PREFIX,TCR_USERNAME,TCR_PASSWORD
+          command_timeout: 55m
           script: |
             set -eu
-            cd "$COMPOSE_DIR"
-            REMOTE="ccr.ccs.tencentyun.com/$TCR_NAMESPACE/${IMAGE_PREFIX}-${SVC}:${SHA}"
-
-            # Public repo, anonymous pull; retry 3x (TCR shared storage may lag after push).
-            for i in 1 2 3; do
-              if docker pull "$REMOTE"; then break; fi
-              if [ "$i" = "3" ]; then
-                echo "pull failed after 3 attempts: $REMOTE" >&2
-                exit 1
-              fi
-              echo "pull failed ($i/3), retrying in 5s..."
-              sleep 5
+            # Inputs were allowlisted before building; validate again remotely.
+            test "${#REVISION}" -eq 40
+            case "$REVISION" in *[!0-9a-f]*) exit 1 ;; esac
+            for value in "$TCR_NAMESPACE" "$IMAGE_PREFIX"; do
+              case "$value" in ''|*[!a-z0-9._-]*|[!a-z0-9]*) exit 1 ;; esac
             done
-
-            # Rotate current -> backup (deleting the previous backup).
-            # First-ever deploy: current does not exist yet — skip.
-            docker image inspect "sast/$SVC:backup" >/dev/null 2>&1 && docker rmi "sast/$SVC:backup" || true
-            if docker image inspect "sast/$SVC:current" >/dev/null 2>&1; then
-              docker tag "sast/$SVC:current" "sast/$SVC:backup"
-            fi
-            docker tag "$REMOTE" "sast/$SVC:$SHA"
-            docker tag "$REMOTE" "sast/$SVC:current"
-            docker rmi "$REMOTE" || true
-
-            # Upgrade only the changed service; compose recreates it only when
-            # the image ID behind sast/<svc>:current changed (rotation above).
-            docker compose up -d --no-deps --remove-orphans "$SVC"
-
-            docker image prune -f
+            test -n "$SERVICES"
+            test -n "$TCR_USERNAME"
+            test -n "$TCR_PASSWORD"
+            for SERVICE in $SERVICES; do
+              case "$SERVICE" in
+                userservice|catalogservice|paymentservice|spotservice|errandservice|westpocketservice) ;;
+                *) echo 'Invalid service' >&2; exit 1 ;;
+              esac
+            done
+            # The root-owned helper supplies a shared lock, readiness checks,
+            # and rollback, and may touch only this isolated Compose project.
+            # Credentials travel only over stdin; helper login is ephemeral.
+            for SERVICE in $SERVICES; do
+              python3 -c 'import json, os, sys; json.dump({"registry": "ccr.ccs.tencentyun.com", "username": os.environ["TCR_USERNAME"], "password": os.environ["TCR_PASSWORD"]}, sys.stdout)' | \
+                sudo -n /usr/local/lib/sast-shop/deploy-image "$SERVICE" "$REVISION" \
+                  "ccr.ccs.tencentyun.com/$TCR_NAMESPACE/$IMAGE_PREFIX-$SERVICE:sha-$REVISION" --registry-stdin
+            done

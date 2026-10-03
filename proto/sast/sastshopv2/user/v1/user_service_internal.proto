@@ -28,7 +28,20 @@ message GetUserContactOpenIDResponse {
   string feishu_open_id = 1;
 }
 
+message SearchUsersRequest {
+  string query = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message SearchUsersResponse {
+  repeated UserInfo users = 1;
+  string next_page_token = 2;
+}
+
 service UserInternalService {
+  // Authenticated internal directory search for active application users.
+  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
   // 批量获取用户信息
   rpc GetUsers(GetUsersRequest) returns (GetUsersResponse);
 
