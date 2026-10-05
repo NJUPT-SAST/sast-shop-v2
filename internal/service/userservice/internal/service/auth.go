@@ -74,35 +74,32 @@ func Login(ctx context.Context, req *userv1.LoginRequest) (*userv1.LoginResponse
 			},
 		}, errmsg.Internal.Msg)
 	}
-
+	// code换token
 	feishuToken, err := feishu.ExchangeCode(ctx, req.Code, "", req.GetRedirectUri())
-	if err != nil {
-		return nil, userError(fmt.Sprintf("feishu exchange code: %v", err))
-	}
 	if err != nil {
 		log.Error().Err(err).Msg("feishu exchange code failed")
 		return nil, userError(fmt.Sprintf("feishu exchange code: %v", err))
 	}
-
+	// 获取用户信息
 	userInfo, err := feishu.GetCurrentUser(ctx, feishuToken.AccessToken)
 	if err != nil {
 		return nil, userError(fmt.Sprintf("feishu get current user: %v", err))
 	}
-
+	// 没有则创建，有就更新
 	user, err := repository.UpsertUser(ctx, userInfo.OpenID, userInfo.Name, userInfo.AvatarURL)
 	if err != nil {
 		return nil, userError(fmt.Sprintf("upsert user: %v", err))
 	}
-
+	// 检测是否能登陆
 	if err := checkUserCanLogin(user); err != nil {
 		return nil, err
 	}
-
+	// 生成后端session Token
 	sessionToken, err := generateToken()
 	if err != nil {
 		return nil, userError(fmt.Sprintf("generate token: %v", err))
 	}
-
+	// 写入redis
 	authUser := buildAuthUser(user, feishuToken.AccessToken)
 	store := redis.NewSessionStore()
 	if err := store.SaveSession(ctx, sessionToken, authUser); err != nil {
