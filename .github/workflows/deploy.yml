@@ -76,7 +76,7 @@ jobs:
 
   deploy:
     name: Deploy (${{ matrix.service }})
-    needs: build-push
+    needs: [changes, build-push]
     if: ${{ needs.changes.outputs.services != '[]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
