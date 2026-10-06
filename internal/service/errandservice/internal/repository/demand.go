@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
@@ -41,14 +42,21 @@ func GetDemandListByStore(
 	storeName string,
 ) ([]*DemandListAggregation, int, error) {
 	query := postgres.DB.NewSelect().
-		ColumnExpr("store_id").
+		ColumnExpr("edi.store_id").
 		ColumnExpr("SUM(estimated_unit_price_cents * quantity) AS total_origin_unit_price_cents").
 		ColumnExpr("SUM(service_fee_per_unit_cents * quantity) AS total_service_fee_cents").
 		ColumnExpr("MAX(updated_at) AS latest_updated_at").
-		TableExpr("errand.errand_demand_item").
+		TableExpr("errand.errand_demand_item AS edi").
 		Where("status = ?", model.ErrandDemandItemStatusOpen).
-		Group("store_id").
-		Order("latest_updated_at DESC")
+		Group("edi.store_id").
+		Order("latest_updated_at DESC", "edi.store_id ASC")
+
+	if keyword := strings.TrimSpace(storeName); keyword != "" {
+		query.Where(`EXISTS (
+			SELECT 1 FROM catalog.catalog_store AS cs
+			WHERE cs.id = edi.store_id AND strpos(lower(cs.name), lower(?)) > 0
+		)`, keyword)
+	}
 
 	totalCount, err := query.Count(ctx)
 	if err != nil {

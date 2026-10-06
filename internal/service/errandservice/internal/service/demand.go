@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 	"time"
 
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
@@ -201,22 +200,17 @@ func GetDemandList(
 		return nil, 0, ErrInternal
 	}
 	if len(aggregations) == 0 {
-		return []*DemandByStoreResult{}, 0, nil
+		return []*DemandByStoreResult{}, totalCount, nil
 	}
 
 	// 3. 逐个查询店铺名称
 	storeMap := fetchStoreNames(ctx, aggregations)
 
-	// 4. 按店铺名过滤（前端搜索）
-	if storeName != "" {
-		aggregations = filterByStoreName(aggregations, storeMap, storeName)
-	}
-
-	// 5. 收集各店铺的买家 ID → 批量查头像
+	// 4. 收集各店铺的买家 ID → 批量查头像
 	storeRequesters, allRequesterIDs := collectRequesters(ctx, aggregations)
 	userMap := fetchUserMap(ctx, allRequesterIDs)
 
-	// 6. 组装最终结果
+	// 5. 组装最终结果
 	results := buildDemandResults(aggregations, storeMap, storeRequesters, userMap)
 
 	return results, totalCount, nil
@@ -238,21 +232,6 @@ func fetchStoreNames(ctx context.Context, aggs []*repository.DemandListAggregati
 		m[agg.StoreID] = store.Name
 	}
 	return m
-}
-
-// filterByStoreName 按店铺名称模糊匹配过滤聚合结果。
-func filterByStoreName(
-	aggs []*repository.DemandListAggregation,
-	storeMap map[int64]string,
-	name string,
-) []*repository.DemandListAggregation {
-	filtered := make([]*repository.DemandListAggregation, 0)
-	for _, agg := range aggs {
-		if n, ok := storeMap[agg.StoreID]; ok && strings.Contains(n, name) {
-			filtered = append(filtered, agg)
-		}
-	}
-	return filtered
 }
 
 // collectRequesters 收集各店铺前 N 个买家 ID，用于后续批量查头像。
