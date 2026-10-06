@@ -157,15 +157,54 @@ type fakeMessenger struct {
 	calls int
 	fail  bool
 	uuids []string
+	links []string
 }
 
-func (f *fakeMessenger) Send(_ context.Context, _, uuid, _, _ string, _ []byte) (string, error) {
+func (f *fakeMessenger) Send(_ context.Context, _, uuid, _, link string, _ []byte) (string, error) {
 	f.calls++
 	f.uuids = append(f.uuids, uuid)
+	f.links = append(f.links, link)
 	if f.fail {
 		return "", ErrUnavailable
 	}
 	return "message-id", nil
+}
+
+func TestPostgresNotificationLinksUsePocketRoutes(t *testing.T) {
+	s := integrationService(t)
+	ctx := context.Background()
+	id := mustCreate(t, s, 10)
+	mustMembers(t, s, id)
+	if _, err := s.Publish(ctx, 10, id, 2, randomUUID()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.runNextJob(ctx); err != nil {
+		t.Fatal(err)
+	}
+	messenger := mustType[*fakeMessenger](t, s.Messenger)
+	for _, mobileURL := range []string{"https://shop.sast.fun", "https://shop.sast.fun/"} {
+		for _, kind := range []string{"summary", "payment", "payment_qr"} {
+			t.Run(mobileURL+"/"+kind, func(t *testing.T) {
+				s.MobileURL = mobileURL
+				notice := &Notification{
+					PocketID:        id,
+					RecipientUserID: 20,
+					MessageUUID:     randomUUID(),
+					Kind:            kind,
+				}
+				if _, err := s.sendNotification(ctx, notice); err != nil {
+					t.Fatal(err)
+				}
+				want := fmt.Sprintf("https://shop.sast.fun/pocket/%d", id)
+				if kind != "summary" {
+					want += "/pay"
+				}
+				if got := messenger.links[len(messenger.links)-1]; got != want {
+					t.Fatalf("notification link = %q, want %q", got, want)
+				}
+			})
+		}
+	}
 }
 
 func integrationService(t *testing.T) *Service {

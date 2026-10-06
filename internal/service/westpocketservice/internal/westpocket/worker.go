@@ -906,7 +906,7 @@ func (s *Service) sendNotification(ctx context.Context, n *Notification) (string
 	if e != nil {
 		return "", e
 	}
-	link := strings.TrimRight(s.MobileURL, "/") + fmt.Sprintf("/west-pocket/%d", p.ID)
+	link := strings.TrimRight(s.MobileURL, "/") + fmt.Sprintf("/pocket/%d", p.ID)
 	var text string
 	var qr []byte
 	if n.Kind == "summary" {
