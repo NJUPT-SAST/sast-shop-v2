@@ -4,10 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
+	"time"
 
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
+	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/repository"
@@ -161,6 +165,9 @@ func UpdateStore(
 	store *catalogv1.Store,
 	updateMask []string,
 ) (*catalogv1.Store, error) {
+	if store == nil || store.Id <= 0 {
+		return nil, connect.NewError(errmsg.InvalidArgument.Code, errmsg.InvalidArgument)
+	}
 	tx, err := postgres.DB.BeginTx(ctx, nil)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to begin transaction for store update: %d", store.Id)
@@ -225,6 +232,9 @@ func GetProductTemplateList(
 	page, pageSize int32,
 	keyword string,
 ) ([]*catalogv1.ProductTemplate, int32, error) {
+	if storeID < 0 || page <= 0 || pageSize <= 0 || pageSize > 100 {
+		return nil, 0, connect.NewError(errmsg.InvalidArgument.Code, errmsg.InvalidArgument)
+	}
 	total, err := repository.CountProductTemplates(ctx, storeID, keyword)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to count product templates for store: %d", storeID)
@@ -235,7 +245,7 @@ func GetProductTemplateList(
 		}, "")
 	}
 
-	offset := int((int64(page) - 1) * int64(pageSize))
+	offset := (int(page) - 1) * int(pageSize)
 	pts, err := repository.ListProductTemplates(ctx, storeID, offset, int(pageSize), keyword)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to list product templates for store: %d", storeID)
@@ -264,6 +274,10 @@ func CreateProductTemplate(
 	mainImageURL, barcode string,
 	createdByUserID int64,
 ) (*catalogv1.ProductTemplate, error) {
+	if storeID <= 0 || createdByUserID <= 0 || strings.TrimSpace(title) == "" || priceCents <= 0 ||
+		strings.TrimSpace(barcode) == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+	}
 	_, err := repository.GetStoreByID(ctx, storeID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -285,34 +299,27 @@ func CreateProductTemplate(
 		Status:          model.CatalogStatusActive,
 		CreatedByUserID: createdByUserID,
 	}
-	if err := repository.CreateProductTemplate(ctx, pt); err != nil {
-		log.Error().Err(err).Msg("Failed to create product template")
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
-			CatalogError: &catalogv1.CatalogError{
-				Code: catalogv1.CatalogErrorCode_CATALOG_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-
-	if barcode != "" {
-		b := &model.CatalogProductBarcode{
-			ProductTemplateID: pt.ID,
-			Barcode:           barcode,
+	err = postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := repository.CreateProductTemplate(ctx, tx, pt); err != nil {
+			return err
 		}
-		if err := repository.CreateBarcode(ctx, b); err != nil {
-			log.Error().Err(err).Msg("Failed to create barcode")
+		if barcode != "" {
+			b := &model.CatalogProductBarcode{ProductTemplateID: pt.ID, Barcode: barcode}
+			if err := repository.CreateBarcode(ctx, tx, b); err != nil {
+				return err
+			}
 		}
-	}
-
-	if mainImageURL != "" {
-		img := &model.CatalogProductImage{
-			ProductTemplateID: pt.ID,
-			ImageURL:          mainImageURL,
-			SortOrder:         0,
+		if mainImageURL != "" {
+			img := &model.CatalogProductImage{ProductTemplateID: pt.ID, ImageURL: mainImageURL, SortOrder: 0}
+			if err := repository.CreateImage(ctx, tx, img); err != nil {
+				return err
+			}
 		}
-		if err := repository.CreateImage(ctx, img); err != nil {
-			log.Error().Err(err).Msg("Failed to create image")
-		}
+		return nil
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create product template with barcode and image")
+		return nil, catalogInternalError()
 	}
 
 	return productTemplateToProto(pt, barcode, mainImageURL), nil
@@ -324,8 +331,14 @@ func UpdateProductTemplate(
 	pt *catalogv1.ProductTemplate,
 	updateMask []string,
 ) (*catalogv1.ProductTemplate, error) {
+	if pt == nil || pt.Id <= 0 || pt.UpdatedAt == nil || !pt.UpdatedAt.IsValid() {
+		return nil, connect.NewError(errmsg.InvalidArgument.Code, errmsg.InvalidArgument)
+	}
 	existing, err := getProductTemplateForUpdate(ctx, pt.Id)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateProductTemplateUpdate(ctx, pt, updateMask); err != nil {
 		return nil, err
 	}
 
@@ -341,9 +354,45 @@ func UpdateProductTemplate(
 		return nil, err
 	}
 
-	applyProductTemplateUpdates(existing, updates)
+	existing, err = getProductTemplateForUpdate(ctx, pt.Id)
+	if err != nil {
+		return nil, err
+	}
 	barcode, imageURL := fillBarcodeAndImage(ctx, pt.Id)
 	return productTemplateToProto(existing, barcode, imageURL), nil
+}
+
+func validateProductTemplateUpdate(ctx context.Context, pt *catalogv1.ProductTemplate, updateMask []string) error {
+	for _, field := range updateMask {
+		switch field {
+		case "title":
+			if strings.TrimSpace(pt.Title) == "" {
+				return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+			}
+		case "price_cents":
+			if pt.PriceCents <= 0 {
+				return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+			}
+		case "store_id":
+			if pt.StoreId <= 0 {
+				return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+			}
+			if _, err := repository.GetStoreByID(ctx, pt.StoreId); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return ErrStoreNotFound
+				}
+				return catalogInternalError()
+			}
+		case "barcode":
+			if strings.TrimSpace(pt.Barcode) == "" {
+				return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+			}
+		case "description", "main_image_url":
+		default:
+			return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+		}
+	}
+	return nil
 }
 
 func getProductTemplateForUpdate(ctx context.Context, id int64) (*model.CatalogProductTemplate, error) {
@@ -387,11 +436,24 @@ func applyProductTemplateUpdatesTx(
 		}
 	}()
 
-	if len(updates) > 0 {
-		if err := repository.UpdateProductTemplate(ctx, tx, pt.Id, updates); err != nil {
-			log.Error().Err(err).Msgf("Failed to update product template: %d", pt.Id)
-			return catalogInternalError()
+	var current model.CatalogProductTemplate
+	if err := tx.NewSelect().Model(&current).Where("id = ?", pt.Id).For("UPDATE").Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrProductNotFound
 		}
+		return catalogInternalError()
+	}
+	if current.Status == model.CatalogStatusRemoved {
+		return ErrProductNotFound
+	}
+	if !current.UpdatedAt.Equal(pt.UpdatedAt.AsTime()) {
+		return connect.NewError(connect.CodeAborted, errors.New("商品模板已被修改，请刷新后重试"))
+	}
+	// Barcode-only and image-only edits must advance the template version too.
+	updates["updated_at"] = time.Now()
+	if err := repository.UpdateProductTemplate(ctx, tx, pt.Id, updates); err != nil {
+		log.Error().Err(err).Msgf("Failed to update product template: %d", pt.Id)
+		return catalogInternalError()
 	}
 	if updateBarcode {
 		if err := repository.UpsertBarcodeByProductTemplateID(ctx, tx, pt.Id, pt.Barcode); err != nil {
@@ -456,52 +518,33 @@ func GetProductTemplateByBarcode(
 	ctx context.Context,
 	barcode string,
 ) ([]*catalogv1.GetProductTemplateByBarcodeResponse_Item, error) {
-	b, err := repository.GetBarcodeByCode(ctx, barcode)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrBarcodeNotFound
-		}
-		log.Error().Err(err).Msgf("Failed to find barcode: %s", barcode)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
-			CatalogError: &catalogv1.CatalogError{
-				Code: catalogv1.CatalogErrorCode_CATALOG_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+	if strings.TrimSpace(barcode) == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
 	}
-
-	pt, err := repository.GetProductTemplateByID(ctx, b.ProductTemplateID)
+	templates, err := repository.ListProductTemplatesByBarcode(ctx, strings.TrimSpace(barcode))
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to get product template for barcode: %s", barcode)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
-			CatalogError: &catalogv1.CatalogError{
-				Code: catalogv1.CatalogErrorCode_CATALOG_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+		log.Error().Err(err).Msg("Failed to find product templates by barcode")
+		return nil, catalogInternalError()
 	}
-	if pt.Status == model.CatalogStatusRemoved {
+	if len(templates) == 0 {
 		return nil, ErrBarcodeNotFound
 	}
-
-	store, err := repository.GetStoreByID(ctx, pt.StoreID)
-	if err != nil {
-		log.Error().Err(err).Msgf("Failed to get store for barcode: %s", barcode)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
-			CatalogError: &catalogv1.CatalogError{
-				Code: catalogv1.CatalogErrorCode_CATALOG_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+	items := make([]*catalogv1.GetProductTemplateByBarcodeResponse_Item, 0, len(templates))
+	for _, pt := range templates {
+		store, err := repository.GetStoreByID(ctx, pt.StoreID)
+		if err != nil {
+			return nil, catalogInternalError()
+		}
+		imageURL, err := getFirstImageURL(ctx, pt.ID)
+		if err != nil {
+			return nil, catalogInternalError()
+		}
+		items = append(items, &catalogv1.GetProductTemplateByBarcodeResponse_Item{
+			ProductTemplate: productTemplateToProto(pt, strings.TrimSpace(barcode), imageURL),
+			Store:           storeToProto(store),
+		})
 	}
-
-	imageURL, err := getFirstImageURL(ctx, pt.ID)
-	if err != nil {
-		log.Debug().Err(err).Msgf("Failed to get image for barcode: %s", barcode)
-	}
-
-	item := &catalogv1.GetProductTemplateByBarcodeResponse_Item{
-		ProductTemplate: productTemplateToProto(pt, barcode, imageURL),
-		Store:           storeToProto(store),
-	}
-	return []*catalogv1.GetProductTemplateByBarcodeResponse_Item{item}, nil
+	return items, nil
 }
 
 // ————— 内部辅助 —————
@@ -563,6 +606,8 @@ func buildProductTemplateUpdates(pt *catalogv1.ProductTemplate, maskPaths []stri
 	updates := make(map[string]any)
 	for _, path := range maskPaths {
 		switch path {
+		case "store_id":
+			updates["store_id"] = pt.StoreId
 		case "title":
 			updates["title"] = pt.Title
 		case "description":
@@ -593,24 +638,6 @@ func applyStoreUpdates(store *model.CatalogStore, updates map[string]any) {
 	if v, ok := updates["theme_color"]; ok {
 		if s, ok2 := v.(string); ok2 {
 			store.ThemeColor = s
-		}
-	}
-}
-
-func applyProductTemplateUpdates(pt *model.CatalogProductTemplate, updates map[string]any) {
-	if v, ok := updates["title"]; ok {
-		if s, ok2 := v.(string); ok2 {
-			pt.Title = s
-		}
-	}
-	if v, ok := updates["description"]; ok {
-		if s, ok2 := v.(string); ok2 {
-			pt.Description = s
-		}
-	}
-	if v, ok := updates["price_cents"]; ok {
-		if n, ok2 := v.(int32); ok2 {
-			pt.PriceCents = n
 		}
 	}
 }

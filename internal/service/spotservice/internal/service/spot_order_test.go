@@ -60,7 +60,7 @@ func TestValidateSpotOrderParticipantsRejectsOwnGoods(t *testing.T) {
 		t.Fatalf("code = %v, want %v; err = %v", code, connect.CodeFailedPrecondition, err)
 	}
 	if !errors.Is(err, ErrCannotPurchaseOwnGoods) {
-		t.Fatalf("error = %v, want %v", err, ErrCannotPurchaseOwnGoods)
+		t.Fatalf("error = %v, want own-goods validation error", err)
 	}
 }
 

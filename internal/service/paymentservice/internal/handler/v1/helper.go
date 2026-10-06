@@ -69,7 +69,17 @@ func paymentMessage(code paymentv1.PaymentErrorCode) string {
 }
 
 func mapServiceError(err error) *connect.Error {
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr
+	}
 	switch {
+	case errors.Is(err, service.ErrBillPermissionDenied):
+		return connect.NewError(errmsg.PermissionDenied.Code, errmsg.PermissionDenied)
+	case errors.Is(err, service.ErrInvalidBillRequest):
+		return connect.NewError(errmsg.InvalidCreateBill.Code, errmsg.InvalidCreateBill)
+	case errors.Is(err, service.ErrSelfPayment):
+		return connect.NewError(errmsg.PayerPayeeSame.Code, errmsg.PayerPayeeSame)
 	case errors.Is(err, service.ErrBillNotFound):
 		return billNotFoundError()
 	case errors.Is(err, service.ErrInvalidBillStatus):
@@ -85,10 +95,10 @@ func mapServiceError(err error) *connect.Error {
 	}
 }
 
-// requireUpdatedAt 提取 UpdatedAt，为 nil 时返回错误避免 panic。
+// requireUpdatedAt rejects missing and invalid optimistic-lock versions.
 func requireUpdatedAt(ts *timestamppb.Timestamp) (time.Time, *connect.Error) {
-	if ts == nil {
-		return time.Time{}, paymentError()
+	if ts == nil || !ts.IsValid() {
+		return time.Time{}, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid updated_at"))
 	}
 	return ts.AsTime(), nil
 }

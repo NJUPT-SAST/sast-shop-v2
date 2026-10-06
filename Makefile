@@ -1,14 +1,24 @@
-SERVICES := userservice catalogservice paymentservice spotservice errandservice
+SERVICES := userservice catalogservice paymentservice spotservice errandservice westpocketservice
 WORKSPACE_MODULES := ./internal/pkg $(addprefix ./internal/service/,$(SERVICES))
 PROTOBUF_GEN_DIR := gen/protocolbuffers/go
 CONNECT_GEN_DIR := gen/connectrpc/go
 
-.PHONY: lint lint-fix build run-% proto proto-lint proto-format migrate setup tidy
+.PHONY: lint lint-fix build run-% run-all proto proto-lint proto-format migrate migrate-west-pocket setup tidy
 
 # --- Development ---
 
 run-%:
 	go run ./internal/service/$*/cmd/app
+
+run-all:
+	@trap 'echo "Stopping all services..."; kill 0' INT TERM; \
+	echo "Starting caddy gateway (:6660) ..."; \
+	(caddy run --config deploy/Caddyfile.local 2>&1 | sed -u "s/^/[caddy] /") & \
+	for svc in $(SERVICES); do \
+		echo "Starting $$svc ..."; \
+		(go run ./internal/service/$$svc/cmd/app 2>&1 | sed -u "s/^/[$$svc] /") & \
+	done; \
+	wait
 
 # --- Build ---
 
@@ -39,6 +49,10 @@ proto-format:
 
 migrate:
 	psql "$$DATABASE_URL" -f migrations/001_init.sql
+
+# Additive migration for existing installations; never rerun initialization.
+migrate-west-pocket:
+	psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_west_pocket.sql
 
 # --- Code quality ---
 

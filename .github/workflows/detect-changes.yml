@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
           MODE="${{ inputs.mode }}"
           DISPATCH_SVC="${{ inputs.dispatch-service }}"
-          SERVICES="userservice catalogservice paymentservice spotservice errandservice"
+          SERVICES="userservice catalogservice paymentservice spotservice errandservice westpocketservice"
 
           # Fixed list of every module in the workspace (single source of
           # truth for CI's matrix). Emitted as all_modules so each
@@ -54,6 +54,12 @@ jobs:
           for SVC in $SERVICES; do
             ALL_MODULES="$ALL_MODULES internal/service/$SVC"
           done
+
+          # West Pocket requires an explicit first deployment after migration and
+          # private provider configuration; existing production services stay automatic.
+          if [ "$MODE" = "deploy" ]; then
+            SERVICES="userservice catalogservice paymentservice spotservice errandservice"
+          fi
 
           emit_json() {
             # $@: items to quote into a JSON array

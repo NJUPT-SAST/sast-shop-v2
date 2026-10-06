@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"regexp"
+	"strings"
 
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
+	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/userservice/internal/model"
@@ -17,12 +20,36 @@ import (
 
 var ErrAddressNotFound = errors.New("address not found")
 
+var recipientPhonePattern = regexp.MustCompile(`^1[3-9][0-9]{9}$`)
+
+func validateAddressFields(name, phone, province, city, district, detail string) error {
+	if strings.TrimSpace(name) == "" || !recipientPhonePattern.MatchString(phone) ||
+		strings.TrimSpace(province) == "" || strings.TrimSpace(city) == "" ||
+		strings.TrimSpace(district) == "" || strings.TrimSpace(detail) == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("收件人、手机号或地址信息不正确"))
+	}
+	return nil
+}
+
 // CreateAddress creates a new address for the given user.
 func CreateAddress(
 	ctx context.Context,
 	userID int64,
 	req *userv1.CreateAddressRequest,
 ) (*userv1.ShippingAddress, error) {
+	if userID <= 0 || req == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("地址请求不正确"))
+	}
+	if err := validateAddressFields(
+		req.RecipientName,
+		req.RecipientPhone,
+		req.Province,
+		req.City,
+		req.District,
+		req.DetailAddress,
+	); err != nil {
+		return nil, err
+	}
 	address := &model.MemberAddress{
 		UserID:         userID,
 		RecipientName:  req.RecipientName,
@@ -56,6 +83,19 @@ func UpdateAddress(
 	userID int64,
 	req *userv1.UpdateAddressRequest,
 ) (*userv1.ShippingAddress, error) {
+	if userID <= 0 || req == nil || req.AddressId <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("地址请求不正确"))
+	}
+	if err := validateAddressFields(
+		req.RecipientName,
+		req.RecipientPhone,
+		req.Province,
+		req.City,
+		req.District,
+		req.DetailAddress,
+	); err != nil {
+		return nil, err
+	}
 	existing, err := repository.GetAddressByID(ctx, req.AddressId)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -95,6 +135,9 @@ func UpdateAddress(
 
 // GetAddress returns addresses for the given user. If addressID is non-zero, returns a single address.
 func GetAddress(ctx context.Context, userID int64, addressID *int64) ([]*userv1.ShippingAddress, error) {
+	if userID <= 0 || (addressID != nil && *addressID <= 0) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("地址 ID 不正确"))
+	}
 	if addressID != nil {
 		address, err := repository.GetAddressByID(ctx, *addressID)
 		if err != nil {
@@ -125,6 +168,9 @@ func GetAddress(ctx context.Context, userID int64, addressID *int64) ([]*userv1.
 
 // DeleteAddress deletes an address. The userID ensures users can only delete their own addresses.
 func DeleteAddress(ctx context.Context, userID int64, addressID int64) error {
+	if userID <= 0 || addressID <= 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("地址 ID 不正确"))
+	}
 	existing, err := repository.GetAddressByID(ctx, addressID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

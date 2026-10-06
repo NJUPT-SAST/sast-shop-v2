@@ -43,8 +43,8 @@ func GetDemandListByStore(
 ) ([]*DemandListAggregation, int, error) {
 	query := postgres.DB.NewSelect().
 		ColumnExpr("edi.store_id").
-		ColumnExpr("SUM(estimated_unit_price_cents * quantity) AS total_origin_unit_price_cents").
-		ColumnExpr("SUM(service_fee_per_unit_cents * quantity) AS total_service_fee_cents").
+		ColumnExpr("SUM(estimated_unit_price_cents::bigint * quantity) AS total_origin_unit_price_cents").
+		ColumnExpr("SUM(service_fee_per_unit_cents::bigint * quantity) AS total_service_fee_cents").
 		ColumnExpr("MAX(updated_at) AS latest_updated_at").
 		TableExpr("errand.errand_demand_item AS edi").
 		Where("status = ?", model.ErrandDemandItemStatusOpen).

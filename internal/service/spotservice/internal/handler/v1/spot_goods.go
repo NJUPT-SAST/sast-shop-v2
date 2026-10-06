@@ -25,19 +25,14 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 	ctx context.Context,
 	r *connect.Request[spotv1.ListSpotGoodsRequest],
 ) (*connect.Response[spotv1.ListSpotGoodsResponse], error) {
-	if r.Msg.StoreId < 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("store ID cannot be negative"))
-	}
-	if r.Msg.Page < 1 || r.Msg.PageSize <= 0 || r.Msg.PageSize > 30 {
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR},
-		}, "invalid pagination parameters")
+	if r.Msg.StoreId < 0 || r.Msg.Page < 1 || r.Msg.PageSize <= 0 || r.Msg.PageSize > 100 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("分页参数不正确，每页数量应为 1 到 100"))
 	}
 	keyword, err := search.NormalizeKeyword(r.Msg.Keyword)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	offset := int((int64(r.Msg.Page) - 1) * int64(r.Msg.PageSize))
+	offset := (int(r.Msg.Page) - 1) * int(r.Msg.PageSize)
 	limit := int(r.Msg.PageSize)
 
 	spotGoodsBrief, err := service.ListSpotGoods(ctx, r.Msg.StoreId, offset, limit, keyword)
@@ -93,11 +88,7 @@ func (s *SpotGoodsServiceServer) CreateSpotGoods(
 	detail, err := service.CreateSpotGoods(ctx, goods, r.Msg.ProductTemplateUpdatedAt)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to create spot good: %v", goods)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+		return nil, err
 	}
 	return connect.NewResponse(&spotv1.CreateSpotGoodsResponse{
 		SpotGoodsDetail: detail,
@@ -119,11 +110,7 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsStock(
 	err := service.UpdateSpotGoodsStock(ctx, user.UserID, r.Msg.SpotGoodsId, r.Msg.NewStock, r.Msg.UpdatedAt)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good stock total for goodsID: %d", r.Msg.SpotGoodsId)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+		return nil, err
 	}
 	return connect.NewResponse(&spotv1.UpdateSpotGoodsStockResponse{}), nil
 }
@@ -143,11 +130,7 @@ func (s *SpotGoodsServiceServer) UpdateSpotGoodsPrice(
 	err := service.UpdateSpotGoodsPrice(ctx, user.UserID, r.Msg.SpotGoodsId, r.Msg.NewSalePriceCents, r.Msg.UpdatedAt)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to update spot good sale price for goodsID: %d", r.Msg.SpotGoodsId)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+		return nil, err
 	}
 	return connect.NewResponse(&spotv1.UpdateSpotGoodsPriceResponse{}), nil
 }

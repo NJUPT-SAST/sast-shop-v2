@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
@@ -56,6 +58,9 @@ func filterSpotGoods(query *bun.SelectQuery, storeID int64, keyword string) *bun
 func GetSpotGoodsByID(ctx context.Context, goodsID int64) (*model.SpotGoods, error) {
 	var goods model.SpotGoods
 	err := postgres.DB.NewSelect().Model(&goods).Where("id = ?", goodsID).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
 	return &goods, err
 }
 

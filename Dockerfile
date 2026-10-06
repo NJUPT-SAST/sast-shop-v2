@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build any service image with:
-#   docker build --build-arg SERVICE=<userservice|catalogservice|paymentservice|spotservice|errandservice> .
+#   docker build --build-arg SERVICE=<userservice|catalogservice|paymentservice|spotservice|errandservice|westpocketservice> .
 
 # ---- Stage 1: proto code generation (buf remote plugins need network) ----
 # Based on the same golang image as the build stage and installs buf via
@@ -37,7 +37,7 @@ WORKDIR /src
 
 # Fail fast on a typo'd --build-arg SERVICE.
 RUN case "$SERVICE" in \
-      userservice|catalogservice|paymentservice|spotservice|errandservice) ;; \
+      userservice|catalogservice|paymentservice|spotservice|errandservice|westpocketservice) ;; \
       *) echo "unknown SERVICE: $SERVICE" >&2; exit 1 ;; \
     esac
 
@@ -61,6 +61,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # ---- Stage 3: runtime ----
 FROM alpine:3.22
+ARG BUILD_REVISION=unknown
+LABEL org.opencontainers.image.revision=$BUILD_REVISION
 RUN apk add --no-cache ca-certificates tzdata \
  && addgroup -S -g 10001 app && adduser -S -u 10001 -G app app
 COPY --from=build /out/app /usr/local/bin/app

@@ -8,7 +8,7 @@ on:
       service:
         description: >-
           Deploy a single service (userservice, catalogservice, paymentservice,
-          spotservice or errandservice). Leave empty to auto-detect from changes.
+          spotservice, errandservice or westpocketservice). Leave empty to auto-detect from changes.
         required: false
         type: string
         default: ""
@@ -107,7 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$SVC" in
-            userservice|catalogservice|paymentservice|spotservice|errandservice) ;;
+            userservice|catalogservice|paymentservice|spotservice|errandservice|westpocketservice) ;;
             *) echo "Unknown backend service" >&2; exit 1 ;;
           esac
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1

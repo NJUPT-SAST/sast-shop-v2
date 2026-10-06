@@ -11,6 +11,7 @@ import (
 	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/paymentservice/internal/model"
@@ -20,13 +21,14 @@ import (
 )
 
 var (
-	ErrConcurrencyConflict = errors.New("concurrency conflict: bill was modified by another request")
-	ErrBillNotFound        = errors.New("bill not found")
-	ErrInvalidBillStatus   = errors.New("invalid bill status")
-	ErrInvalidBillRequest  = errors.New("invalid create bill request")
-	ErrSelfPayment         = errors.New("payer and payee must be different")
-	ErrInvalidChannel      = errors.New("invalid channel")
-	ErrDuplicateBill       = errors.New("duplicate bill")
+	ErrConcurrencyConflict  = errors.New("concurrency conflict: bill was modified by another request")
+	ErrBillNotFound         = errors.New("bill not found")
+	ErrInvalidBillStatus    = errors.New("invalid bill status")
+	ErrInvalidBillRequest   = errors.New("invalid create bill request")
+	ErrSelfPayment          = errors.New("payer and payee must be different")
+	ErrInvalidChannel       = errors.New("invalid channel")
+	ErrDuplicateBill        = errors.New("duplicate bill")
+	ErrBillPermissionDenied = errors.New("permission denied for payment bill")
 )
 
 const paymentBillNoPrefix = "PAY"
@@ -38,8 +40,19 @@ func CreateBill(
 	sourceType *string,
 	sourceId *int64,
 ) (*paymentv1.Bill, error) {
+	if err := requireBillUser(ctx, payerId, payeeId); err != nil {
+		return nil, err
+	}
+	if sourceType != nil && *sourceType == westPocketSource {
+		return nil, ErrBillPermissionDenied
+	}
+	if payerId <= 0 || payeeId <= 0 || amountCents < 0 ||
+		(sourceType == nil) != (sourceId == nil) ||
+		(sourceType != nil && (*sourceType == "" || *sourceId <= 0)) {
+		return nil, ErrInvalidBillRequest
+	}
 	if payerId == payeeId {
-		return nil, ErrInvalidBillStatus
+		return nil, ErrSelfPayment
 	}
 
 	billNo, err := newPaymentBillNo()
@@ -67,6 +80,9 @@ func CreateBill(
 }
 
 func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
+	if _, err := interceptor.UserIDFromContext(ctx); err != nil {
+		return nil, err
+	}
 	paymentBill, err := repository.GetBillByID(ctx, billId)
 	if err != nil {
 		log.Error().Err(err).Msgf("GetBill: GetBillByID failed for billId: %d", billId)
@@ -74,6 +90,9 @@ func GetBill(ctx context.Context, billId int64) (*paymentv1.Bill, error) {
 			return nil, ErrBillNotFound
 		}
 		return nil, fmt.Errorf("get bill: %w", err)
+	}
+	if err := requireBillUser(ctx, paymentBill.PayerID, paymentBill.PayeeID); err != nil {
+		return nil, err
 	}
 	return PaymentBillToProto(ctx, paymentBill)
 }
@@ -98,6 +117,9 @@ func PayBill(
 	channel paymentv1.Channel,
 	expectedUpdatedAt time.Time,
 ) (*paymentv1.Bill, error) {
+	if _, err := interceptor.UserIDFromContext(ctx); err != nil {
+		return nil, err
+	}
 	bill, err := repository.GetBillByID(ctx, billId)
 	if err != nil {
 		log.Error().Err(err).Msgf("PayBill: GetBillByID failed for billId: %d", billId)
@@ -107,15 +129,24 @@ func PayBill(
 		return nil, fmt.Errorf("pay bill: %w", err)
 	}
 
+	if err := requireBillUser(ctx, bill.PayerID); err != nil {
+		return nil, err
+	}
+	if err := requireWestPocketCollecting(ctx, bill); err != nil {
+		return nil, err
+	}
 	if bill.Status != model.PaymentBillStatusUnpaid {
 		return nil, ErrInvalidBillStatus
 	}
-	if !sameUpdatedAtSecond(bill.UpdatedAt, expectedUpdatedAt) {
+	if !sameUpdatedAtVersion(bill.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
 
 	ch, ok := model.ProtoChannelToModel(channel)
 	if !ok {
+		return nil, ErrInvalidChannel
+	}
+	if bill.SourceType != nil && *bill.SourceType == westPocketSource && ch != model.PaymentChannelWechat {
 		return nil, ErrInvalidChannel
 	}
 
@@ -147,6 +178,9 @@ func PayBill(
 }
 
 func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time) (*paymentv1.Bill, error) {
+	if _, err := interceptor.UserIDFromContext(ctx); err != nil {
+		return nil, err
+	}
 	bill, err := repository.GetBillByID(ctx, billId)
 	if err != nil {
 		log.Error().Err(err).Msgf("ConfirmBill: GetBillByID failed for billId: %d", billId)
@@ -156,10 +190,16 @@ func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time)
 		return nil, fmt.Errorf("confirm bill: %w", err)
 	}
 
+	if err := requireBillUser(ctx, bill.PayeeID); err != nil {
+		return nil, err
+	}
+	if err := requireWestPocketCollecting(ctx, bill); err != nil {
+		return nil, err
+	}
 	if bill.Status != model.PaymentBillStatusSubmitted {
 		return nil, ErrInvalidBillStatus
 	}
-	if !sameUpdatedAtSecond(bill.UpdatedAt, expectedUpdatedAt) {
+	if !sameUpdatedAtVersion(bill.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
 
@@ -197,6 +237,9 @@ func TransitionBill(
 	expectedUpdatedAt time.Time,
 	operatorID int64,
 ) (*paymentv1.Bill, error) {
+	if err := requireBillUser(ctx, operatorID); err != nil {
+		return nil, err
+	}
 	bill, err := repository.GetBillByID(ctx, billId)
 	if err != nil {
 		log.Error().Err(err).Msgf("TransitionBill: GetBillByID failed for billId: %d", billId)
@@ -218,9 +261,12 @@ func TransitionBill(
 
 	// 仅收款方可打回
 	if operatorID != bill.PayeeID {
-		return nil, ErrInvalidBillStatus
+		return nil, ErrBillPermissionDenied
 	}
-	if !sameUpdatedAtSecond(bill.UpdatedAt, expectedUpdatedAt) {
+	if err := requireWestPocketCollecting(ctx, bill); err != nil {
+		return nil, err
+	}
+	if !sameUpdatedAtVersion(bill.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
 
@@ -260,6 +306,9 @@ func SupplementSerialNumber(
 	serialNumber string,
 	expectedUpdatedAt time.Time,
 ) (*paymentv1.Bill, error) {
+	if _, err := interceptor.UserIDFromContext(ctx); err != nil {
+		return nil, err
+	}
 	bill, err := repository.GetBillByID(ctx, billId)
 	if err != nil {
 		log.Error().Err(err).Msgf("SupplementSerialNumber: GetBillByID failed for billId: %d", billId)
@@ -269,10 +318,16 @@ func SupplementSerialNumber(
 		return nil, fmt.Errorf("supplement serial number: %w", err)
 	}
 
+	if err := requireBillUser(ctx, bill.PayerID); err != nil {
+		return nil, err
+	}
 	if bill.Status != model.PaymentBillStatusSubmitted {
 		return nil, ErrInvalidBillStatus
 	}
-	if !sameUpdatedAtSecond(bill.UpdatedAt, expectedUpdatedAt) {
+	if err := requireWestPocketCollecting(ctx, bill); err != nil {
+		return nil, err
+	}
+	if !sameUpdatedAtVersion(bill.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
 	}
 
@@ -306,6 +361,9 @@ func CreateBillForOrder(
 	if payerID == payeeID {
 		return nil, ErrSelfPayment
 	}
+	if sourceType == westPocketSource {
+		return createWestPocketBill(ctx, sourceID, payerID, payeeID, amountCents)
+	}
 
 	bill, err := repository.GetBillBySource(ctx, sourceType, sourceID, payerID)
 	if err != nil {
@@ -313,10 +371,7 @@ func CreateBillForOrder(
 		return nil, fmt.Errorf("create bill for order: get bill by source: %w", err)
 	}
 	if bill != nil {
-		if bill.PayeeID != payeeID || bill.AmountCents != amountCents {
-			return nil, ErrDuplicateBill
-		}
-		return PaymentBillToProto(ctx, bill)
+		return existingOrderBillToProto(ctx, bill, payeeID, amountCents)
 	}
 
 	billNo, err := newPaymentBillNo()
@@ -345,7 +400,19 @@ func CreateBillForOrder(
 				Msg("CreateBillForOrder: CreateBill failed and fallback lookup also failed")
 			return nil, fmt.Errorf("create bill for order: %w", err)
 		}
-		return PaymentBillToProto(ctx, existing)
+		return existingOrderBillToProto(ctx, existing, payeeID, amountCents)
+	}
+	return PaymentBillToProto(ctx, bill)
+}
+
+func existingOrderBillToProto(
+	ctx context.Context,
+	bill *model.PaymentBill,
+	payeeID int64,
+	amountCents int32,
+) (*paymentv1.Bill, error) {
+	if bill.PayeeID != payeeID || bill.AmountCents != amountCents {
+		return nil, ErrDuplicateBill
 	}
 	return PaymentBillToProto(ctx, bill)
 }
@@ -354,16 +421,32 @@ func newPaymentBillNo() (string, error) {
 	return idgen.NewOrderNo(paymentBillNoPrefix)
 }
 
-// sameUpdatedAtSecond compares optimistic-lock versions at the precision
-// preserved by the client. PostgreSQL stores microseconds while protobuf/JSON
-// clients can round timestamps, so the database value is used for the SQL
-// predicate after this check succeeds.
-func sameUpdatedAtSecond(dbUpdatedAt, expectedUpdatedAt time.Time) bool {
-	return dbUpdatedAt.UTC().Truncate(time.Second).Equal(expectedUpdatedAt.UTC().Truncate(time.Second))
+// Compare the exact version returned by PostgreSQL and preserved by protobuf.
+func sameUpdatedAtVersion(dbUpdatedAt, expectedUpdatedAt time.Time) bool {
+	return dbUpdatedAt.Equal(expectedUpdatedAt)
+}
+
+func requireBillUser(ctx context.Context, allowedUserIDs ...int64) error {
+	userID, err := interceptor.UserIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	for _, allowedID := range allowedUserIDs {
+		if userID == allowedID {
+			return nil
+		}
+	}
+	return ErrBillPermissionDenied
 }
 
 func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) error {
+	if sourceType == westPocketSource {
+		return ErrInvalidBillStatus
+	}
 	_, err := repository.CancelBillBySource(ctx, sourceType, sourceID, payerID)
+	if errors.Is(err, repository.ErrBillAlreadyCompleted) {
+		return ErrInvalidBillStatus
+	}
 	if err != nil {
 		log.Error().Err(err).Msg("CancelBillBySource: CancelBillsBySource failed")
 		return fmt.Errorf("cancel bill by source: %w", err)

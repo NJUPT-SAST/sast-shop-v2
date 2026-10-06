@@ -1,0 +1,387 @@
+syntax = "proto3";
+
+package sast.sastshopv2.westpocket.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/payment/v1/bill.proto";
+import "sast/sastshopv2/user/v1/user_info.proto";
+
+// All amounts are integer CNY cents. Status strings follow the documented
+// state machines; only server-side transitions may change them.
+message Pocket {
+  int64 id = 1;
+  int64 owner_id = 2;
+  string title = 3;
+  int32 total_cents = 4;
+  string status = 5;
+  int64 revision = 6;
+  int32 participant_count = 7;
+  int32 owner_share_cents = 8;
+  int32 receivable_cents = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  google.protobuf.Timestamp published_at = 12;
+  string cancel_reason = 13;
+  bool is_owner = 14;
+  sast.sastshopv2.user.v1.UserInfo owner = 15;
+}
+
+message PocketMember {
+  int64 id = 1;
+  int64 user_id = 2;
+  sast.sastshopv2.user.v1.UserInfo user = 3;
+  string selection_source = 4;
+  int64 face_match_id = 5;
+  int32 share_cents = 6;
+  int64 payment_bill_id = 7;
+  string bill_status = 8;
+  google.protobuf.Timestamp bill_updated_at = 9;
+  bool is_owner = 10;
+  string album_access = 11;
+}
+
+message PocketPhoto {
+  int64 id = 1;
+  int64 pocket_id = 2;
+  string preview_url = 3;
+  string status = 4;
+  int32 width = 5;
+  int32 height = 6;
+  int32 detected_face_count = 7;
+  string retention_mode = 8;
+  google.protobuf.Timestamp retention_until = 9;
+  string error_code = 10;
+  int64 latest_recognition_job_id = 11;
+}
+
+message FaceProfile {
+  int64 id = 1;
+  string status = 2;
+  int64 revision = 3;
+  int32 sample_count = 4;
+  string consent_version = 5;
+  google.protobuf.Timestamp consented_at = 6;
+  google.protobuf.Timestamp consent_expires_at = 7;
+  google.protobuf.Timestamp revoked_at = 8;
+  int64 job_id = 9;
+}
+
+message FaceCandidate {
+  sast.sastshopv2.user.v1.UserInfo user = 1;
+  double score = 2;
+}
+
+message FaceMatch {
+  int64 id = 1;
+  int64 photo_id = 2;
+  int64 recognition_job_id = 3;
+  int32 face_index = 4;
+  int32 bbox_x = 5;
+  int32 bbox_y = 6;
+  int32 bbox_width = 7;
+  int32 bbox_height = 8;
+  int64 suggested_user_id = 9;
+  repeated FaceCandidate candidates = 10;
+  double score = 11;
+  string match_status = 12;
+  int64 confirmed_user_id = 13;
+  string resolution = 14;
+}
+
+message Job {
+  int64 id = 1;
+  string kind = 2;
+  string status = 3;
+  int32 total_items = 4;
+  int32 completed_items = 5;
+  int32 failed_items = 6;
+  string error_code = 7;
+  bool retryable = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message Notification {
+  int64 id = 1;
+  int64 recipient_user_id = 2;
+  string kind = 3;
+  string status = 4;
+  string error_code = 5;
+}
+
+message MemberSelection {
+  int64 user_id = 1;
+  string selection_source = 2;
+  int64 face_match_id = 3;
+}
+
+message GetCapabilitiesRequest {}
+message GetCapabilitiesResponse {
+  bool face_recognition_available = 1;
+  bool photo_upload_available = 2;
+  bool notifications_available = 3;
+  string face_consent_version = 4;
+  string photo_consent_version = 5;
+  int32 max_photos = 6;
+  int32 max_members = 7;
+  int32 max_upload_bytes = 8;
+}
+
+message GetMyFaceProfileRequest {}
+message GetMyFaceProfileResponse {
+  FaceProfile face_profile = 1;
+}
+message EnrollMyFaceRequest {
+  repeated string upload_ids = 1;
+  string consent_version = 2;
+  string request_id = 3;
+}
+message EnrollMyFaceResponse {
+  FaceProfile face_profile = 1;
+  Job job = 2;
+}
+message ReplaceMyFaceRequest {
+  repeated string upload_ids = 1;
+  string consent_version = 2;
+  int64 expected_revision = 3;
+  string request_id = 4;
+}
+message ReplaceMyFaceResponse {
+  FaceProfile face_profile = 1;
+  Job job = 2;
+}
+message RevokeMyFaceRequest {
+  int64 expected_revision = 1;
+  string request_id = 2;
+}
+message RevokeMyFaceResponse {
+  FaceProfile face_profile = 1;
+  Job job = 2;
+}
+
+message CreatePocketRequest {
+  string title = 1;
+  int32 total_cents = 2;
+  string request_id = 3;
+}
+message CreatePocketResponse {
+  Pocket pocket = 1;
+}
+message UpdatePocketRequest {
+  int64 pocket_id = 1;
+  optional string title = 2;
+  optional int32 total_cents = 3;
+  int64 expected_revision = 4;
+  string request_id = 5;
+}
+message UpdatePocketResponse {
+  Pocket pocket = 1;
+}
+message GetPocketRequest {
+  int64 pocket_id = 1;
+}
+message GetPocketResponse {
+  Pocket pocket = 1;
+  repeated PocketMember members = 2;
+  repeated PocketPhoto photos = 3;
+  repeated Job jobs = 4;
+  repeated Notification notifications = 5;
+  bool is_owner = 6;
+}
+message ListMyPocketsRequest {
+  string perspective = 1;
+  string status = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+message ListMyPocketsResponse {
+  repeated Pocket pockets = 1;
+  string next_page_token = 2;
+}
+message AddPocketPhotosRequest {
+  int64 pocket_id = 1;
+  repeated string upload_ids = 2;
+  string retention_mode = 3;
+  string capture_authorization_version = 4;
+  int64 expected_revision = 5;
+  string request_id = 6;
+}
+message AddPocketPhotosResponse {
+  repeated PocketPhoto photos = 1;
+  Pocket pocket = 2;
+}
+message DeletePocketPhotoRequest {
+  int64 pocket_id = 1;
+  int64 photo_id = 2;
+  string request_id = 3;
+}
+message DeletePocketPhotoResponse {}
+message StartRecognitionRequest {
+  int64 pocket_id = 1;
+  repeated int64 photo_ids = 2;
+  string request_id = 3;
+}
+message StartRecognitionResponse {
+  Job job = 1;
+}
+message GetJobRequest {
+  int64 job_id = 1;
+}
+message GetJobResponse {
+  Job job = 1;
+}
+message RetryJobRequest {
+  int64 job_id = 1;
+  string request_id = 2;
+}
+message RetryJobResponse {
+  Job job = 1;
+}
+message GetRecognitionResultsRequest {
+  int64 pocket_id = 1;
+  int64 job_id = 2;
+}
+message GetRecognitionResultsResponse {
+  repeated FaceMatch matches = 1;
+}
+message ResolveFaceMatchRequest {
+  int64 pocket_id = 1;
+  int64 face_match_id = 2;
+  int64 user_id = 3;
+  bool ignore = 4;
+  int64 expected_revision = 5;
+  string request_id = 6;
+}
+message ResolveFaceMatchResponse {
+  FaceMatch match = 1;
+  Pocket pocket = 2;
+}
+message SearchParticipantsRequest {
+  int64 pocket_id = 1;
+  string query = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+message SearchParticipantsResponse {
+  repeated sast.sastshopv2.user.v1.UserInfo users = 1;
+  string next_page_token = 2;
+}
+message ReplaceMembersRequest {
+  int64 pocket_id = 1;
+  repeated MemberSelection members = 2;
+  int64 expected_revision = 3;
+  string request_id = 4;
+}
+message ReplaceMembersResponse {
+  Pocket pocket = 1;
+  repeated PocketMember members = 2;
+}
+message PreviewSplitRequest {
+  int64 pocket_id = 1;
+  int64 expected_revision = 2;
+}
+message PreviewSplitResponse {
+  int64 pocket_id = 1;
+  int64 revision = 2;
+  int32 total_cents = 3;
+  int32 participant_count = 4;
+  int32 owner_share_cents = 5;
+  int32 receivable_cents = 6;
+  repeated PocketMember members = 7;
+}
+message PublishPocketRequest {
+  int64 pocket_id = 1;
+  int64 expected_revision = 2;
+  string request_id = 3;
+}
+message PublishPocketResponse {
+  Pocket pocket = 1;
+  Job job = 2;
+}
+message GetMyPaymentRequest {
+  int64 pocket_id = 1;
+}
+message GetMyPaymentResponse {
+  Pocket pocket = 1;
+  sast.sastshopv2.payment.v1.Bill bill = 2;
+  sast.sastshopv2.user.v1.UserInfo payee = 3;
+  string qr_content = 4;
+  bool is_owner = 5;
+}
+message CancelPocketRequest {
+  int64 pocket_id = 1;
+  string reason = 2;
+  int64 expected_revision = 3;
+  string request_id = 4;
+}
+message CancelPocketResponse {
+  Pocket pocket = 1;
+  Job job = 2;
+}
+message RemindMembersRequest {
+  int64 pocket_id = 1;
+  repeated int64 member_ids = 2;
+  string request_id = 3;
+}
+message RemindMembersResponse {
+  repeated Notification notifications = 1;
+}
+message SetAlbumAccessRequest {
+  int64 pocket_id = 1;
+  bool accepted = 2;
+  string request_id = 3;
+}
+message SetAlbumAccessResponse {}
+message ListAlbumPhotosRequest {
+  int64 pocket_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+message ListAlbumPhotosResponse {
+  repeated PocketPhoto photos = 1;
+  string next_page_token = 2;
+}
+
+// This service is only reachable by authenticated internal payment callers.
+message GetCollectionStateRequest {
+  int64 pocket_id = 1;
+}
+message GetCollectionStateResponse {
+  string status = 1;
+  int64 owner_id = 2;
+  repeated PocketMember members = 3;
+}
+
+service FaceProfileService {
+  rpc GetMyFaceProfile(GetMyFaceProfileRequest) returns (GetMyFaceProfileResponse);
+  rpc EnrollMyFace(EnrollMyFaceRequest) returns (EnrollMyFaceResponse);
+  rpc ReplaceMyFace(ReplaceMyFaceRequest) returns (ReplaceMyFaceResponse);
+  rpc RevokeMyFace(RevokeMyFaceRequest) returns (RevokeMyFaceResponse);
+}
+
+service WestPocketService {
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+  rpc CreatePocket(CreatePocketRequest) returns (CreatePocketResponse);
+  rpc UpdatePocket(UpdatePocketRequest) returns (UpdatePocketResponse);
+  rpc GetPocket(GetPocketRequest) returns (GetPocketResponse);
+  rpc ListMyPockets(ListMyPocketsRequest) returns (ListMyPocketsResponse);
+  rpc AddPocketPhotos(AddPocketPhotosRequest) returns (AddPocketPhotosResponse);
+  rpc DeletePocketPhoto(DeletePocketPhotoRequest) returns (DeletePocketPhotoResponse);
+  rpc StartRecognition(StartRecognitionRequest) returns (StartRecognitionResponse);
+  rpc GetJob(GetJobRequest) returns (GetJobResponse);
+  rpc RetryJob(RetryJobRequest) returns (RetryJobResponse);
+  rpc GetRecognitionResults(GetRecognitionResultsRequest) returns (GetRecognitionResultsResponse);
+  rpc ResolveFaceMatch(ResolveFaceMatchRequest) returns (ResolveFaceMatchResponse);
+  rpc SearchParticipants(SearchParticipantsRequest) returns (SearchParticipantsResponse);
+  rpc ReplaceMembers(ReplaceMembersRequest) returns (ReplaceMembersResponse);
+  rpc PreviewSplit(PreviewSplitRequest) returns (PreviewSplitResponse);
+  rpc PublishPocket(PublishPocketRequest) returns (PublishPocketResponse);
+  rpc GetMyPayment(GetMyPaymentRequest) returns (GetMyPaymentResponse);
+  rpc CancelPocket(CancelPocketRequest) returns (CancelPocketResponse);
+  rpc RemindMembers(RemindMembersRequest) returns (RemindMembersResponse);
+  rpc SetAlbumAccess(SetAlbumAccessRequest) returns (SetAlbumAccessResponse);
+  rpc ListAlbumPhotos(ListAlbumPhotosRequest) returns (ListAlbumPhotosResponse);
+}
+
+service WestPocketInternalService {
+  rpc GetCollectionState(GetCollectionStateRequest) returns (GetCollectionStateResponse);
+}

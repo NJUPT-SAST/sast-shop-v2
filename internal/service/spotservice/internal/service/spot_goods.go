@@ -19,6 +19,7 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/repository"
 	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -80,7 +81,13 @@ func GetSpotGoodLength(ctx context.Context, storeID int64, keyword string) (int3
 }
 
 func GetSpotGoods(ctx context.Context, goodsID int64) (*spotv1.SpotGoodsDetail, error) {
+	if goodsID <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+	}
 	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return nil, connect.NewError(connect.CodeNotFound, errmsg.SpotGoodsNotFound)
+	}
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d", goodsID)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -120,6 +127,9 @@ func ValidateProductTemplate(
 	productTemplateID int64,
 	productTemplateUpdatedAt *timestamppb.Timestamp,
 ) (*catalogv1.ProductTemplate, error) {
+	if productTemplateID <= 0 || productTemplateUpdatedAt == nil || !productTemplateUpdatedAt.IsValid() {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+	}
 	resp, err := client.CatalogInternalServiceClient.GetProductTemplate(
 		ctx,
 		connect.NewRequest(&catalogv1.GetProductTemplateRequest{
@@ -143,13 +153,9 @@ func ValidateProductTemplate(
 			},
 		}, "product template not found")
 	}
-	if productTemplateUpdatedAt == nil || !template.GetUpdatedAt().AsTime().Equal(productTemplateUpdatedAt.AsTime()) {
+	if !template.GetUpdatedAt().AsTime().Equal(productTemplateUpdatedAt.AsTime()) {
 		log.Warn().Msgf("Product template updated_at mismatch for templateID: %d", productTemplateID)
-		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "product template has been updated, please refresh the page")
+		return nil, connect.NewError(connect.CodeAborted, errmsg.SpotGoodsVersionConflict)
 	}
 	return template, nil
 }
@@ -174,6 +180,10 @@ func CreateSpotGoods(
 	goods *model.SpotGoods,
 	productTemplateUpdatedAt *timestamppb.Timestamp,
 ) (*spotv1.SpotGoodsDetail, error) {
+	if goods == nil || goods.SellerID <= 0 || goods.ProductTemplateID <= 0 || goods.SalePriceCents <= 0 ||
+		goods.StockTotal <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+	}
 	template, err := ValidateProductTemplate(ctx, goods.ProductTemplateID, productTemplateUpdatedAt)
 	if err != nil {
 		return nil, err
@@ -196,6 +206,33 @@ func CreateSpotGoods(
 	return modelToDetail(goods, template, seller), nil
 }
 
+func editableSpotGoods(
+	ctx context.Context,
+	callerID, goodsID int64,
+	updatedAt *timestamppb.Timestamp,
+) (*model.SpotGoods, error) {
+	if callerID <= 0 || goodsID <= 0 || updatedAt == nil || !updatedAt.IsValid() {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+	}
+	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return nil, connect.NewError(connect.CodeNotFound, errmsg.SpotGoodsNotFound)
+	}
+	if err != nil {
+		return nil, spotInternalError()
+	}
+	if goods.SellerID != callerID {
+		return nil, connect.NewError(connect.CodePermissionDenied, errmsg.SpotPermissionDenied)
+	}
+	if goods.ClosedAt != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errmsg.SpotGoodsClosed)
+	}
+	if !goods.UpdatedAt.Equal(updatedAt.AsTime()) {
+		return nil, connect.NewError(connect.CodeAborted, errmsg.SpotGoodsVersionConflict)
+	}
+	return goods, nil
+}
+
 func UpdateSpotGoodsStock(
 	ctx context.Context,
 	callerID int64,
@@ -203,68 +240,32 @@ func UpdateSpotGoodsStock(
 	newStockTotal int32,
 	updatedAt *timestamppb.Timestamp,
 ) error {
-	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
+	if newStockTotal < 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+	}
+	goods, err := editableSpotGoods(ctx, callerID, goodsID, updatedAt)
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d before updating stock", goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+		return err
 	}
-	if goods.ClosedAt != nil {
-		log.Warn().Msgf("Spot good is closed for goodsID: %d, cannot update stock", goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-	if goods.SellerID != callerID {
-		log.Warn().Msgf("Caller %d is not the seller of goodsID: %d, cannot update stock", callerID, goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-	if updatedAt == nil {
-		log.Warn().Msgf("UpdatedAt is nil in update stock request for goodsID: %d", goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-
-	oldStock := goods.StockTotal
-	delta := newStockTotal - oldStock
-
 	err = postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		rows, err := repository.UpdateSpotGoodsStockTx(ctx, tx, goodsID, newStockTotal, updatedAt.AsTime())
+		rows, err := repository.UpdateSpotGoodsStockTx(ctx, tx, goodsID, newStockTotal, goods.UpdatedAt)
 		if err != nil {
-			return err
+			return spotInternalError()
 		}
 		if rows == 0 {
-			return errmsg.SpotGoodsVersionConflict
+			return connect.NewError(connect.CodeAborted, errmsg.SpotGoodsVersionConflict)
 		}
-		ledger := &model.SpotStockLedger{
+		if err := repository.CreateStockLedger(ctx, tx, &model.SpotStockLedger{
 			ListingID:  goodsID,
-			Delta:      delta,
+			Delta:      newStockTotal - goods.StockTotal,
 			Reason:     model.StockLedgerReasonManualAdjust,
 			OperatorID: &callerID,
+		}); err != nil {
+			return spotInternalError()
 		}
-		return repository.CreateStockLedger(ctx, tx, ledger)
+		return nil
 	})
-	if err != nil {
-		log.Error().Err(err).Msgf("Failed to update spot good stock total for goodsID: %d", goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-	return nil
+	return err
 }
 
 func CloseSpotGoods(
@@ -313,55 +314,19 @@ func UpdateSpotGoodsPrice(
 	newSalePriceCents int32,
 	updatedAt *timestamppb.Timestamp,
 ) error {
-	goods, err := repository.GetSpotGoodsByID(ctx, goodsID)
+	if newSalePriceCents <= 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+	}
+	goods, err := editableSpotGoods(ctx, callerID, goodsID, updatedAt)
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to get spot good info for goodsID: %d before updating price", goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+		return err
 	}
-	if goods.ClosedAt != nil {
-		log.Warn().Msgf("Spot good is closed for goodsID: %d, cannot update price", goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-	if goods.SellerID != callerID {
-		log.Warn().Msgf("Caller %d is not the seller of goodsID: %d, cannot update price", callerID, goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-	if updatedAt == nil {
-		log.Warn().Msgf("UpdatedAt is nil in update price request for goodsID: %d", goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
-	}
-	rows, err := repository.UpdateSpotGoodsPrice(ctx, goodsID, newSalePriceCents, updatedAt.AsTime())
+	rows, err := repository.UpdateSpotGoodsPrice(ctx, goodsID, newSalePriceCents, goods.UpdatedAt)
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to update spot good sale price for goodsID: %d", goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "")
+		return spotInternalError()
 	}
 	if rows == 0 {
-		log.Warn().Msgf("Optimistic lock conflict when updating price for goodsID: %d", goodsID)
-		return rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
-			SpotError: &spotv1.SpotError{
-				Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
-			},
-		}, "optimistic lock conflict")
+		return connect.NewError(connect.CodeAborted, errmsg.SpotGoodsVersionConflict)
 	}
 	return nil
 }
@@ -410,7 +375,7 @@ func modelToBrief(
 ) *spotv1.SpotGoodsBrief {
 	return &spotv1.SpotGoodsBrief{
 		Id:              goods.ID,
-		ProductTemplate: template,
+		ProductTemplate: templateForListing(template, goods.StoreID),
 		SalePriceCents:  goods.SalePriceCents,
 		CreatedAt:       timestamppb.New(goods.CreatedAt),
 		UpdatedAt:       timestamppb.New(goods.UpdatedAt),
@@ -424,11 +389,21 @@ func modelToDetail(
 ) *spotv1.SpotGoodsDetail {
 	return &spotv1.SpotGoodsDetail{
 		Id:              goods.ID,
-		ProductTemplate: template,
+		ProductTemplate: templateForListing(template, goods.StoreID),
 		SalePriceCents:  goods.SalePriceCents,
 		CreatedAt:       timestamppb.New(goods.CreatedAt),
 		UpdatedAt:       timestamppb.New(goods.UpdatedAt),
 		Stock:           goods.StockTotal,
 		Seller:          seller,
 	}
+}
+
+func templateForListing(template *catalogv1.ProductTemplate, storeID int64) *catalogv1.ProductTemplate {
+	if template == nil || template.StoreId == storeID {
+		return template
+	}
+	// Existing listings retain their original store after a template is moved.
+	snapshot := proto.CloneOf(template)
+	snapshot.StoreId = storeID
+	return snapshot
 }

@@ -2242,7 +2242,7 @@ func ceilDivide(value, divisor int32) int32 {
 	if value <= 0 || divisor <= 0 {
 		return 0
 	}
-	return (value + divisor - 1) / divisor
+	return 1 + (value-1)/divisor
 }
 
 const maxInt32Value = 1<<31 - 1
@@ -2429,7 +2429,7 @@ func GetErrandTaskList(
 		captainID,
 		statusFilter,
 		int(pageSize),
-		int((page-1)*pageSize),
+		(int(page)-1)*int(pageSize),
 	)
 	if err != nil {
 		log.Error().
