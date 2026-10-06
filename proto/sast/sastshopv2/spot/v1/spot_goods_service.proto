@@ -12,6 +12,8 @@ message ListSpotGoodsRequest {
   int32 page = 2;
   // 每页数量
   int32 page_size = 3;
+  // 大小写无关的字面子串，匹配商品名称、规格、条码或店铺名；去除首尾空白后最多 200 个字符。
+  string keyword = 4;
 }
 
 message ListSpotGoodsResponse {

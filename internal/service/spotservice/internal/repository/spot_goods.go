@@ -9,30 +9,48 @@ import (
 	"github.com/uptrace/bun"
 )
 
-func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*model.SpotGoods, error) {
+func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int, keyword string) ([]*model.SpotGoods, error) {
 	var goodsList []*model.SpotGoods
-	query := postgres.DB.NewSelect().
-		Model(&goodsList).
-		Where("closed_at IS NULL").
-		OrderExpr("created_at DESC, id DESC").
+	query := filterSpotGoods(postgres.DB.NewSelect().Model(&goodsList), storeID, keyword).
+		OrderExpr("sg.created_at DESC, sg.id DESC").
 		Offset(offset).
 		Limit(limit)
-	if storeID != 0 {
-		query = query.Where("store_id = ?", storeID)
-	}
 	err := query.Scan(ctx)
 	return goodsList, err
 }
 
-func GetSpotGoodsLength(ctx context.Context, storeID int64) (int, error) {
-	query := postgres.DB.NewSelect().
-		Model((*model.SpotGoods)(nil)).
-		Where("closed_at IS NULL")
+func GetSpotGoodsLength(ctx context.Context, storeID int64, keyword string) (int, error) {
+	return filterSpotGoods(
+		postgres.DB.NewSelect().Model((*model.SpotGoods)(nil)), storeID, keyword,
+	).Count(ctx)
+}
+
+func filterSpotGoods(query *bun.SelectQuery, storeID int64, keyword string) *bun.SelectQuery {
+	query = query.Where("sg.closed_at IS NULL")
 	if storeID != 0 {
-		query = query.Where("store_id = ?", storeID)
+		query = query.Where("sg.store_id = ?", storeID)
 	}
-	count, err := query.Count(ctx)
-	return count, err
+	if keyword != "" {
+		query = query.Where(`(
+			EXISTS (
+				SELECT 1 FROM catalog.catalog_product_template AS cpt
+				WHERE cpt.id = sg.product_template_id AND (
+					strpos(lower(cpt.title), lower(?)) > 0
+					OR strpos(lower(cpt.description), lower(?)) > 0
+					OR EXISTS (
+						SELECT 1 FROM catalog.catalog_product_barcode AS cpb
+						WHERE cpb.product_template_id = cpt.id
+						AND strpos(lower(cpb.barcode), lower(?)) > 0
+					)
+				)
+			)
+			OR EXISTS (
+				SELECT 1 FROM catalog.catalog_store AS cs
+				WHERE cs.id = sg.store_id AND strpos(lower(cs.name), lower(?)) > 0
+			)
+		)`, keyword, keyword, keyword, keyword)
+	}
+	return query
 }
 
 func GetSpotGoodsByID(ctx context.Context, goodsID int64) (*model.SpotGoods, error) {

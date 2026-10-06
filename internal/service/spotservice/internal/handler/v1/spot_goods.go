@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"errors"
 
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/spot/v1/spotv1connect"
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
@@ -9,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/search"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/service"
 	"github.com/labstack/echo/v5"
@@ -23,21 +25,28 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 	ctx context.Context,
 	r *connect.Request[spotv1.ListSpotGoodsRequest],
 ) (*connect.Response[spotv1.ListSpotGoodsResponse], error) {
+	if r.Msg.StoreId < 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("store ID cannot be negative"))
+	}
 	if r.Msg.Page < 1 || r.Msg.PageSize <= 0 || r.Msg.PageSize > 30 {
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
 			SpotError: &spotv1.SpotError{Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR},
 		}, "invalid pagination parameters")
 	}
-	offset := int((r.Msg.Page - 1) * r.Msg.PageSize)
+	keyword, err := search.NormalizeKeyword(r.Msg.Keyword)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	offset := int((int64(r.Msg.Page) - 1) * int64(r.Msg.PageSize))
 	limit := int(r.Msg.PageSize)
 
-	spotGoodsBrief, err := service.ListSpotGoods(ctx, r.Msg.StoreId, offset, limit)
+	spotGoodsBrief, err := service.ListSpotGoods(ctx, r.Msg.StoreId, offset, limit, keyword)
 	if err != nil {
 
 		log.Error().Err(err).Msgf("Failed to list spot goods for storeID: %d", r.Msg.StoreId)
 		return nil, err
 	}
-	totalCount, err := service.GetSpotGoodLength(ctx, r.Msg.StoreId)
+	totalCount, err := service.GetSpotGoodLength(ctx, r.Msg.StoreId, keyword)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot goods length for storeID: %d", r.Msg.StoreId)
 		return nil, err
