@@ -232,10 +232,10 @@ func GetProductTemplateList(
 	page, pageSize int32,
 	keyword string,
 ) ([]*catalogv1.ProductTemplate, int32, error) {
-	if storeID <= 0 || page <= 0 || pageSize <= 0 || pageSize > 100 {
+	if storeID < 0 || page <= 0 || pageSize <= 0 || pageSize > 100 {
 		return nil, 0, connect.NewError(errmsg.InvalidArgument.Code, errmsg.InvalidArgument)
 	}
-	total, err := repository.CountProductTemplates(ctx, storeID)
+	total, err := repository.CountProductTemplates(ctx, storeID, keyword)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to count product templates for store: %d", storeID)
 		return nil, 0, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
@@ -246,7 +246,7 @@ func GetProductTemplateList(
 	}
 
 	offset := (int(page) - 1) * int(pageSize)
-	pts, err := repository.ListProductTemplates(ctx, storeID, offset, int(pageSize))
+	pts, err := repository.ListProductTemplates(ctx, storeID, offset, int(pageSize), keyword)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to list product templates for store: %d", storeID)
 		return nil, 0, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{

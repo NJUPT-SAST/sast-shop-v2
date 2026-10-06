@@ -28,6 +28,10 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 	if r.Msg.StoreId < 0 || r.Msg.Page < 1 || r.Msg.PageSize <= 0 || r.Msg.PageSize > 100 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("分页参数不正确，每页数量应为 1 到 100"))
 	}
+	keyword, err := search.NormalizeKeyword(r.Msg.Keyword)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	offset := (int(r.Msg.Page) - 1) * int(r.Msg.PageSize)
 	limit := int(r.Msg.PageSize)
 
