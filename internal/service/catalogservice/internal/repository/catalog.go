@@ -73,14 +73,11 @@ func UpdateStore(ctx context.Context, db bun.IDB, id int64, updates map[string]a
 
 // ListProductTemplates 分页查询指定店铺的商品模板。
 func ListProductTemplates(
-	ctx context.Context, storeID int64, offset, limit int,
+	ctx context.Context, storeID int64, offset, limit int, keyword string,
 ) ([]*model.CatalogProductTemplate, error) {
 	var pts []*model.CatalogProductTemplate
-	err := postgres.DB.NewSelect().
-		Model(&pts).
-		Where("store_id = ?", storeID).
-		Where("status != ?", model.CatalogStatusRemoved).
-		Order("id DESC").
+	err := filterProductTemplates(postgres.DB.NewSelect().Model(&pts), storeID, keyword).
+		Order("cpt.id DESC").
 		Limit(limit).
 		Offset(offset).
 		Scan(ctx)
@@ -88,12 +85,29 @@ func ListProductTemplates(
 }
 
 // CountProductTemplates 统计指定店铺的商品模板总数。
-func CountProductTemplates(ctx context.Context, storeID int64) (int, error) {
-	return postgres.DB.NewSelect().
-		Model((*model.CatalogProductTemplate)(nil)).
-		Where("store_id = ?", storeID).
-		Where("status != ?", model.CatalogStatusRemoved).
-		Count(ctx)
+func CountProductTemplates(ctx context.Context, storeID int64, keyword string) (int, error) {
+	return filterProductTemplates(
+		postgres.DB.NewSelect().Model((*model.CatalogProductTemplate)(nil)), storeID, keyword,
+	).Count(ctx)
+}
+
+func filterProductTemplates(query *bun.SelectQuery, storeID int64, keyword string) *bun.SelectQuery {
+	query = query.Where("cpt.status != ?", model.CatalogStatusRemoved)
+	if storeID != 0 {
+		query = query.Where("cpt.store_id = ?", storeID)
+	}
+	if keyword != "" {
+		query = query.Where(`(
+			strpos(lower(cpt.title), lower(?)) > 0
+			OR strpos(lower(cpt.description), lower(?)) > 0
+			OR EXISTS (
+				SELECT 1 FROM catalog.catalog_product_barcode AS cpb
+				WHERE cpb.product_template_id = cpt.id
+				AND strpos(lower(cpb.barcode), lower(?)) > 0
+			)
+		)`, keyword, keyword, keyword)
+	}
+	return query
 }
 
 // CreateProductTemplate 创建商品模板。

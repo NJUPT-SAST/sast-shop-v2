@@ -23,8 +23,13 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*spotv1.SpotGoodsBrief, error) {
-	spotGoodsList, err := repository.ListSpotGoods(ctx, storeID, offset, limit)
+func ListSpotGoods(
+	ctx context.Context,
+	storeID int64,
+	offset, limit int,
+	keyword string,
+) ([]*spotv1.SpotGoodsBrief, error) {
+	spotGoodsList, err := repository.ListSpotGoods(ctx, storeID, offset, limit, keyword)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to list spot goods for storeID: %d", storeID)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{
@@ -54,8 +59,8 @@ func ListSpotGoods(ctx context.Context, storeID int64, offset, limit int) ([]*sp
 	return briefs, nil
 }
 
-func GetSpotGoodLength(ctx context.Context, storeID int64) (int32, error) {
-	count, err := repository.GetSpotGoodsLength(ctx, storeID)
+func GetSpotGoodLength(ctx context.Context, storeID int64, keyword string) (int32, error) {
+	count, err := repository.GetSpotGoodsLength(ctx, storeID, keyword)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot goods length for storeID: %d", storeID)
 		return 0, rpcerror.NewInternalError(&commonv1.BusinessError_SpotError{

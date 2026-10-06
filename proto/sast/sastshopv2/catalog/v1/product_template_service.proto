@@ -7,9 +7,12 @@ import "sast/sastshopv2/catalog/v1/product_template.proto";
 import "sast/sastshopv2/catalog/v1/store.proto";
 
 message GetProductTemplateListRequest {
+  // 为 0 时查询所有店铺。
   int64 store_id = 1;
   int32 page = 2;
   int32 page_size = 3;
+  // 大小写无关的字面子串，匹配商品名称、规格或条码；去除首尾空白后最多 200 个字符。
+  string keyword = 4;
 }
 
 message GetProductTemplateListResponse {

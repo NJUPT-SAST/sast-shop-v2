@@ -79,7 +79,7 @@ func SignURL(ctx context.Context, requestURL string) (*JSAPISignature, error) {
 	}
 	nonceStr := hex.EncodeToString(buf)
 
-	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	raw := fmt.Sprintf(
 		"jsapi_ticket=%s&noncestr=%s&timestamp=%s&url=%s",
 		ticket.Ticket,

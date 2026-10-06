@@ -230,6 +230,7 @@ func GetProductTemplateList(
 	ctx context.Context,
 	storeID int64,
 	page, pageSize int32,
+	keyword string,
 ) ([]*catalogv1.ProductTemplate, int32, error) {
 	if storeID <= 0 || page <= 0 || pageSize <= 0 || pageSize > 100 {
 		return nil, 0, connect.NewError(errmsg.InvalidArgument.Code, errmsg.InvalidArgument)

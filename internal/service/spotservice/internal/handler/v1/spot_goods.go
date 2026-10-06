@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/search"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/service"
 	"github.com/labstack/echo/v5"
@@ -30,13 +31,13 @@ func (s *SpotGoodsServiceServer) ListSpotGoods(
 	offset := (int(r.Msg.Page) - 1) * int(r.Msg.PageSize)
 	limit := int(r.Msg.PageSize)
 
-	spotGoodsBrief, err := service.ListSpotGoods(ctx, r.Msg.StoreId, offset, limit)
+	spotGoodsBrief, err := service.ListSpotGoods(ctx, r.Msg.StoreId, offset, limit, keyword)
 	if err != nil {
 
 		log.Error().Err(err).Msgf("Failed to list spot goods for storeID: %d", r.Msg.StoreId)
 		return nil, err
 	}
-	totalCount, err := service.GetSpotGoodLength(ctx, r.Msg.StoreId)
+	totalCount, err := service.GetSpotGoodLength(ctx, r.Msg.StoreId, keyword)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get spot goods length for storeID: %d", r.Msg.StoreId)
 		return nil, err
