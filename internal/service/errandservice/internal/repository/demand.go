@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
@@ -41,28 +42,33 @@ func GetDemandListByStore(
 	storeName string,
 ) ([]*DemandListAggregation, int, error) {
 	query := postgres.DB.NewSelect().
-		ColumnExpr("store_id").
+		ColumnExpr("edi.store_id").
 		ColumnExpr("SUM(estimated_unit_price_cents::bigint * quantity) AS total_origin_unit_price_cents").
 		ColumnExpr("SUM(service_fee_per_unit_cents::bigint * quantity) AS total_service_fee_cents").
 		ColumnExpr("MAX(updated_at) AS latest_updated_at").
-		TableExpr("errand.errand_demand_item").
+		TableExpr("errand.errand_demand_item AS edi").
 		Where("status = ?", model.ErrandDemandItemStatusOpen).
-		Group("store_id").
-		Order("latest_updated_at DESC", "store_id ASC")
+		Group("edi.store_id").
+		Order("latest_updated_at DESC", "edi.store_id ASC")
+
+	if keyword := strings.TrimSpace(storeName); keyword != "" {
+		query.Where(`EXISTS (
+			SELECT 1 FROM catalog.catalog_store AS cs
+			WHERE cs.id = edi.store_id AND strpos(lower(cs.name), lower(?)) > 0
+		)`, keyword)
+	}
 
 	totalCount, err := query.Count(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	offset := (int(page) - 1) * int(pageSize)
+	offset := (page - 1) * pageSize
 	var results []*DemandListAggregation
-	// Store names live in catalogservice. Name searches must filter the full
-	// aggregated set in the service layer before applying pagination.
-	if storeName == "" {
-		query = query.Limit(int(pageSize)).Offset(offset)
-	}
-	err = query.Scan(ctx, &results)
+	err = query.
+		Limit(int(pageSize)).
+		Offset(int(offset)).
+		Scan(ctx, &results)
 
 	return results, totalCount, err
 }
@@ -233,11 +239,11 @@ func GetDemandsByRequester(
 		return nil, 0, err
 	}
 
-	offset := (int(page) - 1) * int(pageSize)
+	offset := (page - 1) * pageSize
 	var demands []*model.ErrandDemand
 	err = query.
 		Limit(int(pageSize)).
-		Offset(offset).
+		Offset(int(offset)).
 		Scan(ctx, &demands)
 	return demands, totalCount, err
 }
