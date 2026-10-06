@@ -71,8 +71,13 @@ func TestGetDemandListByStoreSearchBeforePagination(t *testing.T) {
 			ids := make([]int64, 0, len(results))
 			for _, result := range results {
 				ids = append(ids, result.StoreID)
-				if result.StoreID == 2 && (result.TotalOriginUnitPriceCents != 800 || result.TotalServiceFeeCents != 80) {
-					t.Fatalf("wrong aggregate amounts: product=%d, fee=%d", result.TotalOriginUnitPriceCents, result.TotalServiceFeeCents)
+				if result.StoreID == 2 &&
+					(result.TotalOriginUnitPriceCents != 800 || result.TotalServiceFeeCents != 80) {
+					t.Fatalf(
+						"wrong aggregate amounts: product=%d, fee=%d",
+						result.TotalOriginUnitPriceCents,
+						result.TotalServiceFeeCents,
+					)
 				}
 			}
 			if !slices.Equal(ids, test.storeIDs) || total != test.total {

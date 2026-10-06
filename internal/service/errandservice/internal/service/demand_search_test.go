@@ -18,7 +18,10 @@ type demandSearchCatalogClient struct {
 	catalogv1connect.CatalogInternalServiceClient
 }
 
-func (demandSearchCatalogClient) GetStore(_ context.Context, request *connect.Request[catalogv1.GetStoreRequest]) (*connect.Response[catalogv1.GetStoreResponse], error) {
+func (demandSearchCatalogClient) GetStore(
+	_ context.Context,
+	request *connect.Request[catalogv1.GetStoreRequest],
+) (*connect.Response[catalogv1.GetStoreResponse], error) {
 	return connect.NewResponse(&catalogv1.GetStoreResponse{
 		Store: &catalogv1.Store{Id: request.Msg.StoreId, Name: "Campus Shop"},
 	}), nil
@@ -28,7 +31,10 @@ type demandSearchUserClient struct {
 	userv1connect.UserInternalServiceClient
 }
 
-func (demandSearchUserClient) GetUsers(context.Context, *connect.Request[userv1.GetUsersRequest]) (*connect.Response[userv1.GetUsersResponse], error) {
+func (demandSearchUserClient) GetUsers(
+	context.Context,
+	*connect.Request[userv1.GetUsersRequest],
+) (*connect.Response[userv1.GetUsersResponse], error) {
 	return connect.NewResponse(&userv1.GetUsersResponse{}), nil
 }
 
@@ -64,7 +70,8 @@ func TestGetDemandListPreservesSearchPagination(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(results) != 1 || total != 1 || results[0].StoreName != "Campus Shop" || results[0].TotalOriginUnitPriceCents != 400 {
+		if len(results) != 1 || total != 1 || results[0].StoreName != "Campus Shop" ||
+			results[0].TotalOriginUnitPriceCents != 400 {
 			t.Fatalf("got results %v, total %d; want matching Campus Shop and total 1", results, total)
 		}
 	})
