@@ -269,6 +269,9 @@ func (s *Service) ReplaceMembers(
 		if m.SelectionSource != "face" && m.SelectionSource != "search" && m.SelectionSource != "owner" {
 			return 0, failure(connect.CodeInvalidArgument, "成员来源无效")
 		}
+		if m.SelectionSource == "face" && m.FaceMatchID == nil {
+			return 0, failure(connect.CodeInvalidArgument, "请选择有效的识别依据")
+		}
 	}
 	users, err := s.Directory.GetUsers(ctx, ids)
 	if err != nil {
@@ -288,14 +291,23 @@ func (s *Service) ReplaceMembers(
 				e = tx.NewSelect().
 					Model(&match).
 					Join("JOIN westpocket.pocket_photo ph ON ph.id=fm.photo_id").
-					Where("fm.id=? AND ph.pocket_id=? AND ph.latest_job_id=fm.job_id AND ph.deleted_at IS NULL AND fm.expires_at>now()", *m.FaceMatchID, id).
+					Where("fm.id=? AND ph.pocket_id=? AND ph.latest_job_id=fm.job_id AND ph.deleted_at IS NULL AND ph.status='ready' AND ph.retention_until>now() AND fm.expires_at>now()", *m.FaceMatchID, id).
 					Scan(ctx)
 				if e != nil {
 					return 0, failure(connect.CodeInvalidArgument, "识别依据已失效")
 				}
-				if (match.ConfirmedUserID == nil || *match.ConfirmedUserID != m.UserID) &&
-					(match.SuggestedUserID == nil || *match.SuggestedUserID != m.UserID) {
+				if !matchSupportsMember(&match, m.UserID) {
 					return 0, failure(connect.CodeInvalidArgument, "识别依据与成员不一致")
+				}
+				if match.ConfirmedUserID == nil {
+					active, e := tx.NewSelect().Model((*Profile)(nil)).
+						Where("user_id=? AND status='active' AND consent_expires_at>now()", m.UserID).Exists(ctx)
+					if e != nil {
+						return 0, e
+					}
+					if !active {
+						return 0, failure(connect.CodeInvalidArgument, "人脸授权已失效，请手动确认成员")
+					}
 				}
 			}
 		}
@@ -320,6 +332,16 @@ func (s *Service) ReplaceMembers(
 		p.ParticipantCount = boundedInt32(len(members))
 		return id, touch(ctx, tx, p)
 	})
+}
+
+func matchSupportsMember(match *Match, userID int64) bool {
+	if match.Resolution == "ignored" {
+		return false
+	}
+	if match.ConfirmedUserID != nil {
+		return *match.ConfirmedUserID == userID
+	}
+	return match.SuggestedUserID != nil && *match.SuggestedUserID == userID
 }
 
 func (s *Service) Preview(ctx context.Context, actor, id, revision int64) (*Pocket, []Member, error) {

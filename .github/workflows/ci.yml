@@ -80,6 +80,20 @@ jobs:
     name: Build (${{ matrix.module }})
     needs: changes
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: west_pocket_test
+          POSTGRES_PASSWORD: west_pocket_test
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     strategy:
       fail-fast: false
       matrix:
@@ -116,4 +130,6 @@ jobs:
       - name: Test
         if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         working-directory: ${{ matrix.module }}
+        env:
+          WEST_POCKET_TEST_DSN: ${{ matrix.module == 'internal/service/westpocketservice' && 'postgres://west_pocket_test:west_pocket_test@localhost:5432/postgres?sslmode=disable' || '' }}
         run: go test -race -count=1 ./...

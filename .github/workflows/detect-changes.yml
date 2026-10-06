@@ -55,6 +55,12 @@ jobs:
             ALL_MODULES="$ALL_MODULES internal/service/$SVC"
           done
 
+          # West Pocket requires an explicit first deployment after migration and
+          # private provider configuration; existing production services stay automatic.
+          if [ "$MODE" = "deploy" ]; then
+            SERVICES="userservice catalogservice paymentservice spotservice errandservice"
+          fi
+
           emit_json() {
             # $@: items to quote into a JSON array
             local out="["

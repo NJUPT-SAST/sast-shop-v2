@@ -36,11 +36,9 @@ func NewClients(userURL, paymentURL, token string) (*RPCDirectory, *RPCPayments)
 		}
 	}))
 	httpClient := &http.Client{Timeout: 20 * time.Second}
-	return &RPCDirectory{
-			userconnect.NewUserInternalServiceClient(httpClient, userURL, auth),
-		}, &RPCPayments{
-			paymentconnect.NewPaymentInternalServiceClient(httpClient, paymentURL, auth),
-		}
+	directory := &RPCDirectory{client: userconnect.NewUserInternalServiceClient(httpClient, userURL, auth)}
+	payments := &RPCPayments{client: paymentconnect.NewPaymentInternalServiceClient(httpClient, paymentURL, auth)}
+	return directory, payments
 }
 
 func (d *RPCDirectory) GetUsers(ctx context.Context, ids []int64) ([]User, error) {

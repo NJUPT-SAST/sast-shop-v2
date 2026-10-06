@@ -668,7 +668,7 @@ func MatchFaces(faces []Face, mapping map[string]int64, threshold, margin float6
 	return out
 }
 
-func (s *Service) withUploadLock(ctx context.Context, id int64, fn func() error) error {
+func (s *Service) withUploadLock(ctx context.Context, id int64, fn func(bun.Conn) error) error {
 	conn, e := s.DB.Conn(ctx)
 	if e != nil {
 		return e
@@ -681,13 +681,13 @@ func (s *Service) withUploadLock(ctx context.Context, id int64, fn func() error)
 	defer func() {
 		observeExec(conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock(hashtextextended(?,2))", key))
 	}()
-	return fn()
+	return fn(conn)
 }
 
 func (s *Service) deleteUpload(ctx context.Context, id int64) error {
-	return s.withUploadLock(ctx, id, func() error {
+	return s.withUploadLock(ctx, id, func(conn bun.Conn) error {
 		u := new(Upload)
-		if e := s.DB.NewSelect().Model(u).Where("id=?", id).Scan(ctx); e != nil {
+		if e := conn.NewSelect().Model(u).Where("id=?", id).Scan(ctx); e != nil {
 			return e
 		}
 		if u.DeletedAt != nil {
@@ -699,7 +699,7 @@ func (s *Service) deleteUpload(ctx context.Context, id int64) error {
 		if e := s.Storage.Delete(ctx, u.ObjectKey); e != nil {
 			return e
 		}
-		_, e := s.DB.ExecContext(ctx, "UPDATE westpocket.upload SET deleted_at=now(),status='deleted' WHERE id=?", id)
+		_, e := conn.ExecContext(ctx, "UPDATE westpocket.upload SET deleted_at=now(),status='deleted' WHERE id=?", id)
 		return e
 	})
 }
@@ -833,21 +833,28 @@ func (s *Service) Refresh(ctx context.Context, id int64) error {
 }
 
 func (s *Service) reconcile(ctx context.Context) error {
-	var pockets []Pocket
-	if e := s.DB.NewSelect().
-		Model(&pockets).
-		Where("status='collecting'").
-		Order("updated_at ASC").
-		Limit(50).
-		Scan(ctx); e != nil {
-		return e
-	}
-	for _, p := range pockets {
-		if e := s.Refresh(ctx, p.ID); e != nil {
-			return e
+	var after int64
+	var failures []error
+	for {
+		var pockets []Pocket
+		if e := s.DB.NewSelect().
+			Model(&pockets).
+			Where("status='collecting' AND id>?", after).
+			Order("id ASC").
+			Limit(50).
+			Scan(ctx); e != nil {
+			return errors.Join(append(failures, e)...)
+		}
+		for _, p := range pockets {
+			if e := s.Refresh(ctx, p.ID); e != nil {
+				failures = append(failures, e)
+			}
+			after = p.ID
+		}
+		if len(pockets) < 50 {
+			return errors.Join(failures...)
 		}
 	}
-	return nil
 }
 
 func (s *Service) runNextNotification(ctx context.Context) error {

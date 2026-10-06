@@ -106,8 +106,8 @@ func (s *Service) Upload(
 	if err != nil {
 		return nil, "", err
 	}
-	err = s.withUploadLock(ctx, u.ID, func() error {
-		if e := s.DB.NewSelect().Model(u).WherePK().Scan(ctx); e != nil {
+	err = s.withUploadLock(ctx, u.ID, func(conn bun.Conn) error {
+		if e := conn.NewSelect().Model(u).WherePK().Scan(ctx); e != nil {
 			return e
 		}
 		if u.DeletedAt != nil || time.Now().After(u.ExpiresAt) {
@@ -120,7 +120,7 @@ func (s *Service) Upload(
 			return ErrUnavailable
 		}
 		u.Status = "ready"
-		_, e := s.DB.NewUpdate().Model(u).Column("status").WherePK().Exec(ctx)
+		_, e := conn.NewUpdate().Model(u).Column("status").WherePK().Exec(ctx)
 		return e
 	})
 	if err != nil {
@@ -435,6 +435,11 @@ func (s *Service) Enroll(
 				}
 				p.Revision++
 				p.EnrollmentVersion++
+				p.ConsentVersion = consent
+				p.ConsentedAt = now
+				p.ConsentExpiresAt = now.Add(365 * 24 * time.Hour)
+				p.RevokedAt = nil
+				p.ProviderDeletedAt = nil
 				if p.Status != "active" {
 					p.Status = "pending"
 				}
@@ -617,7 +622,7 @@ func (s *Service) Resolve(
 			if e = tx.NewSelect().
 				Model(m).
 				Join("JOIN westpocket.pocket_photo ph ON ph.id=fm.photo_id").
-				Where("fm.id=? AND ph.pocket_id=? AND ph.latest_job_id=fm.job_id AND ph.deleted_at IS NULL AND fm.expires_at>now()", matchID, id).
+				Where("fm.id=? AND ph.pocket_id=? AND ph.latest_job_id=fm.job_id AND ph.deleted_at IS NULL AND ph.status='ready' AND ph.retention_until>now() AND fm.expires_at>now()", matchID, id).
 				Scan(ctx); e != nil {
 				return 0, e
 			}
