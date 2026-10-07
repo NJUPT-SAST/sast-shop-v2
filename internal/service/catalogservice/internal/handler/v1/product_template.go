@@ -70,6 +70,20 @@ func (s *ProductTemplateServiceServer) CreateProductTemplate(
 	}), nil
 }
 
+func (s *ProductTemplateServiceServer) GetProductTemplate(
+	ctx context.Context,
+	r *connect.Request[catalogv1.ProductTemplateServiceGetProductTemplateRequest],
+) (*connect.Response[catalogv1.ProductTemplateServiceGetProductTemplateResponse], error) {
+	if _, err := interceptor.UserIDFromContext(ctx); err != nil {
+		return nil, err
+	}
+	pt, err := service.GetProductTemplate(ctx, r.Msg.ProductTemplateId)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&catalogv1.ProductTemplateServiceGetProductTemplateResponse{ProductTemplate: pt}), nil
+}
+
 func (s *ProductTemplateServiceServer) UpdateProductTemplate(
 	ctx context.Context,
 	r *connect.Request[catalogv1.UpdateProductTemplateRequest],

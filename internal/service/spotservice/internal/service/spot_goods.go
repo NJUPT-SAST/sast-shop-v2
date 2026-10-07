@@ -80,6 +80,40 @@ func GetSpotGoodLength(ctx context.Context, storeID int64, keyword string) (int3
 	return int32(count), nil
 }
 
+func ListSellerSpotGoods(
+	ctx context.Context,
+	sellerID int64,
+	offset, limit int,
+) ([]*spotv1.SpotGoodsDetail, int32, error) {
+	if sellerID <= 0 || offset < 0 || limit <= 0 || limit > 100 {
+		return nil, 0, connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+	}
+	goodsList, count, err := repository.ListSellerSpotGoods(ctx, sellerID, offset, limit)
+	if err != nil || count < 0 || count > math.MaxInt32 {
+		return nil, 0, spotInternalError()
+	}
+	details := make([]*spotv1.SpotGoodsDetail, 0, len(goodsList))
+	if len(goodsList) == 0 {
+		return details, int32(count), nil
+	}
+	templates, err := getProductTemplates(ctx, goodsList)
+	if err != nil {
+		return nil, 0, err
+	}
+	seller, err := getUser(ctx, sellerID)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, goods := range goodsList {
+		template := templates[goods.ProductTemplateID]
+		if template == nil {
+			return nil, 0, spotInternalError()
+		}
+		details = append(details, modelToDetail(goods, template, seller))
+	}
+	return details, int32(count), nil
+}
+
 func GetSpotGoods(ctx context.Context, goodsID int64) (*spotv1.SpotGoodsDetail, error) {
 	if goodsID <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)

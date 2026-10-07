@@ -21,6 +21,14 @@ message GetProductTemplateListResponse {
   int32 total_count = 3;
 }
 
+message ProductTemplateServiceGetProductTemplateRequest {
+  int64 product_template_id = 1;
+}
+
+message ProductTemplateServiceGetProductTemplateResponse {
+  ProductTemplate product_template = 1;
+}
+
 message CreateProductTemplateRequest {
   int64 store_id = 1;
   string title = 2;
@@ -64,6 +72,9 @@ message DeleteProductTemplateResponse {}
 service ProductTemplateService {
   // 店铺详情-跑腿-获取商品模板列表
   rpc GetProductTemplateList(GetProductTemplateListRequest) returns (GetProductTemplateListResponse);
+
+  // 按 ID 获取商品模板的当前信息
+  rpc GetProductTemplate(ProductTemplateServiceGetProductTemplateRequest) returns (ProductTemplateServiceGetProductTemplateResponse);
 
   // 创建商品模板
   rpc CreateProductTemplate(CreateProductTemplateRequest) returns (CreateProductTemplateResponse);

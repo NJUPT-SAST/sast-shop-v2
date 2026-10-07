@@ -67,6 +67,29 @@ func (s *SpotGoodsServiceServer) GetSpotGoods(
 	}), nil
 }
 
+func (s *SpotGoodsServiceServer) ListMySpotGoods(
+	ctx context.Context,
+	r *connect.Request[spotv1.ListMySpotGoodsRequest],
+) (*connect.Response[spotv1.ListMySpotGoodsResponse], error) {
+	sellerID, err := rpcinterceptor.UserIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if r.Msg.Page < 1 || r.Msg.PageSize < 1 || r.Msg.PageSize > 100 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("分页参数不正确，每页数量应为 1 到 100"))
+	}
+	offset := (int(r.Msg.Page) - 1) * int(r.Msg.PageSize)
+	goods, total, err := service.ListSellerSpotGoods(ctx, sellerID, offset, int(r.Msg.PageSize))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&spotv1.ListMySpotGoodsResponse{
+		SpotGoodsList: goods,
+		CurrentPage:   r.Msg.Page,
+		TotalCount:    total,
+	}), nil
+}
+
 func (s *SpotGoodsServiceServer) CreateSpotGoods(
 	ctx context.Context,
 	r *connect.Request[spotv1.CreateSpotGoodsRequest],

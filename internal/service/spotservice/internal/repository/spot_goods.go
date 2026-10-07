@@ -27,6 +27,18 @@ func GetSpotGoodsLength(ctx context.Context, storeID int64, keyword string) (int
 	).Count(ctx)
 }
 
+func ListSellerSpotGoods(ctx context.Context, sellerID int64, offset, limit int) ([]*model.SpotGoods, int, error) {
+	var goodsList []*model.SpotGoods
+	count, err := postgres.DB.NewSelect().Model(&goodsList).
+		Where("sg.seller_id = ?", sellerID).
+		Where("sg.closed_at IS NULL").
+		OrderExpr("sg.created_at DESC, sg.id DESC").
+		Offset(offset).
+		Limit(limit).
+		ScanAndCount(ctx)
+	return goodsList, count, err
+}
+
 func filterSpotGoods(query *bun.SelectQuery, storeID int64, keyword string) *bun.SelectQuery {
 	query = query.Where("sg.closed_at IS NULL")
 	if storeID != 0 {

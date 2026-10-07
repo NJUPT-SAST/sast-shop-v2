@@ -66,7 +66,13 @@ func productTemplateToProto(
 
 // GetProductTemplate 按 ID 获取商品模板。
 func GetProductTemplate(ctx context.Context, id int64) (*catalogv1.ProductTemplate, error) {
+	if id <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+	}
 	pt, err := repository.GetProductTemplateByID(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, connect.NewError(connect.CodeNotFound, errmsg.ProductTemplateNotFound)
+	}
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to get product template for id: %d", id)
 		return nil, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{

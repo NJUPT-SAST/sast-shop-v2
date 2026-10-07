@@ -23,6 +23,20 @@ message ListSpotGoodsResponse {
   int32 total_count = 3;
 }
 
+message ListMySpotGoodsRequest {
+  // 页码，从 1 开始
+  int32 page = 1;
+  // 每页数量，1 到 100
+  int32 page_size = 2;
+}
+
+message ListMySpotGoodsResponse {
+  // 当前登录卖家尚未下架的现货商品，包含库存为零的商品
+  repeated SpotGoodsDetail spot_goods_list = 1;
+  int32 current_page = 2;
+  int32 total_count = 3;
+}
+
 message GetSpotGoodsRequest {
   // 现货商品 ID
   int64 spot_goods_id = 1;
@@ -81,6 +95,9 @@ message CloseSpotGoodsResponse {}
 service SpotGoodsService {
   // 获取指定店铺下的现货商品列表
   rpc ListSpotGoods(ListSpotGoodsRequest) returns (ListSpotGoodsResponse);
+
+  // 获取当前登录卖家上架的现货商品，卖家身份由服务端会话确定
+  rpc ListMySpotGoods(ListMySpotGoodsRequest) returns (ListMySpotGoodsResponse);
 
   // 获取现货商品详情
   rpc GetSpotGoods(GetSpotGoodsRequest) returns (GetSpotGoodsResponse);
