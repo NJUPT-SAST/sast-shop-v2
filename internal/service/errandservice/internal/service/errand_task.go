@@ -2457,6 +2457,40 @@ func GetErrandTaskList(
 	}, nil
 }
 
+func GetErrandTaskParticipants(
+	ctx context.Context,
+	captainID int64,
+	req *errandv1.GetErrandTaskParticipantsRequest,
+) (*errandv1.GetErrandTaskParticipantsResponse, error) {
+	if req == nil || req.ErrandTaskId <= 0 {
+		return nil, connect.NewError(errmsg.InvalidErrandTaskID.Code, errmsg.InvalidErrandTaskID)
+	}
+	_, err := repository.GetShoppingTaskHeader(ctx, postgres.DB, req.ErrandTaskId, captainID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(errmsg.TaskNotFound.Code, errmsg.TaskNotFound)
+		}
+		log.Error().Err(err).Int64("errand_task_id", req.ErrandTaskId).Msg("failed to load task participants header")
+		return nil, newErrandInternalError("")
+	}
+	rows, err := repository.ListErrandTaskParticipants(ctx, postgres.DB, req.ErrandTaskId)
+	if err != nil {
+		log.Error().Err(err).Int64("errand_task_id", req.ErrandTaskId).Msg("failed to load task participants")
+		return nil, newErrandInternalError("")
+	}
+	count, err := safeInt32FromInt(len(rows))
+	if err != nil {
+		return nil, err
+	}
+	avatars := make([]string, 0, min(3, len(rows)))
+	for _, row := range rows[:min(3, len(rows))] {
+		avatars = append(avatars, row.AvatarURL)
+	}
+	return &errandv1.GetErrandTaskParticipantsResponse{
+		ParticipantCount: count, ParticipantAvatars: avatars,
+	}, nil
+}
+
 func normalizeErrandTaskListPage(page, pageSize int32) (int32, int32) {
 	if page <= 0 {
 		page = 1

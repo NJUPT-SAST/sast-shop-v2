@@ -618,6 +618,27 @@ func ListErrandTaskItems(ctx context.Context, db bun.IDB, taskIDs []int64) ([]Er
 	return rows, err
 }
 
+type ErrandTaskParticipantRow struct {
+	TaskID      int64  `bun:"task_id"`
+	PurchaserID int64  `bun:"purchaser_id"`
+	AvatarURL   string `bun:"avatar_url"`
+}
+
+func ListErrandTaskParticipants(ctx context.Context, db bun.IDB, taskID int64) ([]ErrandTaskParticipantRow, error) {
+	rows := make([]ErrandTaskParticipantRow, 0)
+	err := db.NewSelect().
+		TableExpr("errand.errand_task_assignment AS eta").
+		Join(`LEFT JOIN "user".user_account AS ua ON ua.id = eta.purchaser_id`).
+		ColumnExpr("eta.task_id AS task_id").
+		ColumnExpr("eta.purchaser_id AS purchaser_id").
+		ColumnExpr("COALESCE(ua.avatar_url, '') AS avatar_url").
+		Distinct().
+		Where("eta.task_id = ?", taskID).
+		OrderExpr("eta.task_id ASC, eta.purchaser_id ASC").
+		Scan(ctx, &rows)
+	return rows, err
+}
+
 func UpdateTaskToCancelled(
 	ctx context.Context,
 	db bun.IDB,
