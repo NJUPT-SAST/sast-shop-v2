@@ -81,7 +81,7 @@ func TestListMySpotGoodsFiltersBeforePagination(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `
     INSERT INTO spot.spot_goods
     (id, seller_id, store_id, product_template_id, sale_price_cents, stock_total, closed_at, created_at, updated_at)
-    VALUES (101, 42, 1, 10, 100, 7, NULL, '2026-10-07', '2026-10-07 01:00:00.123456+00'),
+    VALUES (101, 42, 1, 10, 100, -1, NULL, '2026-10-07', '2026-10-07 01:00:00.123456+00'),
     (102, 43, 1, 20, 200, 9, NULL, '2026-10-07', '2026-10-07 01:00:00+00'),
     (103, 42, 2, 30, 300, 0, NULL, '2026-10-07', '2026-10-07 01:00:00.654321+00'),
     (104, 42, 1, 10, 100, 7, '2026-10-07', '2026-10-07', '2026-10-07 01:00:00+00'),
@@ -97,7 +97,7 @@ func TestListMySpotGoodsFiltersBeforePagination(t *testing.T) {
 	rpc := spotv1connect.NewSpotGoodsServiceClient(server.Client(), server.URL)
 	for _, test := range []sellerListCase{
 		{"first seller page includes zero stock", "first-seller", 42, 1, []int64{103}, 2},
-		{"first seller second page", "first-seller", 42, 2, []int64{101}, 2},
+		{"first seller second page includes delisted goods", "first-seller", 42, 2, []int64{101}, 2},
 		{"first seller beyond final page", "first-seller", 42, 3, nil, 2},
 		{"different session changes seller", "second-seller", 43, 1, []int64{105}, 2},
 		{"no seller listings", "empty-seller", 44, 1, nil, 0},
@@ -139,6 +139,9 @@ func assertSellerListPage(t *testing.T, response *spotv1.ListMySpotGoodsResponse
 		ids = append(ids, goods.Id)
 		if goods.Seller.GetId() != test.sellerID || goods.UpdatedAt == nil {
 			t.Fatalf("missing or mismatched seller/version: %v", goods)
+		}
+		if goods.Id == 101 && goods.Stock != -1 {
+			t.Fatalf("delisted stock must be preserved for management: %v", goods)
 		}
 		if goods.Id == 103 &&
 			(goods.Stock != 0 || goods.ProductTemplate.StoreId != 2 || goods.UpdatedAt.Nanos != 654321000) {

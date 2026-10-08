@@ -14,7 +14,6 @@ import (
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
-	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/timeutil"
@@ -36,7 +35,6 @@ var (
 	ErrSpotOrderPermissionDenied      = errors.New("permission denied for spot order")
 	ErrSpotOrderVersionConflict       = errors.New("spot order updated_at version conflict")
 	ErrInvalidSpotOrderStatus         = errors.New("invalid spot order status")
-	ErrCannotPurchaseOwnGoods         = errmsg.SpotCannotPurchaseOwnGoods
 )
 
 const (
@@ -195,7 +193,7 @@ func cancelSpotOrderInTx(
 	userID int64,
 	req *spotv1.CancelSpotOrderRequest,
 ) error {
-	order, _, err := lockOrderAndGoods(ctx, tx, req.SpotOrderId)
+	order, goods, err := lockOrderAndGoods(ctx, tx, req.SpotOrderId)
 	if err != nil {
 		return err
 	}
@@ -205,7 +203,7 @@ func cancelSpotOrderInTx(
 	if err := cancelSpotOrderBill(ctx, order); err != nil {
 		return err
 	}
-	if err := releaseSpotOrderStock(ctx, tx, order, userID); err != nil {
+	if err := releaseSpotOrderStock(ctx, tx, order, goods, userID); err != nil {
 		return err
 	}
 	return markSpotOrderCancelled(ctx, tx, order)
@@ -232,8 +230,12 @@ func releaseSpotOrderStock(
 	ctx context.Context,
 	tx bun.Tx,
 	order *model.SpotOrder,
+	goods *model.SpotGoods,
 	operatorID int64,
 ) error {
+	if goods.StockTotal < 0 {
+		return nil
+	}
 	if err := repository.IncreaseSpotGoodsStock(ctx, tx, order.ListingID, order.Quantity); err != nil {
 		log.Error().
 			Err(err).
@@ -437,9 +439,6 @@ func createOneSpotOrder(
 	if err != nil {
 		return nil, err
 	}
-	if err := validateSpotOrderParticipants(purchaserID, goods); err != nil {
-		return nil, err
-	}
 
 	product, err := getProductTemplate(ctx, goods.ProductTemplateID)
 	if err != nil {
@@ -450,18 +449,21 @@ func createOneSpotOrder(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	order, err := createPendingSpotOrder(ctx, tx, purchaserID, goods, product, item, totalAmount)
+	order, err := createSpotOrder(ctx, tx, purchaserID, goods, product, item, totalAmount)
 	if err != nil {
 		return nil, err
 	}
 
-	bill, err := createPaymentBillForSpotOrder(ctx, purchaserID, goods, order, totalAmount)
-	if err != nil {
-		return nil, err
-	}
-	order, err = attachPaymentBillToSpotOrder(ctx, tx, order.ID, bill.Id)
-	if err != nil {
-		return nil, err
+	var bill *paymentv1.Bill
+	if purchaserID != goods.SellerID {
+		bill, err = createPaymentBillForSpotOrder(ctx, purchaserID, goods, order, totalAmount)
+		if err != nil {
+			return nil, err
+		}
+		order, err = attachPaymentBillToSpotOrder(ctx, tx, order.ID, bill.Id)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	store, err := getStore(ctx, goods.StoreID)
@@ -515,7 +517,7 @@ func validateGoodsForCreateSpotOrder(goods *model.SpotGoods, item *spotv1.Create
 		Time("goods_updated_at", goodsTime).
 		Time("item_updated_at", itemTime).
 		Msg("validating spot order goods")
-	if goods.ClosedAt != nil {
+	if goods.ClosedAt != nil || goods.StockTotal < 0 {
 		return connect.NewError(connect.CodeFailedPrecondition, ErrSpotGoodsClosed)
 	}
 	if !timeutil.SameUpdatedAtSecond(goodsTime, itemTime) {
@@ -527,14 +529,7 @@ func validateGoodsForCreateSpotOrder(goods *model.SpotGoods, item *spotv1.Create
 	return nil
 }
 
-func validateSpotOrderParticipants(purchaserID int64, goods *model.SpotGoods) error {
-	if goods != nil && purchaserID == goods.SellerID {
-		return connect.NewError(connect.CodeFailedPrecondition, ErrCannotPurchaseOwnGoods)
-	}
-	return nil
-}
-
-func createPendingSpotOrder(
+func createSpotOrder(
 	ctx context.Context,
 	tx bun.Tx,
 	purchaserID int64,
@@ -547,7 +542,7 @@ func createPendingSpotOrder(
 		return nil, err
 	}
 
-	order, err := buildPendingSpotOrder(purchaserID, goods, product, item, totalAmount)
+	order, err := buildSpotOrder(purchaserID, goods, product, item, totalAmount)
 	if err != nil {
 		return nil, err
 	}
@@ -588,7 +583,7 @@ func decreaseStockForCreateSpotOrder(
 	return nil
 }
 
-func buildPendingSpotOrder(
+func buildSpotOrder(
 	purchaserID int64,
 	goods *model.SpotGoods,
 	product *catalogv1.ProductTemplate,
@@ -600,7 +595,7 @@ func buildPendingSpotOrder(
 		log.Error().Err(err).Msg("failed to generate spot order number")
 		return nil, spotInternalError()
 	}
-	return &model.SpotOrder{
+	order := &model.SpotOrder{
 		OrderNo:             orderNo,
 		PurchaserID:         purchaserID,
 		ListingID:           goods.ID,
@@ -612,7 +607,13 @@ func buildPendingSpotOrder(
 		UnitPriceCents:      goods.SalePriceCents,
 		TotalAmountCents:    totalAmount,
 		Status:              model.SpotOrderStatusPendingPayment,
-	}, nil
+	}
+	if purchaserID == goods.SellerID {
+		completedAt := time.Now().UTC()
+		order.Status = model.SpotOrderStatusCompleted
+		order.CompletedAt = &completedAt
+	}
+	return order, nil
 }
 
 func insertOrderLockLedger(

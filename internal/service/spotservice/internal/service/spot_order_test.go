@@ -1,7 +1,6 @@
 package service
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -49,25 +48,5 @@ func TestValidateGoodsForCreateSpotOrderRejectsDifferentUTCSecond(t *testing.T) 
 	err := validateGoodsForCreateSpotOrder(goods, item)
 	if code := connect.CodeOf(err); code != connect.CodeAborted {
 		t.Fatalf("code = %v, want %v; err = %v", code, connect.CodeAborted, err)
-	}
-}
-
-func TestValidateSpotOrderParticipantsRejectsOwnGoods(t *testing.T) {
-	t.Parallel()
-
-	err := validateSpotOrderParticipants(1, &model.SpotGoods{SellerID: 1})
-	if code := connect.CodeOf(err); code != connect.CodeFailedPrecondition {
-		t.Fatalf("code = %v, want %v; err = %v", code, connect.CodeFailedPrecondition, err)
-	}
-	if !errors.Is(err, ErrCannotPurchaseOwnGoods) {
-		t.Fatalf("error = %v, want own-goods validation error", err)
-	}
-}
-
-func TestValidateSpotOrderParticipantsAcceptsDifferentUsers(t *testing.T) {
-	t.Parallel()
-
-	if err := validateSpotOrderParticipants(2, &model.SpotGoods{SellerID: 1}); err != nil {
-		t.Fatalf("validateSpotOrderParticipants() error = %v", err)
 	}
 }

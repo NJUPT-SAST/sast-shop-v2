@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package sast.sastshopv2.spot.v1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 import "sast/sastshopv2/spot/v1/spot_goods.proto";
 
@@ -31,7 +32,7 @@ message ListMySpotGoodsRequest {
 }
 
 message ListMySpotGoodsResponse {
-  // 当前登录卖家尚未下架的现货商品，包含库存为零的商品
+  // 当前登录卖家尚未关闭的现货商品，包含已下架和售罄的商品
   repeated SpotGoodsDetail spot_goods_list = 1;
   int32 current_page = 2;
   int32 total_count = 3;
@@ -51,8 +52,11 @@ message CreateSpotGoodsRequest {
   int64 product_template_id = 1;
   // 上架售卖单价，单位为分
   int32 sale_price_cents = 2;
-  // 初始库存总量
-  int32 stock_total = 3;
+  // 初始库存总量，1 到 999
+  int32 stock_total = 3 [(buf.validate.field).int32 = {
+    gt: 0
+    lte: 999
+  }];
   // 前端读取商品模板时拿到的 updated_at，用于校验模板是否被更新
   google.protobuf.Timestamp product_template_updated_at = 4;
 }
@@ -64,8 +68,11 @@ message CreateSpotGoodsResponse {
 message UpdateSpotGoodsStockRequest {
   // 现货商品 ID
   int64 spot_goods_id = 1;
-  // 更新后的库存数量
-  int32 new_stock = 2;
+  // 更新后的库存数量：-1 为下架；在售商品可设为 0 到 999，已下架商品重新上架必须为 1 到 999
+  int32 new_stock = 2 [(buf.validate.field).int32 = {
+    gte: -1
+    lte: 999
+  }];
   // 前端读取现货商品时拿到的 updated_at，用于库存修改并发校验
   google.protobuf.Timestamp updated_at = 3;
 }

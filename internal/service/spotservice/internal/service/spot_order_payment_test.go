@@ -113,6 +113,22 @@ func TestPaymentSynchronizationPreservesTerminalOrders(t *testing.T) {
 	}
 }
 
+func TestCancelSpotOrderKeepsGoodsDelisted(t *testing.T) {
+	state := newSpotPaymentTestState(t, 1)
+	state.stock = -1
+	err := postgres.DB.RunInTx(context.Background(), nil, func(ctx context.Context, tx bun.Tx) error {
+		return cancelSpotOrderInTx(ctx, tx, 10, &spotv1.CancelSpotOrderRequest{
+			SpotOrderId: 1, UpdatedAt: timestamppb.New(state.version),
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.status[1] != "cancelled" || state.stock != -1 {
+		t.Fatalf("status=%s stock=%d", state.status[1], state.stock)
+	}
+}
+
 type spotPaymentTestState struct {
 	status              map[int64]string
 	paid                map[int64]bool

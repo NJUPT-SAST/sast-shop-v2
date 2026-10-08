@@ -40,7 +40,7 @@ func ListSellerSpotGoods(ctx context.Context, sellerID int64, offset, limit int)
 }
 
 func filterSpotGoods(query *bun.SelectQuery, storeID int64, keyword string) *bun.SelectQuery {
-	query = query.Where("sg.closed_at IS NULL")
+	query = query.Where("sg.closed_at IS NULL").Where("sg.stock_total >= 0")
 	if storeID != 0 {
 		query = query.Where("sg.store_id = ?", storeID)
 	}

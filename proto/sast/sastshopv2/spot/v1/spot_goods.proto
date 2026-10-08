@@ -18,16 +18,18 @@ message SpotGoodsBrief {
   google.protobuf.Timestamp created_at = 4;
   // 现货商品最近更新时间，用于下单和改价改库存的并发校验
   google.protobuf.Timestamp updated_at = 5;
+  // 当前剩余库存：-1 为已下架，0 为售罄，正数为可购买数量
+  int32 stock = 6;
 }
 
-// 现货商品详情，包含详情页额外展示的库存和卖家信息
+// 现货商品详情，包含详情页额外展示的卖家信息
 message SpotGoodsDetail {
   int64 id = 1;
   sast.sastshopv2.catalog.v1.ProductTemplate product_template = 2;
   int32 sale_price_cents = 3;
   google.protobuf.Timestamp created_at = 4;
   google.protobuf.Timestamp updated_at = 5;
-  // 当前剩余库存
+  // 当前剩余库存：-1 为已下架，0 为售罄，正数为可购买数量
   int32 stock = 6;
   // 上架售卖人信息
   sast.sastshopv2.user.v1.UserInfo seller = 7;

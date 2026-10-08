@@ -23,6 +23,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+const maxSpotGoodsStock = 999
+
 func ListSpotGoods(
 	ctx context.Context,
 	storeID int64,
@@ -215,7 +217,7 @@ func CreateSpotGoods(
 	productTemplateUpdatedAt *timestamppb.Timestamp,
 ) (*spotv1.SpotGoodsDetail, error) {
 	if goods == nil || goods.SellerID <= 0 || goods.ProductTemplateID <= 0 || goods.SalePriceCents <= 0 ||
-		goods.StockTotal <= 0 {
+		goods.StockTotal <= 0 || goods.StockTotal > maxSpotGoodsStock {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
 	}
 	template, err := ValidateProductTemplate(ctx, goods.ProductTemplateID, productTemplateUpdatedAt)
@@ -255,16 +257,23 @@ func editableSpotGoods(
 	if err != nil {
 		return nil, spotInternalError()
 	}
-	if goods.SellerID != callerID {
-		return nil, connect.NewError(connect.CodePermissionDenied, errmsg.SpotPermissionDenied)
-	}
-	if goods.ClosedAt != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, errmsg.SpotGoodsClosed)
-	}
-	if !goods.UpdatedAt.Equal(updatedAt.AsTime()) {
-		return nil, connect.NewError(connect.CodeAborted, errmsg.SpotGoodsVersionConflict)
+	if err := validateEditableSpotGoods(goods, callerID, updatedAt); err != nil {
+		return nil, err
 	}
 	return goods, nil
+}
+
+func validateEditableSpotGoods(goods *model.SpotGoods, callerID int64, updatedAt *timestamppb.Timestamp) error {
+	if goods.SellerID != callerID {
+		return connect.NewError(connect.CodePermissionDenied, errmsg.SpotPermissionDenied)
+	}
+	if goods.ClosedAt != nil {
+		return connect.NewError(connect.CodeFailedPrecondition, errmsg.SpotGoodsClosed)
+	}
+	if !goods.UpdatedAt.Equal(updatedAt.AsTime()) {
+		return connect.NewError(connect.CodeAborted, errmsg.SpotGoodsVersionConflict)
+	}
+	return nil
 }
 
 func UpdateSpotGoodsStock(
@@ -274,14 +283,24 @@ func UpdateSpotGoodsStock(
 	newStockTotal int32,
 	updatedAt *timestamppb.Timestamp,
 ) error {
-	if newStockTotal < 0 {
+	if newStockTotal < -1 || newStockTotal > maxSpotGoodsStock ||
+		callerID <= 0 || goodsID <= 0 || updatedAt == nil || !updatedAt.IsValid() {
 		return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
 	}
-	goods, err := editableSpotGoods(ctx, callerID, goodsID, updatedAt)
-	if err != nil {
-		return err
-	}
-	err = postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	return postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		goods, err := repository.LockSpotGoods(ctx, tx, goodsID)
+		if errors.Is(err, repository.ErrNotFound) {
+			return connect.NewError(connect.CodeNotFound, errmsg.SpotGoodsNotFound)
+		}
+		if err != nil {
+			return spotInternalError()
+		}
+		if err := validateEditableSpotGoods(goods, callerID, updatedAt); err != nil {
+			return err
+		}
+		if goods.StockTotal == -1 && newStockTotal == 0 {
+			return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+		}
 		rows, err := repository.UpdateSpotGoodsStockTx(ctx, tx, goodsID, newStockTotal, goods.UpdatedAt)
 		if err != nil {
 			return spotInternalError()
@@ -291,7 +310,7 @@ func UpdateSpotGoodsStock(
 		}
 		if err := repository.CreateStockLedger(ctx, tx, &model.SpotStockLedger{
 			ListingID:  goodsID,
-			Delta:      newStockTotal - goods.StockTotal,
+			Delta:      max(newStockTotal, 0) - max(goods.StockTotal, 0),
 			Reason:     model.StockLedgerReasonManualAdjust,
 			OperatorID: &callerID,
 		}); err != nil {
@@ -299,7 +318,6 @@ func UpdateSpotGoodsStock(
 		}
 		return nil
 	})
-	return err
 }
 
 func CloseSpotGoods(
@@ -413,6 +431,7 @@ func modelToBrief(
 		SalePriceCents:  goods.SalePriceCents,
 		CreatedAt:       timestamppb.New(goods.CreatedAt),
 		UpdatedAt:       timestamppb.New(goods.UpdatedAt),
+		Stock:           goods.StockTotal,
 	}
 }
 
