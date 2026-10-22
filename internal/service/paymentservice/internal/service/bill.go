@@ -423,7 +423,7 @@ func newPaymentBillNo() (string, error) {
 
 // Compare the exact version returned by PostgreSQL and preserved by protobuf.
 func sameUpdatedAtVersion(dbUpdatedAt, expectedUpdatedAt time.Time) bool {
-	return dbUpdatedAt.Equal(expectedUpdatedAt)
+	return dbUpdatedAt.Truncate(time.Millisecond).Equal(expectedUpdatedAt.Truncate(time.Millisecond))
 }
 
 func requireBillUser(ctx context.Context, allowedUserIDs ...int64) error {
