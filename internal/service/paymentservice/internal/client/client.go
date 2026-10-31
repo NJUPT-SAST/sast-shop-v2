@@ -6,15 +6,21 @@ import (
 
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/errand/v1/errandv1connect"
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/user/v1/userv1connect"
+	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/westpocket/v1/westpocketv1connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/config"
 )
 
 var (
 	GroupTradeInternalServiceClient errandv1connect.GroupTradeInternalServiceClient
 	UserInternalServiceClient       userv1connect.UserInternalServiceClient
+	WestPocketInternalServiceClient westpocketv1connect.WestPocketInternalServiceClient
 )
 
 func InitUserServiceClient() {
+	WestPocketInternalServiceClient = westpocketv1connect.NewWestPocketInternalServiceClient(
+		http.DefaultClient,
+		fmt.Sprintf("%s:%d", config.AppConfig.WestPocketServiceURL, config.AppConfig.WestPocketServicePort),
+	)
 	UserInternalServiceClient = userv1connect.NewUserInternalServiceClient(
 		http.DefaultClient,
 		fmt.Sprintf("%s:%d", config.AppConfig.UserServiceURL, config.AppConfig.UserServicePort),

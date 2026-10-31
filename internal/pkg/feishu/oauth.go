@@ -10,6 +10,7 @@ import (
 	"github.com/larksuite/oapi-sdk-go/v3/core/accesstoken/refreshtoken"
 )
 
+// 授权码换token
 func ExchangeCode(ctx context.Context, code string, codeVerifier string, redirectURI string) (*OAuthToken, error) {
 	client, err := getClient()
 	if err != nil {
@@ -46,6 +47,8 @@ func ExchangeCode(ctx context.Context, code string, codeVerifier string, redirec
 	return token, nil
 }
 
+// 刷新token
+// 后续如果需要持续以用户身份调用飞书接口，再接入令牌保存和刷新机制，比如持续读取用户授权的飞书日历”：用户早上登录，下午后台仍需读取日历，此时就可能需要刷新飞书令牌，避免再次要求用户授权。刷新凭证也失效时，再走登录授权流程。函数本身只负责请求新令牌，保存结果需要调用方处理
 func RefreshUserToken(ctx context.Context, refreshToken string) (*OAuthToken, error) {
 	client, err := getClient()
 	if err != nil {
@@ -103,6 +106,7 @@ func GetCurrentUser(ctx context.Context, userAccessToken string) (*UserInfo, err
 	}, nil
 }
 
+// 把飞书的AccessTokenRespData 转换成项目自定义的token，与SDK解耦
 func oauthTokenFromSDK(data *larkaccesstoken.AccessTokenRespData) *OAuthToken {
 	if data == nil {
 		return &OAuthToken{}

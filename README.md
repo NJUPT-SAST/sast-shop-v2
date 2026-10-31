@@ -151,14 +151,31 @@ Each service loads `.env` by searching upward from its working directory.
 
 In development mode (`APP_ENV=development`), you can bypass authentication by setting the `X-Dev-User-ID` header with a valid user ID.
 
+### Keyword Search and Integration Tests
+
+`SpotGoodsService/ListSpotGoods` and `ProductTemplateService/GetProductTemplateList` accept an optional `keyword`.
+Search trims surrounding whitespace and accepts up to 200 Unicode characters. Matching is case-insensitive and uses
+literal substrings, so `%`, `_`, backslashes, and quotes are not search operators. Spot goods match template titles,
+descriptions, barcodes, or store names; product templates match titles, descriptions, or barcodes. Filtering happens
+before pagination, and `total_count` counts matching rows. For product templates, `store_id=0` lists all stores and
+`page_size` must be between 1 and 100; spot goods retain their maximum page size of 30.
+
+Spot search reads the catalog schema in the shared PostgreSQL database, without importing another service's Go code.
+The spot database role needs read access to catalog tables. Product detail hydration still uses the catalog RPC.
+
+Search integration tests create a randomly named database, apply `migrations/001_init.sql`, and drop that database
+after the tests. Set `SAST_SHOP_TEST_POSTGRES_URL` to a PostgreSQL connection URL for a role allowed to create and drop
+databases; the database named in that URL is used only for administrative connections. Without this variable, database
+integration tests are skipped, while validation tests still run.
+
+```bash
+go test -race -count=1 -v ./internal/pkg/search ./internal/service/catalogservice/internal/handler/v1 ./internal/service/spotservice/internal/handler/v1
+```
+
 ## Current Status
 
-This project is in early development. Currently implemented:
-
-- **User service**: `GetUserInfo`, `GetUsers` (internal) — real database queries
-- **All other handlers**: Return placeholder "To be implemented" errors
-
-No tests exist yet. Contributions are welcome.
+The workspace contains five services communicating through generated ConnectRPC clients. Current RPC contracts are
+defined under `proto/sast/sastshopv2/`, with implementations and tests under `internal/`.
 
 ## Deployment
 

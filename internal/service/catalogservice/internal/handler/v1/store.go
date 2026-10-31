@@ -61,12 +61,9 @@ func (s *CatalogServiceServer) UpdateStore(
 	ctx context.Context,
 	r *connect.Request[catalogv1.UpdateStoreRequest],
 ) (*connect.Response[catalogv1.UpdateStoreResponse], error) {
-	authUser, ok := interceptor.UserFromContext(ctx)
+	_, ok := interceptor.UserFromContext(ctx)
 	if !ok {
 		return nil, catalogError()
-	}
-	if authUser.Role == "admin" {
-		return nil, permissionDeniedError()
 	}
 
 	store, err := service.UpdateStore(ctx, r.Msg.Store, r.Msg.UpdateMask.GetPaths())

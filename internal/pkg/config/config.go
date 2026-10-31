@@ -18,11 +18,13 @@ const IDGenWorkerIDEnvName = "SAST_SHOP_IDGEN_WORKER_ID"
 
 type Config struct {
 	// Database configuration
-	DB_Username string `env:"DB_USERNAME" envDefault:"root"`
-	DB_Password string `env:"DB_PASSWORD" envDefault:"password"`
-	DB_Host     string `env:"DB_HOST"     envDefault:"localhost"`
-	DB_Port     int32  `env:"DB_PORT"     envDefault:"5432"`
-	DB_Name     string `env:"DB_NAME"     envDefault:"sast_shop_v2"`
+	DB_Username     string `env:"DB_USERNAME"       envDefault:"root"`
+	DB_Password     string `env:"DB_PASSWORD"       envDefault:"password"`
+	DB_Host         string `env:"DB_HOST"           envDefault:"localhost"`
+	DB_Port         int32  `env:"DB_PORT"           envDefault:"5432"`
+	DB_Name         string `env:"DB_NAME"           envDefault:"sast_shop_v2"`
+	DB_MaxOpenConns int    `env:"DB_MAX_OPEN_CONNS" envDefault:"5"`
+	DB_MaxIdleConns int    `env:"DB_MAX_IDLE_CONNS" envDefault:"2"`
 
 	// Redis configuration
 	Redis_Host     string `env:"REDIS_HOST"     envDefault:"localhost"`
@@ -49,16 +51,18 @@ type Config struct {
 	IDGen_WorkerID int64 `env:"SAST_SHOP_IDGEN_WORKER_ID" envDefault:"-1"`
 
 	// Service ports and urls
-	UserServiceURL     string `env:"USER_SERVICE_URL"     envDefault:"http://localhost"`
-	UserServicePort    int32  `env:"USER_SERVICE_PORT"    envDefault:"1323"`
-	CatalogServiceURL  string `env:"CATALOG_SERVICE_URL"  envDefault:"http://localhost"`
-	CatalogServicePort int32  `env:"CATALOG_SERVICE_PORT" envDefault:"1324"`
-	PaymentServiceURL  string `env:"PAYMENT_SERVICE_URL"  envDefault:"http://localhost"`
-	PaymentServicePort int32  `env:"PAYMENT_SERVICE_PORT" envDefault:"1325"`
-	SpotServiceURL     string `env:"SPOT_SERVICE_URL"     envDefault:"http://localhost"`
-	SpotServicePort    int32  `env:"SPOT_SERVICE_PORT"    envDefault:"1326"`
-	ErrandServiceURL   string `env:"ERRAND_SERVICE_URL"   envDefault:"http://localhost"`
-	ErrandServicePort  int32  `env:"ERRAND_SERVICE_PORT"  envDefault:"1327"`
+	UserServiceURL        string `env:"USER_SERVICE_URL"         envDefault:"http://localhost"`
+	UserServicePort       int32  `env:"USER_SERVICE_PORT"        envDefault:"1323"`
+	CatalogServiceURL     string `env:"CATALOG_SERVICE_URL"      envDefault:"http://localhost"`
+	CatalogServicePort    int32  `env:"CATALOG_SERVICE_PORT"     envDefault:"1324"`
+	PaymentServiceURL     string `env:"PAYMENT_SERVICE_URL"      envDefault:"http://localhost"`
+	PaymentServicePort    int32  `env:"PAYMENT_SERVICE_PORT"     envDefault:"1325"`
+	SpotServiceURL        string `env:"SPOT_SERVICE_URL"         envDefault:"http://localhost"`
+	SpotServicePort       int32  `env:"SPOT_SERVICE_PORT"        envDefault:"1326"`
+	ErrandServiceURL      string `env:"ERRAND_SERVICE_URL"       envDefault:"http://localhost"`
+	ErrandServicePort     int32  `env:"ERRAND_SERVICE_PORT"      envDefault:"1327"`
+	WestPocketServiceURL  string `env:"WEST_POCKET_SERVICE_URL"  envDefault:"http://localhost"`
+	WestPocketServicePort int32  `env:"WEST_POCKET_SERVICE_PORT" envDefault:"1328"`
 }
 
 var AppConfig *Config

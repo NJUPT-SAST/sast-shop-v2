@@ -1,0 +1,23 @@
+{
+	admin off
+}
+
+http://127.0.0.1:6660 {
+	bind 127.0.0.1
+	route {
+		request_header -X-West-Pocket-Token
+		@users path /sast.sastshopv2.user.v1.AuthService/* /sast.sastshopv2.user.v1.UserService/* /sast.sastshopv2.user.v1.AddressService/*
+		reverse_proxy @users 127.0.0.1:1323
+		@catalog path /sast.sastshopv2.catalog.v1.CatalogService/* /sast.sastshopv2.catalog.v1.ProductTemplateService/* /api/uploads/product-image
+		reverse_proxy @catalog 127.0.0.1:1324
+		@payment path /sast.sastshopv2.payment.v1.BillService/* /sast.sastshopv2.payment.v1.QrCodeService/*
+		reverse_proxy @payment 127.0.0.1:1325
+		@spot path /sast.sastshopv2.spot.v1.SpotGoodsService/* /sast.sastshopv2.spot.v1.SpotOrderService/*
+		reverse_proxy @spot 127.0.0.1:1326
+		@errand path /sast.sastshopv2.errand.v1.ErrandDemandService/* /sast.sastshopv2.errand.v1.ErrandTaskService/* /sast.sastshopv2.errand.v1.BuyerErrandOrderService/*
+		reverse_proxy @errand 127.0.0.1:1327
+		@pocket path /sast.sastshopv2.westpocket.v1.WestPocketService/* /sast.sastshopv2.westpocket.v1.FaceProfileService/* /api/v1/west-pocket/uploads
+		reverse_proxy @pocket 127.0.0.1:1328
+		respond "Not found" 404
+	}
+}

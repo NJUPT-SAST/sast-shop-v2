@@ -42,6 +42,15 @@ services:
     network_mode: host
     env_file: .env
 
+  westpocketservice:
+    image: sast/westpocketservice:current
+    pull_policy: never
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    environment:
+      SAST_SHOP_IDGEN_WORKER_ID: '6'
+
 # Deliberately omitted:
 # - No healthcheck: only catalogservice has an endpoint (/health/ready) and it
 #   503s when COS is unconfigured — a wrong healthcheck + unless-stopped would

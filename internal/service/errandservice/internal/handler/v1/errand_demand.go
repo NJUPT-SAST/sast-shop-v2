@@ -84,6 +84,15 @@ func (s *ErrandDemandServiceServer) GetDemandList(
 	// 2. 参数处理（service 层会做默认值处理）
 	page := msg.Page
 	pageSize := msg.PageSize
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
 	storeName := ""
 	if msg.StoreName != nil {
 		storeName = *msg.StoreName

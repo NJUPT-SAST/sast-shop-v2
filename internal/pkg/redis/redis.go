@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/config"
@@ -45,40 +46,58 @@ func (h *prefixHook) DialHook(next redis.DialHook) redis.DialHook {
 
 func (h *prefixHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
-		var prefix string
-		if shouldSkipServicePrefix(ctx) {
-			prefix = h.projectPrefix + ":"
-		} else {
-			prefix = h.fullPrefix() + ":"
-		}
-		args := cmd.Args()
-		if len(args) > 1 {
-			if key, ok := args[1].(string); ok && !strings.HasPrefix(key, h.fullPrefix()) {
-				args[1] = prefix + key
-			}
-		}
+		h.prefixKeys(ctx, cmd)
 		return next(ctx, cmd)
 	}
 }
 
 func (h *prefixHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
 	return func(ctx context.Context, cmds []redis.Cmder) error {
-		var prefix string
-		if shouldSkipServicePrefix(ctx) {
-			prefix = h.projectPrefix + ":"
-		} else {
-			prefix = h.fullPrefix() + ":"
-		}
-
 		for _, cmd := range cmds {
-			args := cmd.Args()
-			if len(args) > 1 {
-				if key, ok := args[1].(string); ok && !strings.HasPrefix(key, h.fullPrefix()) {
-					args[1] = prefix + key
-				}
-			}
+			h.prefixKeys(ctx, cmd)
 		}
 		return next(ctx, cmds)
+	}
+}
+
+func (h *prefixHook) prefixKeys(ctx context.Context, cmd redis.Cmder) {
+	args := cmd.Args()
+	if len(args) < 2 {
+		return
+	}
+	prefix := h.fullPrefix() + ":"
+	if shouldSkipServicePrefix(ctx) {
+		prefix = h.projectPrefix + ":"
+	}
+	first, end, step := 1, 2, 1
+	switch strings.ToLower(cmd.Name()) {
+	case "eval", "evalsha", "eval_ro", "evalsha_ro", "fcall", "fcall_ro":
+		// Script source/hash comes first; only the declared KEYS receive a
+		// namespace. ARGV and keyless scripts must remain untouched.
+		if len(args) < 3 {
+			return
+		}
+		count, err := strconv.Atoi(fmt.Sprint(args[2]))
+		if err != nil || count < 0 || count > len(args)-3 {
+			return
+		}
+		first, end = 3, 3+count
+	case "del", "unlink", "exists", "touch", "mget":
+		end = len(args)
+	case "mset", "msetnx":
+		end, step = len(args), 2
+	case "auth", "hello", "client", "select", "ping", "echo", "quit", "command",
+		"script", "function", "info", "config", "acl", "cluster", "sentinel",
+		"multi", "exec", "discard", "unwatch", "pubsub", "subscribe", "unsubscribe",
+		"psubscribe", "punsubscribe", "publish":
+		// These commands have no key at argument 1. In particular, go-redis
+		// issues HELLO/AUTH/CLIENT during connection initialization.
+		return
+	}
+	for i := first; i < end; i += step {
+		if key, ok := args[i].(string); ok && !strings.HasPrefix(key, prefix) {
+			args[i] = prefix + key
+		}
 	}
 }
 

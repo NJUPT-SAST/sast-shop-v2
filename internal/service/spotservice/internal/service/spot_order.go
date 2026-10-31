@@ -13,6 +13,7 @@ import (
 	spotv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/spot/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/timeutil"
@@ -34,7 +35,6 @@ var (
 	ErrSpotOrderPermissionDenied      = errors.New("permission denied for spot order")
 	ErrSpotOrderVersionConflict       = errors.New("spot order updated_at version conflict")
 	ErrInvalidSpotOrderStatus         = errors.New("invalid spot order status")
-	ErrCannotPurchaseOwnGoods         = errors.New("cannot purchase own goods")
 )
 
 const (
@@ -66,6 +66,12 @@ func ListSpotOrder(
 		statusFilter = &status
 	}
 
+	if statusFilter == nil || *statusFilter == model.SpotOrderStatusPendingPayment ||
+		*statusFilter == model.SpotOrderStatusPaid {
+		if err := syncPendingSpotOrderPayments(ctx, userID, req.StoreId, perspective); err != nil {
+			return nil, err
+		}
+	}
 	page, pageSize := normalizePage(req.Page, req.PageSize)
 	records, total, err := repository.ListSpotOrders(
 		ctx,
@@ -74,7 +80,7 @@ func ListSpotOrder(
 		perspective,
 		statusFilter,
 		int(pageSize),
-		int((page-1)*pageSize),
+		(int(page)-1)*int(pageSize),
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to list spot orders")
@@ -125,6 +131,28 @@ func GetSpotOrderDetail(
 	if !canReadSpotOrder(userID, record) {
 		return nil, connect.NewError(connect.CodePermissionDenied, ErrSpotOrderPermissionDenied)
 	}
+	if record.Status == model.SpotOrderStatusPendingPayment && record.PaymentBillID != nil {
+		bill, err := getBill(ctx, record.PaymentBillID)
+		if err != nil {
+			return nil, err
+		}
+		if err := syncSpotOrderPayment(
+			ctx,
+			postgres.DB,
+			record.ID,
+			record.PaymentBillID,
+			record.TotalAmountCents,
+			bill,
+		); err != nil {
+			return nil, err
+		}
+		// Re-read after the conditional update so a concurrent cancellation or
+		// completion is returned as persisted, rather than projected as paid.
+		record, err = repository.GetSpotOrderRecord(ctx, req.SpotOrderId)
+		if err != nil {
+			return nil, spotInternalError()
+		}
+	}
 	return buildSpotOrderDetail(ctx, record)
 }
 
@@ -165,17 +193,17 @@ func cancelSpotOrderInTx(
 	userID int64,
 	req *spotv1.CancelSpotOrderRequest,
 ) error {
-	order, _, err := lockOrderAndGoods(ctx, tx, req.SpotOrderId)
+	order, goods, err := lockOrderAndGoods(ctx, tx, req.SpotOrderId)
 	if err != nil {
 		return err
 	}
 	if err := validateCancelableSpotOrder(order, userID, req.UpdatedAt.AsTime()); err != nil {
 		return err
 	}
-	if err := releaseSpotOrderStock(ctx, tx, order, userID); err != nil {
+	if err := cancelSpotOrderBill(ctx, order); err != nil {
 		return err
 	}
-	if err := cancelSpotOrderBill(ctx, order); err != nil {
+	if err := releaseSpotOrderStock(ctx, tx, order, goods, userID); err != nil {
 		return err
 	}
 	return markSpotOrderCancelled(ctx, tx, order)
@@ -202,8 +230,12 @@ func releaseSpotOrderStock(
 	ctx context.Context,
 	tx bun.Tx,
 	order *model.SpotOrder,
+	goods *model.SpotGoods,
 	operatorID int64,
 ) error {
+	if goods.StockTotal < 0 {
+		return nil
+	}
 	if err := repository.IncreaseSpotGoodsStock(ctx, tx, order.ListingID, order.Quantity); err != nil {
 		log.Error().
 			Err(err).
@@ -242,7 +274,17 @@ func cancelSpotOrderBill(ctx context.Context, order *model.SpotOrder) error {
 	if order.PaymentBillID == nil {
 		return nil
 	}
-	_, err := client.PaymentInternalServiceClient.CancelBillBySource(
+	bill, err := getBill(ctx, order.PaymentBillID)
+	if err != nil {
+		return err
+	}
+	if err := validateSpotOrderBill(order.ID, order.PaymentBillID, order.TotalAmountCents, bill); err != nil {
+		return err
+	}
+	if bill.Status == paymentv1.BillStatus_BILL_STATUS_COMPLETED {
+		return connect.NewError(connect.CodeFailedPrecondition, ErrInvalidSpotOrderStatus)
+	}
+	_, err = client.PaymentInternalServiceClient.CancelBillBySource(
 		ctx,
 		connect.NewRequest(&paymentv1.CancelBillBySourceRequest{
 			SourceType: "spot_order",
@@ -307,18 +349,18 @@ func completeSpotOrderInTx(
 	userID int64,
 	req *spotv1.CompleteSpotOrderRequest,
 ) error {
-	order, goods, err := lockOrderAndGoods(ctx, tx, req.SpotOrderId)
+	order, _, err := lockOrderAndGoods(ctx, tx, req.SpotOrderId)
 	if err != nil {
 		return err
 	}
-	if goods.SellerID != userID {
+	if order.PurchaserID != userID {
 		return connect.NewError(connect.CodePermissionDenied, ErrSpotOrderPermissionDenied)
 	}
 	if !order.UpdatedAt.UTC().Equal(req.UpdatedAt.AsTime().UTC()) {
 		return connect.NewError(connect.CodeAborted, ErrSpotOrderVersionConflict)
 	}
-	if order.Status != model.SpotOrderStatusPaid {
-		return connect.NewError(connect.CodeFailedPrecondition, ErrInvalidSpotOrderStatus)
+	if err := ensureSpotOrderPaymentCompleted(ctx, tx, order); err != nil {
+		return err
 	}
 	if _, err := repository.MarkSpotOrderCompleted(ctx, tx, order.ID); err != nil {
 		log.Error().
@@ -397,9 +439,6 @@ func createOneSpotOrder(
 	if err != nil {
 		return nil, err
 	}
-	if err := validateSpotOrderParticipants(purchaserID, goods); err != nil {
-		return nil, err
-	}
 
 	product, err := getProductTemplate(ctx, goods.ProductTemplateID)
 	if err != nil {
@@ -410,18 +449,21 @@ func createOneSpotOrder(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	order, err := createPendingSpotOrder(ctx, tx, purchaserID, goods, product, item, totalAmount)
+	order, err := createSpotOrder(ctx, tx, purchaserID, goods, product, item, totalAmount)
 	if err != nil {
 		return nil, err
 	}
 
-	bill, err := createPaymentBillForSpotOrder(ctx, purchaserID, goods, order, totalAmount)
-	if err != nil {
-		return nil, err
-	}
-	order, err = attachPaymentBillToSpotOrder(ctx, tx, order.ID, bill.Id)
-	if err != nil {
-		return nil, err
+	var bill *paymentv1.Bill
+	if purchaserID != goods.SellerID {
+		bill, err = createPaymentBillForSpotOrder(ctx, purchaserID, goods, order, totalAmount)
+		if err != nil {
+			return nil, err
+		}
+		order, err = attachPaymentBillToSpotOrder(ctx, tx, order.ID, bill.Id)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	store, err := getStore(ctx, goods.StoreID)
@@ -475,7 +517,7 @@ func validateGoodsForCreateSpotOrder(goods *model.SpotGoods, item *spotv1.Create
 		Time("goods_updated_at", goodsTime).
 		Time("item_updated_at", itemTime).
 		Msg("validating spot order goods")
-	if goods.ClosedAt != nil {
+	if goods.ClosedAt != nil || goods.StockTotal < 0 {
 		return connect.NewError(connect.CodeFailedPrecondition, ErrSpotGoodsClosed)
 	}
 	if !timeutil.SameUpdatedAtSecond(goodsTime, itemTime) {
@@ -487,14 +529,7 @@ func validateGoodsForCreateSpotOrder(goods *model.SpotGoods, item *spotv1.Create
 	return nil
 }
 
-func validateSpotOrderParticipants(purchaserID int64, goods *model.SpotGoods) error {
-	if goods != nil && purchaserID == goods.SellerID {
-		return connect.NewError(connect.CodeFailedPrecondition, ErrCannotPurchaseOwnGoods)
-	}
-	return nil
-}
-
-func createPendingSpotOrder(
+func createSpotOrder(
 	ctx context.Context,
 	tx bun.Tx,
 	purchaserID int64,
@@ -507,7 +542,7 @@ func createPendingSpotOrder(
 		return nil, err
 	}
 
-	order, err := buildPendingSpotOrder(purchaserID, goods, product, item, totalAmount)
+	order, err := buildSpotOrder(purchaserID, goods, product, item, totalAmount)
 	if err != nil {
 		return nil, err
 	}
@@ -548,7 +583,7 @@ func decreaseStockForCreateSpotOrder(
 	return nil
 }
 
-func buildPendingSpotOrder(
+func buildSpotOrder(
 	purchaserID int64,
 	goods *model.SpotGoods,
 	product *catalogv1.ProductTemplate,
@@ -560,7 +595,7 @@ func buildPendingSpotOrder(
 		log.Error().Err(err).Msg("failed to generate spot order number")
 		return nil, spotInternalError()
 	}
-	return &model.SpotOrder{
+	order := &model.SpotOrder{
 		OrderNo:             orderNo,
 		PurchaserID:         purchaserID,
 		ListingID:           goods.ID,
@@ -572,7 +607,13 @@ func buildPendingSpotOrder(
 		UnitPriceCents:      goods.SalePriceCents,
 		TotalAmountCents:    totalAmount,
 		Status:              model.SpotOrderStatusPendingPayment,
-	}, nil
+	}
+	if purchaserID == goods.SellerID {
+		completedAt := time.Now().UTC()
+		order.Status = model.SpotOrderStatusCompleted
+		order.CompletedAt = &completedAt
+	}
+	return order, nil
 }
 
 func insertOrderLockLedger(
@@ -827,6 +868,9 @@ func getUser(ctx context.Context, userID int64) (*userv1.UserInfo, error) {
 func getBill(ctx context.Context, billID *int64) (*paymentv1.Bill, error) {
 	if billID == nil || *billID <= 0 {
 		return nil, nil
+	}
+	if client.PaymentInternalServiceClient == nil {
+		return nil, spotInternalError()
 	}
 	resp, err := client.PaymentInternalServiceClient.BatchGetBills(
 		ctx,

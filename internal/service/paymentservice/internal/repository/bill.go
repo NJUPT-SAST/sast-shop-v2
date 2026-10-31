@@ -11,6 +11,8 @@ import (
 	"github.com/uptrace/bun"
 )
 
+var ErrBillAlreadyCompleted = errors.New("payment bill is already completed")
+
 func GetBillByID(ctx context.Context, billID int64) (*model.PaymentBill, error) {
 	var bill model.PaymentBill
 	err := postgres.DB.NewSelect().Model(&bill).Where("id = ?", billID).Scan(ctx)
@@ -76,20 +78,23 @@ func UpdateBillStatus(ctx context.Context,
 		TableExpr("payment.payment_bill").
 		Set("status = ?", newStatus).
 		Set("updated_at = ?", now).
-		Where("id = ? AND updated_at = ?", billID, expectedUpdatedAt)
+		Where("id = ? AND updated_at = ?", billID, expectedUpdatedAt).
+		Where("status != ?", model.PaymentBillStatusClosed)
 	for column, value := range extraUpdates {
 		q = q.Set("? = ?", bun.Ident(column), value)
 	}
 
-	res, err := q.Exec(ctx)
+	var updated struct {
+		UpdatedAt time.Time `bun:"updated_at"`
+	}
+	err := q.Returning("updated_at").Scan(ctx, &updated)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, 0, nil
+		}
 		return time.Time{}, 0, err
 	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return time.Time{}, 0, err
-	}
-	return now, affected, nil
+	return updated.UpdatedAt, 1, nil
 }
 
 func CountIncompleteBillsBySource(ctx context.Context, sourceType string, sourceID int64) (int64, error) {
@@ -104,8 +109,45 @@ func CountIncompleteBillsBySource(ctx context.Context, sourceType string, source
 }
 
 func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) (int64, error) {
+	if sourceType != "spot_order" {
+		return cancelBillsBySource(ctx, postgres.DB, sourceType, sourceID, payerID)
+	}
+	var affected int64
+	err := postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		// Serialize cancellation with confirmation. Checking a previous RPC
+		// snapshot alone would allow the bill to complete before cancellation.
+		var bills []model.PaymentBill
+		query := tx.NewSelect().Model(&bills).
+			Where("source_type = ?", sourceType).
+			Where("source_id = ?", sourceID).
+			OrderExpr("id ASC").For("UPDATE")
+		if payerID != nil {
+			query = query.Where("payer_id = ?", *payerID)
+		}
+		if err := query.Scan(ctx); err != nil {
+			return err
+		}
+		for _, bill := range bills {
+			if bill.Status == model.PaymentBillStatusCompleted {
+				return ErrBillAlreadyCompleted
+			}
+		}
+		var err error
+		affected, err = cancelBillsBySource(ctx, tx, sourceType, sourceID, payerID)
+		return err
+	})
+	return affected, err
+}
+
+func cancelBillsBySource(
+	ctx context.Context,
+	db bun.IDB,
+	sourceType string,
+	sourceID int64,
+	payerID *int64,
+) (int64, error) {
 	now := time.Now()
-	q := postgres.DB.NewUpdate().
+	q := db.NewUpdate().
 		Model((*model.PaymentBill)(nil)).
 		Set("status = ?", model.PaymentBillStatusClosed).
 		Set("closed_at = ?", now).
