@@ -16,10 +16,10 @@ var (
 	UserInternalServiceClient    userv1connect.UserInternalServiceClient
 )
 
-func Init() {
+func Init(catalogURL string) {
 	CatalogInternalServiceClient = catalogv1connect.NewCatalogInternalServiceClient(
 		http.DefaultClient,
-		fmt.Sprintf("%s:%d", config.AppConfig.CatalogServiceURL, config.AppConfig.CatalogServicePort),
+		catalogURL,
 	)
 	PaymentInternalServiceClient = paymentv1connect.NewPaymentInternalServiceClient(
 		http.DefaultClient,
