@@ -32,3 +32,21 @@ jobs:
             --file deploy/postgres/Dockerfile \
             --tag shop-postgres:16.9-ci \
             deploy/postgres
+      - name: Log in to Tencent registry
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: docker/login-action@v4
+        with:
+          registry: ccr.ccs.tencentyun.com
+          username: ${{ secrets.TCR_USERNAME }}
+          password: ${{ secrets.TCR_PASSWORD }}
+
+      - name: Publish PostgreSQL image
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        env:
+          TCR_NAMESPACE: ${{ vars.TCR_NAMESPACE }}
+          IMAGE_TAG: 16.9-${{ github.sha }}
+        run: |
+          test -n "$TCR_NAMESPACE"
+          image_ref="ccr.ccs.tencentyun.com/${TCR_NAMESPACE}/sast-shop-postgres:${IMAGE_TAG}"
+          docker tag shop-postgres:16.9-ci "$image_ref"
+          docker push "$image_ref"
