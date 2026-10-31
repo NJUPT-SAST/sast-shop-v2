@@ -46,3 +46,13 @@ RUN curl -fsSL --retry 3 \
     && test -f "$("$PG_CONFIG" --pkglibdir)/zhparser.so" \
     && test -f "$("$PG_CONFIG" --sharedir)/extension/zhparser.control" \
     && rm -rf /tmp/zhparser /tmp/zhparser.tar.gz
+
+FROM postgres:16.9 AS runtime
+
+COPY --from=builder /usr/local/lib/libscws.so* /usr/local/lib/
+COPY --from=builder /usr/lib/postgresql/16/lib/zhparser.so /usr/lib/postgresql/16/lib/
+COPY --from=builder /usr/share/postgresql/16/extension/zhparser* /usr/share/postgresql/16/extension/
+COPY --from=builder /usr/share/postgresql/16/tsearch_data/dict.utf8.xdb /usr/share/postgresql/16/tsearch_data/
+COPY --from=builder /usr/share/postgresql/16/tsearch_data/rules.utf8.ini /usr/share/postgresql/16/tsearch_data/
+
+RUN ldconfig
