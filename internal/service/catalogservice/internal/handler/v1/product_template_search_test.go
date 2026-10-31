@@ -96,6 +96,8 @@ func TestProductTemplateSearchRejectsInvalidParameters(t *testing.T) {
 		{Page: 1, PageSize: 0},
 		{Page: 1, PageSize: 101},
 		{Page: 1, PageSize: 20, Keyword: strings.Repeat("水", 201)},
+		{Page: 1, PageSize: 20, SearchMode: catalogv1.ProductTemplateSearchMode(-1)},
+		{Page: 1, PageSize: 20, SearchMode: catalogv1.ProductTemplateSearchMode(99)},
 	} {
 		_, err := (&ProductTemplateServiceServer{}).GetProductTemplateList(
 			context.Background(),

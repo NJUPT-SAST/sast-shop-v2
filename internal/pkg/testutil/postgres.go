@@ -15,7 +15,7 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 )
 
-func NewPostgres(t *testing.T) *bun.DB {
+func NewPostgres(t *testing.T, extraMigrations ...string) *bun.DB {
 	t.Helper()
 	dsn := os.Getenv("SAST_SHOP_TEST_POSTGRES_URL")
 	if dsn == "" {
@@ -51,12 +51,26 @@ func NewPostgres(t *testing.T) *bun.DB {
 	if !ok {
 		t.Fatal("cannot locate database migration")
 	}
-	migration, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../migrations/001_init.sql"))
+	migrationsDir := filepath.Join(filepath.Dir(file), "../../../migrations")
+	root, err := os.OpenRoot(migrationsDir)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("open migrations directory: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, string(migration)); err != nil {
-		t.Fatalf("apply migration to isolated test database: %v", err)
+	defer func() {
+		if err := root.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	migrationFiles := append([]string{"001_init.sql"}, extraMigrations...)
+	for _, filename := range migrationFiles {
+		migration, err := root.ReadFile(filename)
+		if err != nil {
+			t.Fatalf("read migration %s: %v", filename, err)
+		}
+		if _, err := db.ExecContext(ctx, string(migration)); err != nil {
+			t.Fatalf("apply migration %s: %v", filename, err)
+		}
 	}
+
 	return db
 }

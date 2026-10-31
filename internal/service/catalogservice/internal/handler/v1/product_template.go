@@ -25,11 +25,27 @@ func (s *ProductTemplateServiceServer) GetProductTemplateList(
 	if r.Msg.StoreId < 0 || r.Msg.Page < 1 || r.Msg.PageSize < 1 || r.Msg.PageSize > 100 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid list parameters"))
 	}
+	var titleFullText bool
+	switch r.Msg.GetSearchMode() {
+	case catalogv1.ProductTemplateSearchMode_PRODUCT_TEMPLATE_SEARCH_MODE_UNSPECIFIED:
+		titleFullText = false
+	case catalogv1.ProductTemplateSearchMode_PRODUCT_TEMPLATE_SEARCH_MODE_TITLE_FULL_TEXT:
+		titleFullText = true
+	default:
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid search mode"))
+	}
 	keyword, err := search.NormalizeKeyword(r.Msg.Keyword)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	pts, total, err := service.GetProductTemplateList(ctx, r.Msg.StoreId, r.Msg.Page, r.Msg.PageSize, keyword)
+	pts, total, err := service.GetProductTemplateList(
+		ctx,
+		r.Msg.StoreId,
+		r.Msg.Page,
+		r.Msg.PageSize,
+		keyword,
+		titleFullText,
+	)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}

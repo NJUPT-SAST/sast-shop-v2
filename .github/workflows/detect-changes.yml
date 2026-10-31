@@ -61,6 +61,15 @@ jobs:
             SERVICES="userservice catalogservice paymentservice spotservice errandservice"
           fi
 
+          # Fixed list of every module in the workspace (single source of
+          # truth for CI's matrix). Emitted as all_modules so each
+          # "Lint/Build (<module>)" check always exists, which lets branch
+          # protection require those check names safely.
+          ALL_MODULES="internal/pkg"
+          for SVC in $SERVICES; do
+            ALL_MODULES="$ALL_MODULES internal/service/$SVC"
+          done
+
           emit_json() {
             # $@: items to quote into a JSON array
             local out="["
