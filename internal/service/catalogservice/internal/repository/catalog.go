@@ -73,27 +73,72 @@ func UpdateStore(ctx context.Context, db bun.IDB, id int64, updates map[string]a
 
 // ListProductTemplates 分页查询指定店铺的商品模板。
 func ListProductTemplates(
-	ctx context.Context, storeID int64, offset, limit int,
+	ctx context.Context, storeID int64, offset, limit int, keyword string, titleFullText bool,
 ) ([]*model.CatalogProductTemplate, error) {
 	var pts []*model.CatalogProductTemplate
-	err := postgres.DB.NewSelect().
-		Model(&pts).
-		Where("store_id = ?", storeID).
-		Where("status != ?", model.CatalogStatusRemoved).
-		Order("id DESC").
-		Limit(limit).
-		Offset(offset).
-		Scan(ctx)
+	query := filterProductTemplates(postgres.DB.NewSelect().Model(&pts), storeID, keyword, titleFullText)
+	if titleFullText && keyword != "" {
+		query = query.OrderExpr(
+			"ts_rank(to_tsvector('catalog.product_zh', cpt.title), "+productTitleQuerySQL+") DESC",
+			keyword,
+		)
+	}
+
+	err := query.Order("cpt.id DESC").Limit(limit).Offset(offset).Scan(ctx)
+
 	return pts, err
 }
 
 // CountProductTemplates 统计指定店铺的商品模板总数。
-func CountProductTemplates(ctx context.Context, storeID int64) (int, error) {
-	return postgres.DB.NewSelect().
-		Model((*model.CatalogProductTemplate)(nil)).
-		Where("store_id = ?", storeID).
-		Where("status != ?", model.CatalogStatusRemoved).
-		Count(ctx)
+func CountProductTemplates(ctx context.Context, storeID int64, keyword string, titleFullText bool) (int, error) {
+	return filterProductTemplates(
+		postgres.DB.NewSelect().Model((*model.CatalogProductTemplate)(nil)), storeID, keyword, titleFullText,
+	).Count(ctx)
+}
+
+const productTitleQuerySQL = `(
+		select coalesce(
+			string_agg(
+				array_to_tsvector(ARRAY[words.lexeme])::text,
+				' | '
+			),
+			''
+		)::tsquery
+		from unnest(
+			to_tsvector('catalog.product_zh', ?)
+		) as words
+	)`
+
+func filterProductTemplates(
+	query *bun.SelectQuery,
+	storeID int64,
+	keyword string,
+	titleFullText bool,
+) *bun.SelectQuery {
+	query = query.Where("cpt.status != ?", model.CatalogStatusRemoved)
+
+	if storeID != 0 {
+		query = query.Where("cpt.store_id = ?", storeID)
+	}
+	if keyword != "" {
+		if titleFullText {
+			query = query.Where(
+				"to_tsvector('catalog.product_zh', cpt.title) @@ "+productTitleQuerySQL,
+				keyword,
+			)
+		} else {
+			query = query.Where(`(
+			strpos(lower(cpt.title), lower(?)) > 0
+			OR strpos(lower(cpt.description), lower(?)) > 0
+			OR EXISTS (
+				SELECT 1 FROM catalog.catalog_product_barcode AS cpb
+				WHERE cpb.product_template_id = cpt.id
+				AND strpos(lower(cpb.barcode), lower(?)) > 0
+			)
+		)`, keyword, keyword, keyword)
+		}
+	}
+	return query
 }
 
 // CreateProductTemplate 创建商品模板。

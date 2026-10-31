@@ -2,11 +2,13 @@ package v1
 
 import (
 	"context"
+	"errors"
 
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/catalog/v1/catalogv1connect"
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/search"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
@@ -20,7 +22,30 @@ func (s *ProductTemplateServiceServer) GetProductTemplateList(
 	ctx context.Context,
 	r *connect.Request[catalogv1.GetProductTemplateListRequest],
 ) (*connect.Response[catalogv1.GetProductTemplateListResponse], error) {
-	pts, total, err := service.GetProductTemplateList(ctx, r.Msg.StoreId, r.Msg.Page, r.Msg.PageSize)
+	if r.Msg.StoreId < 0 || r.Msg.Page < 1 || r.Msg.PageSize < 1 || r.Msg.PageSize > 100 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid list parameters"))
+	}
+	var titleFullText bool
+	switch r.Msg.GetSearchMode() {
+	case catalogv1.ProductTemplateSearchMode_PRODUCT_TEMPLATE_SEARCH_MODE_UNSPECIFIED:
+		titleFullText = false
+	case catalogv1.ProductTemplateSearchMode_PRODUCT_TEMPLATE_SEARCH_MODE_TITLE_FULL_TEXT:
+		titleFullText = true
+	default:
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid search mode"))
+	}
+	keyword, err := search.NormalizeKeyword(r.Msg.Keyword)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	pts, total, err := service.GetProductTemplateList(
+		ctx,
+		r.Msg.StoreId,
+		r.Msg.Page,
+		r.Msg.PageSize,
+		keyword,
+		titleFullText,
+	)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}

@@ -6,10 +6,21 @@ import "google/protobuf/field_mask.proto";
 import "sast/sastshopv2/catalog/v1/product_template.proto";
 import "sast/sastshopv2/catalog/v1/store.proto";
 
+enum ProductTemplateSearchMode {
+  // 默认匹配名称、描述和条码的子串。
+  PRODUCT_TEMPLATE_SEARCH_MODE_UNSPECIFIED = 0;
+  // 对商品名称进行中文全文检索。
+  PRODUCT_TEMPLATE_SEARCH_MODE_TITLE_FULL_TEXT = 1;
+}
+
 message GetProductTemplateListRequest {
+  // 为 0 时查询所有店铺。
   int64 store_id = 1;
   int32 page = 2;
   int32 page_size = 3;
+  // 普通文本关键词；去除首尾空白后最多 200 个字符，搜索语义由 search_mode 决定。
+  string keyword = 4;
+  ProductTemplateSearchMode search_mode = 5;
 }
 
 message GetProductTemplateListResponse {
