@@ -63,6 +63,12 @@ type Config struct {
 	ErrandServicePort     int32  `env:"ERRAND_SERVICE_PORT"      envDefault:"1327"`
 	WestPocketServiceURL  string `env:"WEST_POCKET_SERVICE_URL"  envDefault:"http://localhost"`
 	WestPocketServicePort int32  `env:"WEST_POCKET_SERVICE_PORT" envDefault:"1328"`
+
+	// Consul configuration
+	ConsulAddress           string `env:"CONSUL_ADDRESS"            envDefault:"127.0.0.1:8500"`
+	CatalogConsulName       string `env:"CATALOG_CONSUL_NAME"       envDefault:"shop-catalog"`
+	CatalogInstanceID       string `env:"CATALOG_INSTANCE_ID"       envDefault:"shop-catalog-local-1"`
+	CatalogAdvertiseAddress string `env:"CATALOG_ADVERTISE_ADDRESS" `
 }
 
 var AppConfig *Config

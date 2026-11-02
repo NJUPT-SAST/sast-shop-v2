@@ -23,12 +23,33 @@ import (
 )
 
 func main() {
+
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	config.Init()
+	cfg := config.AppConfig
+	if cfg.CatalogAdvertiseAddress == "" {
+		return fmt.Errorf("CATALOG_ADVERTISE_ADDRESS is required")
+	}
+
 	logger.Init(constant.CatalogServiceName)
+	log.Printf("[catalog] Consul address: %s", cfg.ConsulAddress)
+	log.Printf(
+		"[catalog] register name=%s instance_id=%s advertise=%s port=%d",
+		cfg.CatalogConsulName,
+		cfg.CatalogInstanceID,
+		cfg.CatalogAdvertiseAddress,
+		cfg.CatalogServicePort,
+	)
 	postgres.Init()
 	redis.Init(constant.CatalogServiceName)
 	feishu.Init()
 	cos.Init()
+
 	e := echo.New()
 	e.GET("/health/live", func(c *echo.Context) error {
 		return c.String(http.StatusOK, "ok")
@@ -50,24 +71,30 @@ func main() {
 
 	// Register before e.Start because it blocks while serving requests.
 	consulConfig := api.DefaultConfig()
-	consulConfig.Address = "127.0.0.1:8500"
+	consulConfig.Address = cfg.ConsulAddress
 	consulConfig.HttpClient = &http.Client{Timeout: 5 * time.Second}
 
 	consulClient, err := api.NewClient(consulConfig)
 	if err != nil {
-		log.Fatalf("create consul client: %v", err)
+		return fmt.Errorf("create consul client: %w", err)
 	}
 	if err := discovery.Register(
 		consulClient,
-		"shop-catalog-local-1",
-		"shop-catalog",
-		"172.19.0.1",
-		int(config.AppConfig.CatalogServicePort),
+		cfg.CatalogInstanceID,
+		cfg.CatalogConsulName,
+		cfg.CatalogAdvertiseAddress,
+		int(cfg.CatalogServicePort),
 	); err != nil {
-		log.Fatalf("register catalog service: %v", err)
+		return fmt.Errorf("register catalog service:  %w", err)
 	}
 
-	if err := e.Start(fmt.Sprintf(":%d", config.AppConfig.CatalogServicePort)); err != nil {
-		log.Fatal(err)
-	}
+	defer func() {
+		if err := discovery.Deregister(consulClient, cfg.CatalogInstanceID); err != nil {
+			log.Printf("[catalog] deregister failed: %v", err)
+			return
+		}
+		log.Printf("[catalog] deregistered instance %s", cfg.CatalogInstanceID)
+	}()
+
+	return e.Start(fmt.Sprintf(":%d", cfg.CatalogServicePort))
 }
