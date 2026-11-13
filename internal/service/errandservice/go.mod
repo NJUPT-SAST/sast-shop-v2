@@ -10,7 +10,7 @@ require (
 	github.com/labstack/echo/v5 v5.1.1
 	github.com/rs/zerolog v1.35.1
 	github.com/uptrace/bun v1.2.18
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 )
 
 replace github.com/NJUPT-SAST/sast-shop-v2/internal/pkg => ../../pkg
