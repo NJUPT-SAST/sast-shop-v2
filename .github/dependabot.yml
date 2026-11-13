@@ -14,6 +14,11 @@ updates:
     groups:
       go-minor-patch:
         patterns: ["*"]
+        # bun 1.3.0 changes Limit/Offset from int to int64: 30+ call sites
+        # need migration, so keep it out of the group and let it open alone.
+        exclude-patterns:
+          - "github.com/uptrace/bun"
+          - "github.com/uptrace/bun/*"
         update-types: ["minor", "patch"]
       go-major:
         patterns: ["*"]
