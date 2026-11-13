@@ -20,82 +20,35 @@ env:
 
 jobs:
   changes:
-    name: Detect changed modules
-    runs-on: ubuntu-latest
-    outputs:
-      modules: ${{ steps.filter.outputs.modules }}
-    steps:
-      - uses: actions/checkout@v6
+    uses: ./.github/workflows/detect-changes.yml
+    with:
+      mode: ci
 
-      - name: Determine changed modules
-        id: filter
-        run: |
-          # On push to main, compare against the previous commit.
-          # On pull_request, compare against the base branch.
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE=${{ github.event.pull_request.base.sha }}
-          else
-            BASE=${{ github.event.before }}
-          fi
-
-          ALL_MODULES='["internal/pkg","internal/service/userservice","internal/service/catalogservice","internal/service/paymentservice","internal/service/spotservice","internal/service/errandservice"]'
-
-          # Fall back to running everything when BASE is unknown or unreachable
-          # (first push, force-push that rewrote history, shallow clone missing the object).
-          if [ "$BASE" = "0000000000000000000000000000000000000000" ] || [ -z "$BASE" ]; then
-            echo "modules=$ALL_MODULES" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            echo "modules=$ALL_MODULES" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          CHANGED=$(git diff --name-only "$BASE" HEAD)
-
-          PKG_CHANGED=false
-          MODULES='[]'
-
-          # Check if shared lib changed — if so, all modules must run.
-          if echo "$CHANGED" | grep -qE '^internal/pkg/|^\.golangci\.yml|^go\.work|^proto/|^buf\.gen\.yaml|^buf\.lock|^buf\.yaml'; then
-            PKG_CHANGED=true
-          fi
-          # Also run everything when CI config itself changes.
-          if echo "$CHANGED" | grep -qE '^\.github/workflows/ci\.yml'; then
-            PKG_CHANGED=true
-          fi
-
-          if [ "$PKG_CHANGED" = "true" ]; then
-            echo "modules=$ALL_MODULES" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Otherwise collect only the services that changed, always including pkg.
-          RESULT='["internal/pkg"'
-          for SVC in userservice catalogservice paymentservice spotservice errandservice; do
-            if echo "$CHANGED" | grep -qE "^internal/service/$SVC/"; then
-              RESULT="$RESULT,\"internal/service/$SVC\""
-            fi
-          done
-          RESULT="$RESULT]"
-
-          # If nothing service-specific changed (e.g. only proto/docs), still run pkg.
-          echo "modules=$RESULT" >> "$GITHUB_OUTPUT"
-
+  # The matrix is the FIXED full module list (all_modules from
+  # detect-changes.yml), not the changed-module list. Every leg therefore
+  # always creates a check run, so branch protection can safely require
+  # names like "Build (internal/service/catalogservice)" — unchanged
+  # modules succeed immediately via the skip step instead of leaving the
+  # check "Expected — waiting to be reported" forever.
   lint:
     name: Lint (${{ matrix.module }})
     needs: changes
-    if: ${{ needs.changes.outputs.modules != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        module: ${{ fromJson(needs.changes.outputs.modules) }}
+        module: ${{ fromJson(needs.changes.outputs.all_modules) }}
 
     steps:
+      - name: Skip (module unchanged)
+        if: ${{ !contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
+        run: echo "Module ${{ matrix.module }} not in changed set — skipping"
+
       - uses: actions/checkout@v6
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
 
       - uses: actions/setup-go@v6
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
@@ -105,15 +58,19 @@ jobs:
             internal/service/paymentservice/go.sum
             internal/service/spotservice/go.sum
             internal/service/errandservice/go.sum
+            internal/service/westpocketservice/go.sum
 
       - uses: bufbuild/buf-setup-action@v1
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         with:
           github_token: ${{ github.token }}
 
       - name: Generate proto
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         run: make proto
 
       - name: Lint
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
@@ -122,34 +79,57 @@ jobs:
   build:
     name: Build (${{ matrix.module }})
     needs: changes
-    if: ${{ needs.changes.outputs.modules != '[]' }}
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: west_pocket_test
+          POSTGRES_PASSWORD: west_pocket_test
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     strategy:
       fail-fast: false
       matrix:
-        module: ${{ fromJson(needs.changes.outputs.modules) }}
+        module: ${{ fromJson(needs.changes.outputs.all_modules) }}
 
     steps:
+      - name: Skip (module unchanged)
+        if: ${{ !contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
+        run: echo "Module ${{ matrix.module }} not in changed set — skipping"
+
       - uses: actions/checkout@v6
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
 
       - uses: actions/setup-go@v6
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.sum
 
       - uses: bufbuild/buf-setup-action@v1
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         with:
           github_token: ${{ github.token }}
 
       - name: Generate proto
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         run: make proto
 
       - name: Build
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
         working-directory: ${{ matrix.module }}
         run: go build ./...
 
-      # TODO: uncomment after tests are added
-      # - name: Test
-      #   working-directory: ${{ matrix.module }}
-      #   run: go test -race -count=1 ./...
-      # For integration tests (PostgreSQL/Redis), consider testcontainers-go
+      - name: Test
+        if: ${{ contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
+        working-directory: ${{ matrix.module }}
+        env:
+          WEST_POCKET_TEST_DSN: ${{ matrix.module == 'internal/service/westpocketservice' && 'postgres://west_pocket_test:west_pocket_test@localhost:5432/postgres?sslmode=disable' || '' }}
+        run: go test -race -count=1 ./...

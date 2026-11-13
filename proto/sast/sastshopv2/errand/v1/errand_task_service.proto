@@ -148,6 +148,15 @@ message GetErrandTaskListResponse {
   int32 total_count = 3;
 }
 
+message GetErrandTaskParticipantsRequest {
+  int64 errand_task_id = 1;
+}
+
+message GetErrandTaskParticipantsResponse {
+  int32 participant_count = 1;
+  repeated string participant_avatars = 2;
+}
+
 message CancelTaskRequest {
   int64 errand_task_id = 1;
   google.protobuf.Timestamp updated_at = 2;
@@ -158,6 +167,7 @@ message CancelTaskResponse {
 }
 
 service ErrandTaskService {
+  rpc GetErrandTaskParticipants(GetErrandTaskParticipantsRequest) returns (GetErrandTaskParticipantsResponse);
   // 团长接单并创建采购任务
   rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
   // 获取采购中的跑腿任务详情

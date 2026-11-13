@@ -245,6 +245,7 @@ func MarkSpotOrderCancelled(ctx context.Context, tx bun.Tx, orderID int64) (*mod
 		Set("cancelled_at = now()").
 		Set("updated_at = now()").
 		WherePK().
+		Where("status = ?", model.SpotOrderStatusPendingPayment).
 		Returning("*").
 		Exec(ctx)
 	if err != nil {
@@ -268,6 +269,7 @@ func MarkSpotOrderCompleted(ctx context.Context, tx bun.Tx, orderID int64) (*mod
 		Set("completed_at = now()").
 		Set("updated_at = now()").
 		WherePK().
+		Where("status = ?", model.SpotOrderStatusPaid).
 		Returning("*").
 		Exec(ctx)
 	if err != nil {

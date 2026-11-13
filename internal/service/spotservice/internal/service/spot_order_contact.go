@@ -8,6 +8,7 @@ import (
 	spotv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/spot/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/repository"
 	"github.com/rs/zerolog/log"
@@ -40,10 +41,7 @@ func getSpotOrderSellerContact(
 	deps spotOrderContactDependencies,
 ) (string, error) {
 	if userID <= 0 || req == nil || req.SpotOrderId <= 0 {
-		return "", connect.NewError(
-			connect.CodeInvalidArgument,
-			errors.New("invalid spot order seller contact request"),
-		)
+		return "", connect.NewError(errmsg.SpotInvalidSellerContactReq.Code, errmsg.SpotInvalidSellerContactReq)
 	}
 
 	record, err := deps.getOrderRecord(ctx, req.SpotOrderId)

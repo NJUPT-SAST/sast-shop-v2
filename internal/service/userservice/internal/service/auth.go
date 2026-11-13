@@ -10,6 +10,7 @@ import (
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/constant"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/feishu"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/redis"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
@@ -66,41 +67,39 @@ func toLoginMember(u *model.UserAccount) *userv1.LoginMember {
 // 核心登录流水线：ExchangeCode→GetCurrentUser→Upsert→生成 token→写 Redis→返回
 func Login(ctx context.Context, req *userv1.LoginRequest) (*userv1.LoginResponse, error) {
 	userError := func(msg string) error {
+		log.Error().Str("detail", msg).Msg("login failed")
 		return rpcerror.NewInternalError(&commonv1.BusinessError_UserError{
 			UserError: &userv1.UserError{
 				Code: userv1.UserErrorCode_USER_ERROR_CODE_INTERNAL_ERROR,
 			},
-		}, msg)
+		}, errmsg.Internal.Msg)
 	}
-
+	// code换token
 	feishuToken, err := feishu.ExchangeCode(ctx, req.Code, "", req.GetRedirectUri())
-	if err != nil {
-		return nil, userError(fmt.Sprintf("feishu exchange code: %v", err))
-	}
 	if err != nil {
 		log.Error().Err(err).Msg("feishu exchange code failed")
 		return nil, userError(fmt.Sprintf("feishu exchange code: %v", err))
 	}
-
+	// 获取用户信息
 	userInfo, err := feishu.GetCurrentUser(ctx, feishuToken.AccessToken)
 	if err != nil {
 		return nil, userError(fmt.Sprintf("feishu get current user: %v", err))
 	}
-
+	// 没有则创建，有就更新
 	user, err := repository.UpsertUser(ctx, userInfo.OpenID, userInfo.Name, userInfo.AvatarURL)
 	if err != nil {
 		return nil, userError(fmt.Sprintf("upsert user: %v", err))
 	}
-
+	// 检测是否能登陆
 	if err := checkUserCanLogin(user); err != nil {
 		return nil, err
 	}
-
+	// 生成后端session Token
 	sessionToken, err := generateToken()
 	if err != nil {
 		return nil, userError(fmt.Sprintf("generate token: %v", err))
 	}
-
+	// 写入redis
 	authUser := buildAuthUser(user, feishuToken.AccessToken)
 	store := redis.NewSessionStore()
 	if err := store.SaveSession(ctx, sessionToken, authUser); err != nil {
