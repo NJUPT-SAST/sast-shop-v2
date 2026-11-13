@@ -16,6 +16,21 @@ type ErrandTaskServiceServer struct {
 	errandv1connect.ErrandTaskServiceHandler
 }
 
+func (s *ErrandTaskServiceServer) GetErrandTaskParticipants(
+	ctx context.Context,
+	r *connect.Request[errandv1.GetErrandTaskParticipantsRequest],
+) (*connect.Response[errandv1.GetErrandTaskParticipantsResponse], error) {
+	captainID, err := rpcinterceptor.UserIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := service.GetErrandTaskParticipants(ctx, captainID, r.Msg)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (s *ErrandTaskServiceServer) CreateTask(
 	ctx context.Context,
 	r *connect.Request[errandv1.CreateTaskRequest],

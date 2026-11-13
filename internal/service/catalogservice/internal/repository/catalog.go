@@ -73,44 +73,89 @@ func UpdateStore(ctx context.Context, db bun.IDB, id int64, updates map[string]a
 
 // ListProductTemplates 分页查询指定店铺的商品模板。
 func ListProductTemplates(
-	ctx context.Context, storeID int64, offset, limit int,
+	ctx context.Context, storeID int64, offset, limit int, keyword string, titleFullText bool,
 ) ([]*model.CatalogProductTemplate, error) {
 	var pts []*model.CatalogProductTemplate
-	err := postgres.DB.NewSelect().
-		Model(&pts).
-		Where("store_id = ?", storeID).
-		Where("status != ?", model.CatalogStatusRemoved).
-		Order("id DESC").
-		Limit(limit).
-		Offset(offset).
-		Scan(ctx)
+	query := filterProductTemplates(postgres.DB.NewSelect().Model(&pts), storeID, keyword, titleFullText)
+	if titleFullText && keyword != "" {
+		query = query.OrderExpr(
+			"ts_rank(to_tsvector('catalog.product_zh', cpt.title), "+productTitleQuerySQL+") DESC",
+			keyword,
+		)
+	}
+
+	err := query.Order("cpt.id DESC").Limit(limit).Offset(offset).Scan(ctx)
+
 	return pts, err
 }
 
 // CountProductTemplates 统计指定店铺的商品模板总数。
-func CountProductTemplates(ctx context.Context, storeID int64) (int, error) {
-	return postgres.DB.NewSelect().
-		Model((*model.CatalogProductTemplate)(nil)).
-		Where("store_id = ?", storeID).
-		Where("status != ?", model.CatalogStatusRemoved).
-		Count(ctx)
+func CountProductTemplates(ctx context.Context, storeID int64, keyword string, titleFullText bool) (int, error) {
+	return filterProductTemplates(
+		postgres.DB.NewSelect().Model((*model.CatalogProductTemplate)(nil)), storeID, keyword, titleFullText,
+	).Count(ctx)
+}
+
+const productTitleQuerySQL = `(
+		select coalesce(
+			string_agg(
+				array_to_tsvector(ARRAY[words.lexeme])::text,
+				' | '
+			),
+			''
+		)::tsquery
+		from unnest(
+			to_tsvector('catalog.product_zh', ?)
+		) as words
+	)`
+
+func filterProductTemplates(
+	query *bun.SelectQuery,
+	storeID int64,
+	keyword string,
+	titleFullText bool,
+) *bun.SelectQuery {
+	query = query.Where("cpt.status != ?", model.CatalogStatusRemoved)
+
+	if storeID != 0 {
+		query = query.Where("cpt.store_id = ?", storeID)
+	}
+	if keyword != "" {
+		if titleFullText {
+			query = query.Where(
+				"to_tsvector('catalog.product_zh', cpt.title) @@ "+productTitleQuerySQL,
+				keyword,
+			)
+		} else {
+			query = query.Where(`(
+			strpos(lower(cpt.title), lower(?)) > 0
+			OR strpos(lower(cpt.description), lower(?)) > 0
+			OR EXISTS (
+				SELECT 1 FROM catalog.catalog_product_barcode AS cpb
+				WHERE cpb.product_template_id = cpt.id
+				AND strpos(lower(cpb.barcode), lower(?)) > 0
+			)
+		)`, keyword, keyword, keyword)
+		}
+	}
+	return query
 }
 
 // CreateProductTemplate 创建商品模板。
-func CreateProductTemplate(ctx context.Context, pt *model.CatalogProductTemplate) error {
-	_, err := postgres.DB.NewInsert().Model(pt).Exec(ctx)
+func CreateProductTemplate(ctx context.Context, db bun.IDB, pt *model.CatalogProductTemplate) error {
+	_, err := db.NewInsert().Model(pt).Exec(ctx)
 	return err
 }
 
 // CreateBarcode 创建商品条码记录。
-func CreateBarcode(ctx context.Context, barcode *model.CatalogProductBarcode) error {
-	_, err := postgres.DB.NewInsert().Model(barcode).Exec(ctx)
+func CreateBarcode(ctx context.Context, db bun.IDB, barcode *model.CatalogProductBarcode) error {
+	_, err := db.NewInsert().Model(barcode).Exec(ctx)
 	return err
 }
 
 // CreateImage 创建商品图片记录。
-func CreateImage(ctx context.Context, image *model.CatalogProductImage) error {
-	_, err := postgres.DB.NewInsert().Model(image).Exec(ctx)
+func CreateImage(ctx context.Context, db bun.IDB, image *model.CatalogProductImage) error {
+	_, err := db.NewInsert().Model(image).Exec(ctx)
 	return err
 }
 
@@ -201,6 +246,20 @@ func GetBarcodeByCode(ctx context.Context, barcode string) (*model.CatalogProduc
 	var b model.CatalogProductBarcode
 	err := postgres.DB.NewSelect().Model(&b).Where("barcode = ?", barcode).Scan(ctx)
 	return &b, err
+}
+
+// Return the most recently updated matching template in each store, matching
+// the browser's one-candidate-per-store barcode selection contract.
+func ListProductTemplatesByBarcode(ctx context.Context, barcode string) ([]*model.CatalogProductTemplate, error) {
+	var templates []*model.CatalogProductTemplate
+	err := postgres.DB.NewSelect().Model(&templates).
+		ColumnExpr("DISTINCT ON (cpt.store_id) cpt.*").
+		Join("JOIN catalog.catalog_product_barcode AS cpb ON cpb.product_template_id = cpt.id").
+		Where("cpb.barcode = ?", barcode).
+		Where("cpt.status = ?", model.CatalogStatusActive).
+		OrderExpr("cpt.store_id ASC, cpt.updated_at DESC, cpt.id DESC").
+		Scan(ctx)
+	return templates, err
 }
 
 // GetBarcodeByProductTemplateID 获取商品模板的第一个条码。

@@ -178,7 +178,7 @@ CREATE TABLE spot_goods (
     store_id             BIGINT NOT NULL,
     product_template_id  BIGINT NOT NULL,
     sale_price_cents     INTEGER NOT NULL CHECK (sale_price_cents >= 0),
-    stock_total          INTEGER NOT NULL CHECK (stock_total >= 0),
+    stock_total          INTEGER NOT NULL CHECK (stock_total >= -1),
     closed_at            TIMESTAMPTZ,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -188,7 +188,7 @@ COMMENT ON COLUMN spot_goods.seller_id IS '卖家用户 ID（跨服务引用）'
 COMMENT ON COLUMN spot_goods.store_id IS '店铺 ID（跨服务引用）';
 COMMENT ON COLUMN spot_goods.product_template_id IS '商品模板 ID（跨服务引用 catalog.catalog_product_template）';
 COMMENT ON COLUMN spot_goods.sale_price_cents IS '售价（单位：分）';
-COMMENT ON COLUMN spot_goods.stock_total IS '当前库存总量';
+COMMENT ON COLUMN spot_goods.stock_total IS '当前库存总量：-1 为已下架，0 为售罄，正数为可购买数量';
 
 -- 库存流水
 CREATE TABLE spot_stock_ledger (
