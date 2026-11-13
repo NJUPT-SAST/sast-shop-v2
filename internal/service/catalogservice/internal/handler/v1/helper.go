@@ -35,8 +35,16 @@ func barcodeNotFoundError() *connect.Error {
 	return connect.NewError(errmsg.BarcodeNotFound.Code, errmsg.BarcodeNotFound)
 }
 
+func productTemplateForbiddenError() *connect.Error {
+	return connect.NewError(errmsg.ProductTemplateForbidden.Code, errmsg.ProductTemplateForbidden)
+}
+
 // mapServiceError 将 service 层哨兵错误映射为 Connect 错误。
 func mapServiceError(err error) *connect.Error {
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr
+	}
 	switch {
 	case errors.Is(err, service.ErrStoreNotFound):
 		return storeNotFoundError()
@@ -44,6 +52,8 @@ func mapServiceError(err error) *connect.Error {
 		return productNotFoundError()
 	case errors.Is(err, service.ErrBarcodeNotFound):
 		return barcodeNotFoundError()
+	case errors.Is(err, service.ErrProductTemplateForbidden):
+		return productTemplateForbiddenError()
 	default:
 		return catalogError()
 	}

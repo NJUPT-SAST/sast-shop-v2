@@ -58,7 +58,7 @@ jobs:
         with:
           token: ${{ secrets.BUF_TOKEN }}
           breaking_against_registry: true
-          pr_comment: true
+          pr_comment: false
           # Skip breaking change check when any PR commit contains "buf skip breaking".
           breaking: ${{ github.event_name == 'pull_request' && steps.breaking.outputs.enabled == 'true' }}
 

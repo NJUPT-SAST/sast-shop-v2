@@ -8,6 +8,7 @@ import (
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
 	"connectrpc.com/connect"
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/userservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
@@ -21,14 +22,14 @@ func (s *AddressServer) CreateAddress(
 	ctx context.Context,
 	r *connect.Request[userv1.CreateAddressRequest],
 ) (*connect.Response[userv1.CreateAddressResponse], error) {
-	user, ok := rpcinterceptor.UserFromContext(ctx)
-	if !ok {
-		return nil, userError()
+	userID, err := rpcinterceptor.UserIDFromContext(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	addr, err := service.CreateAddress(ctx, user.UserID, r.Msg)
+	addr, err := service.CreateAddress(ctx, userID, r.Msg)
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to create address for userID: %d", user.UserID)
+		log.Error().Err(err).Msgf("Failed to create address for userID: %d", userID)
 		return nil, mapAddressError(err)
 	}
 
@@ -41,16 +42,16 @@ func (s *AddressServer) UpdateAddress(
 	ctx context.Context,
 	r *connect.Request[userv1.UpdateAddressRequest],
 ) (*connect.Response[userv1.UpdateAddressResponse], error) {
-	user, ok := rpcinterceptor.UserFromContext(ctx)
-	if !ok {
-		return nil, userError()
+	userID, err := rpcinterceptor.UserIDFromContext(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	addr, err := service.UpdateAddress(ctx, user.UserID, r.Msg)
+	addr, err := service.UpdateAddress(ctx, userID, r.Msg)
 	if err != nil {
 		log.Error().
 			Err(err).
-			Msgf("Failed to update address for userID: %d, addressID: %d", user.UserID, r.Msg.AddressId)
+			Msgf("Failed to update address for userID: %d, addressID: %d", userID, r.Msg.AddressId)
 		return nil, mapAddressError(err)
 	}
 
@@ -63,14 +64,14 @@ func (s *AddressServer) GetAddress(
 	ctx context.Context,
 	r *connect.Request[userv1.GetAddressRequest],
 ) (*connect.Response[userv1.GetAddressResponse], error) {
-	user, ok := rpcinterceptor.UserFromContext(ctx)
-	if !ok {
-		return nil, userError()
+	userID, err := rpcinterceptor.UserIDFromContext(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	addrs, err := service.GetAddress(ctx, user.UserID, r.Msg.AddressId)
+	addrs, err := service.GetAddress(ctx, userID, r.Msg.AddressId)
 	if err != nil {
-		log.Error().Err(err).Msgf("Failed to get address for userID: %d", user.UserID)
+		log.Error().Err(err).Msgf("Failed to get address for userID: %d", userID)
 		return nil, mapAddressError(err)
 	}
 
@@ -83,16 +84,16 @@ func (s *AddressServer) DeleteAddress(
 	ctx context.Context,
 	r *connect.Request[userv1.DeleteAddressRequest],
 ) (*connect.Response[userv1.DeleteAddressResponse], error) {
-	user, ok := rpcinterceptor.UserFromContext(ctx)
-	if !ok {
-		return nil, userError()
+	userID, err := rpcinterceptor.UserIDFromContext(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	err := service.DeleteAddress(ctx, user.UserID, r.Msg.AddressId)
+	err = service.DeleteAddress(ctx, userID, r.Msg.AddressId)
 	if err != nil {
 		log.Error().
 			Err(err).
-			Msgf("Failed to delete address for userID: %d, addressID: %d", user.UserID, r.Msg.AddressId)
+			Msgf("Failed to delete address for userID: %d, addressID: %d", userID, r.Msg.AddressId)
 		return nil, mapAddressError(err)
 	}
 
@@ -101,7 +102,11 @@ func (s *AddressServer) DeleteAddress(
 
 func mapAddressError(err error) *connect.Error {
 	if errors.Is(err, service.ErrAddressNotFound) {
-		return userError()
+		return connect.NewError(errmsg.AddressNotFound.Code, errmsg.AddressNotFound)
+	}
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr
 	}
 	return userError()
 }

@@ -151,14 +151,82 @@ Each service loads `.env` by searching upward from its working directory.
 
 In development mode (`APP_ENV=development`), you can bypass authentication by setting the `X-Dev-User-ID` header with a valid user ID.
 
+### Keyword Search and Integration Tests
+
+`SpotGoodsService/ListSpotGoods` and `ProductTemplateService/GetProductTemplateList` accept an optional `keyword`.
+Search trims surrounding whitespace and accepts up to 200 Unicode characters. Matching is case-insensitive and uses
+literal substrings, so `%`, `_`, backslashes, and quotes are not search operators. Spot goods match template titles,
+descriptions, barcodes, or store names; product templates match titles, descriptions, or barcodes. Filtering happens
+before pagination, and `total_count` counts matching rows. For product templates, `store_id=0` lists all stores and
+`page_size` must be between 1 and 100; spot goods retain their maximum page size of 30.
+
+Spot search reads the catalog schema in the shared PostgreSQL database, without importing another service's Go code.
+The spot database role needs read access to catalog tables. Product detail hydration still uses the catalog RPC.
+
+Search integration tests create a randomly named database, apply `migrations/001_init.sql`, and drop that database
+after the tests. Set `SAST_SHOP_TEST_POSTGRES_URL` to a PostgreSQL connection URL for a role allowed to create and drop
+databases; the database named in that URL is used only for administrative connections. Without this variable, database
+integration tests are skipped, while validation tests still run.
+
+```bash
+go test -race -count=1 -v ./internal/pkg/search ./internal/service/catalogservice/internal/handler/v1 ./internal/service/spotservice/internal/handler/v1
+```
+
 ## Current Status
 
-This project is in early development. Currently implemented:
+The workspace contains five services communicating through generated ConnectRPC clients. Current RPC contracts are
+defined under `proto/sast/sastshopv2/`, with implementations and tests under `internal/`.
 
-- **User service**: `GetUserInfo`, `GetUsers` (internal) — real database queries
-- **All other handlers**: Return placeholder "To be implemented" errors
+## Deployment
 
-No tests exist yet. Contributions are welcome.
+Production deployment is container-based: every push to `main` builds Docker images and pushes them to Tencent Cloud Container Registry (TCR), then upgrades the changed services on the server over SSH.
+
+### Flow
+
+```
+push to main
+  → detect changed services (changes to internal/pkg, proto/, Dockerfile → all services)
+  → build & push ccr.ccs.tencentyun.com/<namespace>/sast-shop-<service>:<short-sha> to TCR
+  → SSH: pull image, rotate sast/<service>:current → backup, tag new image as current
+  → docker compose up -d --no-deps <service>
+```
+
+Manual deploy: Actions → Deploy → Run workflow (optionally pick a single service).
+
+### GitHub configuration
+
+| Kind | Name | Description |
+|---|---|---|
+| Secret | `TCR_USERNAME` / `TCR_PASSWORD` | TCR credentials for pushing images (long-term token recommended) |
+| Secret | `SERVER_HOST` / `SERVER_USER` / `SSH_PRIVATE_KEY` | Deployment server SSH access |
+| Variable | `TCR_NAMESPACE` | TCR namespace, e.g. `sast` |
+| Variable | `IMAGE_PREFIX` | TCR repository name prefix (default `sast-shop`) |
+| Variable | `COMPOSE_DIR` | Server directory holding `docker-compose.yml` (default `/data/sast-shop-v2`) |
+
+### One-time server setup
+
+1. Copy the compose template: `mkdir -p /data/sast-shop-v2 && cp deploy/docker-compose.yml /data/sast-shop-v2/`
+2. Create `/data/sast-shop-v2/.env` from `.env.example` with production values. Required:
+   - real `REDIS_HOST`/`REDIS_PORT` — services ping Redis at startup and panic on failure
+   - `DB_*` database credentials
+   - `APP_ENV=production` plus real Feishu credentials (`FEISHU_APP_ID`, `FEISHU_APP_SECRET`) — with `APP_ENV=development` the `X-Dev-User-ID` auth bypass is enabled, which must not happen in production
+   - COS variables are optional — catalogservice degrades gracefully without them
+3. Apply migrations once against the production database:
+   `psql "$DATABASE_URL" -f migrations/001_init.sql`
+4. Restrict ports 1323–1327 to loopback on the firewall — services bind `0.0.0.0`; host Caddy reaches them at `127.0.0.1`.
+5. Ensure the server has Docker with the Compose v2 plugin.
+
+### Manual rollback
+
+Each deploy rotates the previous image to `sast/<service>:backup`. To roll back:
+
+```bash
+cd /data/sast-shop-v2
+docker tag sast/userservice:backup sast/userservice:current
+docker compose up -d --no-deps userservice
+```
+
+> If the TCR repositories are private, log the server in once with `docker login ccr.ccs.tencentyun.com`.
 
 ## License
 

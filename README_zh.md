@@ -160,6 +160,57 @@ make run-userservice
 
 暂无测试。欢迎贡献。
 
+## 部署
+
+生产部署采用容器化方案：每次 push 到 `main` 会构建 Docker 镜像并推送到腾讯云容器镜像服务（TCR），随后通过 SSH 在服务器上升级有变更的服务。
+
+### 流程
+
+```
+push 到 main
+  → 检测变更的服务（internal/pkg、proto/、Dockerfile 变更 → 全部服务）
+  → 构建并推送 ccr.ccs.tencentyun.com/<命名空间>/sast-shop-<服务>:<短sha> 到 TCR
+  → SSH：拉取镜像，将 sast/<服务>:current 旋转为 backup，新镜像打上 current 标签
+  → docker compose up -d --no-deps <服务>
+```
+
+手动部署：Actions → Deploy → Run workflow（可选单个服务）。
+
+### GitHub 配置
+
+| 类型 | 名称 | 说明 |
+|---|---|---|
+| Secret | `TCR_USERNAME` / `TCR_PASSWORD` | 推送镜像的 TCR 凭据（建议使用长期访问令牌） |
+| Secret | `SERVER_HOST` / `SERVER_USER` / `SSH_PRIVATE_KEY` | 部署服务器 SSH 访问 |
+| Variable | `TCR_NAMESPACE` | TCR 命名空间，如 `sast` |
+| Variable | `IMAGE_PREFIX` | TCR 仓库名前缀（默认 `sast-shop`） |
+| Variable | `COMPOSE_DIR` | 服务器上存放 `docker-compose.yml` 的目录（默认 `/data/sast-shop-v2`） |
+
+### 服务器一次性初始化
+
+1. 复制 compose 模板：`mkdir -p /data/sast-shop-v2 && cp deploy/docker-compose.yml /data/sast-shop-v2/`
+2. 参照 `.env.example` 创建 `/data/sast-shop-v2/.env`，填入生产配置。必须设置：
+   - 真实的 `REDIS_HOST`/`REDIS_PORT` —— 服务启动时会 PING Redis，失败直接 panic
+   - `DB_*` 数据库凭据
+   - `APP_ENV=production` 并配真实飞书凭据（`FEISHU_APP_ID`、`FEISHU_APP_SECRET`）——`APP_ENV=development` 会启用 `X-Dev-User-ID` 认证旁路，生产环境不允许
+   - COS 变量可选 —— catalogservice 缺少时会优雅降级
+3. 对生产数据库执行一次迁移：
+   `psql "$DATABASE_URL" -f migrations/001_init.sql`
+4. 防火墙将 1323–1327 端口限制为仅 loopback —— 服务绑定 `0.0.0.0`；宿主机 Caddy 通过 `127.0.0.1` 访问它们。
+5. 确保服务器装有带 Compose v2 插件的 Docker。
+
+### 手动回滚
+
+每次部署都会把上一个镜像旋转为 `sast/<服务>:backup`。回滚命令：
+
+```bash
+cd /data/sast-shop-v2
+docker tag sast/userservice:backup sast/userservice:current
+docker compose up -d --no-deps userservice
+```
+
+> 若 TCR 仓库为私有，需在服务器上执行一次 `docker login ccr.ccs.tencentyun.com`。
+
 ## 许可证
 
 MIT
