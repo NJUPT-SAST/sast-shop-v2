@@ -1,55 +1,31 @@
 version: 2
+
 updates:
+  # Go modules: 6 modules under one glob so one bump = one PR, not six.
+  - package-ecosystem: "gomod"
+    directories:
+      - "/internal/pkg"
+      - "/internal/service/*"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "go"]
+    open-pull-requests-limit: 4
+    groups:
+      go-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      go-major:
+        patterns: ["*"]
+        update-types: ["major"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
     labels: ["dependencies", "ci"]
-
-  - package-ecosystem: "gomod"
-    directory: "/internal/pkg"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    labels: ["dependencies", "go"]
+    open-pull-requests-limit: 2
     groups:
-      bun:
-        patterns: ["github.com/uptrace/bun*"]
-      connectrpc:
-        patterns: ["connectrpc.com/*", "buf.build/*"]
-
-  - package-ecosystem: "gomod"
-    directory: "/internal/service/userservice"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    labels: ["dependencies", "go"]
-
-  - package-ecosystem: "gomod"
-    directory: "/internal/service/catalogservice"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    labels: ["dependencies", "go"]
-
-  - package-ecosystem: "gomod"
-    directory: "/internal/service/paymentservice"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    labels: ["dependencies", "go"]
-
-  - package-ecosystem: "gomod"
-    directory: "/internal/service/spotservice"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    labels: ["dependencies", "go"]
-
-  - package-ecosystem: "gomod"
-    directory: "/internal/service/errandservice"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    labels: ["dependencies", "go"]
+      ci-actions:
+        patterns: ["*"]
