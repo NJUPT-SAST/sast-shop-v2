@@ -7,7 +7,7 @@ require (
 	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.11-20260803135432-3e26db0084c4.1
 	connectrpc.com/connect v1.20.0
 	github.com/NJUPT-SAST/sast-shop-v2/internal/pkg v0.0.0-20260703081920-1b187050f3a3
-	github.com/labstack/echo/v5 v5.1.1
+	github.com/labstack/echo/v5 v5.4.1
 	github.com/rs/zerolog v1.35.1
 	github.com/uptrace/bun v1.2.18
 	google.golang.org/protobuf v1.36.12
@@ -41,7 +41,6 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect
-	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250922171735-9219d122eba9 // indirect
