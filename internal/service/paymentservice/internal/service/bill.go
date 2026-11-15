@@ -422,6 +422,9 @@ func newPaymentBillNo() (string, error) {
 }
 
 // Compare the exact version returned by PostgreSQL and preserved by protobuf.
+// Millisecond truncation is deliberate: browser clients round-trip timestamps
+// through JS Date, which only preserves milliseconds; comparing at microsecond
+// precision would flag every normal browser submit as a version conflict.
 func sameUpdatedAtVersion(dbUpdatedAt, expectedUpdatedAt time.Time) bool {
 	return dbUpdatedAt.Truncate(time.Millisecond).Equal(expectedUpdatedAt.Truncate(time.Millisecond))
 }

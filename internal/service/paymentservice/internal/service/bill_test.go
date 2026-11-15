@@ -20,10 +20,18 @@ func TestSameUpdatedAtVersion(t *testing.T) {
 	}
 }
 
-func TestSameUpdatedAtVersionRejectsDifferentVersionWithinSecond(t *testing.T) {
+func TestSameUpdatedAtVersionToleratesSubMillisecondDifference(t *testing.T) {
 	t.Parallel()
 	current := time.Date(2026, 8, 3, 9, 10, 11, 123456000, time.UTC)
+	if !sameUpdatedAtVersion(current, current.Add(time.Microsecond)) {
+		t.Fatal("sub-millisecond differences are the same version: JS Date round-trips preserve only milliseconds")
+	}
+}
+
+func TestSameUpdatedAtVersionConflictsAcrossMillisecondBoundary(t *testing.T) {
+	t.Parallel()
+	current := time.Date(2026, 8, 3, 9, 10, 11, 123999000, time.UTC)
 	if sameUpdatedAtVersion(current, current.Add(time.Microsecond)) {
-		t.Fatal("different database versions within the same second must conflict")
+		t.Fatal("a 1µs difference crossing a millisecond boundary is a different version and must conflict")
 	}
 }
