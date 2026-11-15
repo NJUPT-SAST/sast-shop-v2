@@ -26,7 +26,7 @@ West Pocket 是独立的移动端 AA 微服务，监听 `1328`。用户信息仍
 4. 配置**私有** COS 桶和 `WEST_POCKET_COS_*`。本次经用户确认复用已有私有桶，使用独立 `west-pocket/` 前缀，商城图片代理仅开放 `sast-shop/`；不得把新目录加入公开 CDN。对象始终私有，经过权限检查才签发 5 分钟访问地址。
 5. 开通腾讯云 IAI 人脸识别并预建模型 3.0 人员库，填写 `WEST_POCKET_IAI_*`。SDK 使用 `2018-03-01` API。识别先检测合照，再逐脸裁剪搜索，支持超过十人的合照；默认相似度阈值 85、候选分差 5，发布前应使用已授权样本校准。
 6. 配置已有 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`，启用机器人及消息发送、图片上传权限，确保应用对参与用户可见。填写可被用户访问的 `WEST_POCKET_MOBILE_URL`。每位分摊人收到自己的账单及收款码，发起人收到汇总。
-7. `make proto && make build`；Compose 已包含 `westpocketservice`，本地 `make run-all` 使用 `deploy/Caddyfile.local`。首次生产启用需配置服务器 helper 的服务白名单及 `/health/ready` 核验，之后在 `Deploy` 中显式指定 `westpocketservice`；当前自动发布继续只覆盖既有五个服务。公网网关只开放两个 public service 和上传路径，禁止把 `*InternalService` 整体暴露。
+7. `make proto && make build`；Compose 已包含 `westpocketservice`，本地 `make run-all` 使用 `deploy/Caddyfile.local`。首次生产启用需配置服务器 helper 的服务白名单及 `/health/ready` 核验，之后在 `Deploy` 中显式指定 `westpocketservice`；当前自动发布继续只覆盖既有五个服务。2026-11 起此限制已移除：自动发布范围扩展为包含 `westpocketservice`，首次启用仍按本步骤手动部署，此后该服务的代码变更与其余服务一样自动上线（背景：此前未纳入自动发布，导致一次通知链接修复长期滞留线上未生效）。公网网关只开放两个 public service 和上传路径，禁止把 `*InternalService` 整体暴露。
 8. 移动端使用真实后端数据源 `local` 和对应 Connect 网关地址。进入底部加号 → West Pocket；个人中心「地址簿」下面可录入或撤回本人脸档案。
 
 未配置第三方能力时，接口返回明确能力状态，页面提供姓名搜索路径；不会伪造识别或消息发送成功。`/health/live` 表示进程存活，`/health/ready` 检查数据库迁移，第三方能力通过 `GetCapabilities` 单独报告。
