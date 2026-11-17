@@ -30,4 +30,5 @@ message ErrandDemandItem {
   google.protobuf.Timestamp deadline = 10;
   // 需求行最近更新时间，用于接单并发校验
   google.protobuf.Timestamp updated_at = 11;
+  int64 lifecycle_round = 12;
 }

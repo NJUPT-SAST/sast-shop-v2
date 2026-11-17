@@ -53,6 +53,7 @@ message CancelErrandDemandRequest {
   int64 errand_demand_id = 1 [(buf.validate.field).int64 = {gt: 0}];
   // 前端读取需求时拿到的 updated_at，用于并发校验
   google.protobuf.Timestamp updated_at = 2;
+  int64 lifecycle_round = 3;
 }
 
 message CancelErrandDemandResponse {
@@ -71,6 +72,7 @@ message UpdateErrandDemandRequest {
   repeated sast.sastshopv2.errand.v1.ErrandDemandItemDraft demand_items = 4 [(buf.validate.field).repeated = {min_items: 1}];
   // 前端读取需求时拿到的 updated_at，用于并发校验
   google.protobuf.Timestamp updated_at = 5;
+  int64 lifecycle_round = 6;
 }
 
 message UpdateErrandDemandResponse {

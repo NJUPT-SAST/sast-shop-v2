@@ -17,4 +17,5 @@ message ErrandDemandDetail {
   int32 quantity = 4;
   // 每个购买人的需求行
   repeated sast.sastshopv2.errand.v1.ErrandDemandDetailRequester requesters = 5;
+  int64 lifecycle_round = 6;
 }

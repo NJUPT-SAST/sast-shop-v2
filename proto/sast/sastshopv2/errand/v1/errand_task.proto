@@ -13,4 +13,5 @@ message ErrandTask {
   ErrandTaskStatus status = 4;
   repeated ErrandTaskItem items = 5;
   google.protobuf.Timestamp created_at = 6;
+  int64 lifecycle_round = 7;
 }

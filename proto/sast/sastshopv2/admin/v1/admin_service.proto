@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package sast.sastshopv2.admin.v1;
+
+import "sast/sastshopv2/admin/v1/admin.proto";
+
+service UserAdminService {
+  rpc GetContext(GetContextRequest) returns (GetContextResponse);
+  rpc ListRecords(ListRecordsRequest) returns (ListRecordsResponse);
+  rpc GetRecord(GetRecordRequest) returns (GetRecordResponse);
+  rpc MutateRecord(MutateRecordRequest) returns (MutateRecordResponse);
+  rpc PreviewCorrection(PreviewCorrectionRequest) returns (PreviewCorrectionResponse);
+  rpc ExecuteCorrection(ExecuteCorrectionRequest) returns (ExecuteCorrectionResponse);
+  rpc GetCorrection(GetCorrectionRequest) returns (GetCorrectionResponse);
+  rpc ListCorrections(ListCorrectionsRequest) returns (ListCorrectionsResponse);
+  rpc ListAudit(ListAuditRequest) returns (ListAuditResponse);
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+}
+
+service CatalogAdminService {
+  rpc ListRecords(ListRecordsRequest) returns (ListRecordsResponse);
+  rpc GetRecord(GetRecordRequest) returns (GetRecordResponse);
+  rpc MutateRecord(MutateRecordRequest) returns (MutateRecordResponse);
+  rpc PreviewCorrection(PreviewCorrectionRequest) returns (PreviewCorrectionResponse);
+  rpc ExecuteCorrection(ExecuteCorrectionRequest) returns (ExecuteCorrectionResponse);
+  rpc GetCorrection(GetCorrectionRequest) returns (GetCorrectionResponse);
+  rpc ListCorrections(ListCorrectionsRequest) returns (ListCorrectionsResponse);
+  rpc ListAudit(ListAuditRequest) returns (ListAuditResponse);
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+}
+
+service SpotAdminService {
+  rpc ListRecords(ListRecordsRequest) returns (ListRecordsResponse);
+  rpc GetRecord(GetRecordRequest) returns (GetRecordResponse);
+  rpc MutateRecord(MutateRecordRequest) returns (MutateRecordResponse);
+  rpc PreviewCorrection(PreviewCorrectionRequest) returns (PreviewCorrectionResponse);
+  rpc ExecuteCorrection(ExecuteCorrectionRequest) returns (ExecuteCorrectionResponse);
+  rpc GetCorrection(GetCorrectionRequest) returns (GetCorrectionResponse);
+  rpc ListCorrections(ListCorrectionsRequest) returns (ListCorrectionsResponse);
+  rpc ListAudit(ListAuditRequest) returns (ListAuditResponse);
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+}
+
+service ErrandAdminService {
+  rpc ListRecords(ListRecordsRequest) returns (ListRecordsResponse);
+  rpc GetRecord(GetRecordRequest) returns (GetRecordResponse);
+  rpc MutateRecord(MutateRecordRequest) returns (MutateRecordResponse);
+  rpc PreviewCorrection(PreviewCorrectionRequest) returns (PreviewCorrectionResponse);
+  rpc ExecuteCorrection(ExecuteCorrectionRequest) returns (ExecuteCorrectionResponse);
+  rpc GetCorrection(GetCorrectionRequest) returns (GetCorrectionResponse);
+  rpc ListCorrections(ListCorrectionsRequest) returns (ListCorrectionsResponse);
+  rpc ListAudit(ListAuditRequest) returns (ListAuditResponse);
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+}
+
+service PaymentAdminService {
+  rpc ListRecords(ListRecordsRequest) returns (ListRecordsResponse);
+  rpc GetRecord(GetRecordRequest) returns (GetRecordResponse);
+  rpc MutateRecord(MutateRecordRequest) returns (MutateRecordResponse);
+  rpc PreviewCorrection(PreviewCorrectionRequest) returns (PreviewCorrectionResponse);
+  rpc ExecuteCorrection(ExecuteCorrectionRequest) returns (ExecuteCorrectionResponse);
+  rpc GetCorrection(GetCorrectionRequest) returns (GetCorrectionResponse);
+  rpc ListCorrections(ListCorrectionsRequest) returns (ListCorrectionsResponse);
+  rpc ListAudit(ListAuditRequest) returns (ListAuditResponse);
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+}
+
+service WestPocketAdminService {
+  rpc ListRecords(ListRecordsRequest) returns (ListRecordsResponse);
+  rpc GetRecord(GetRecordRequest) returns (GetRecordResponse);
+  rpc MutateRecord(MutateRecordRequest) returns (MutateRecordResponse);
+  rpc PreviewCorrection(PreviewCorrectionRequest) returns (PreviewCorrectionResponse);
+  rpc ExecuteCorrection(ExecuteCorrectionRequest) returns (ExecuteCorrectionResponse);
+  rpc GetCorrection(GetCorrectionRequest) returns (GetCorrectionResponse);
+  rpc ListCorrections(ListCorrectionsRequest) returns (ListCorrectionsResponse);
+  rpc ListAudit(ListAuditRequest) returns (ListAuditResponse);
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+}

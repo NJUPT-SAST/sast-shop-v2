@@ -32,6 +32,7 @@ message GetShoppingTaskDetailResponse {
   string store_name = 3;
   repeated ErrandTaskItem task_items = 4;
   google.protobuf.Timestamp updated_at = 5;
+  int64 lifecycle_round = 6;
 }
 
 message SaveShoppingTaskItemRequest {
@@ -41,6 +42,7 @@ message SaveShoppingTaskItemRequest {
   optional string non_purchase_reason = 4;
   // 前端读取 task_item 时拿到的 updated_at，用于采购结果并发校验
   google.protobuf.Timestamp errand_task_item_updated_at = 5;
+  int64 lifecycle_round = 6;
 }
 
 message SaveShoppingTaskItemResponse {
@@ -50,6 +52,7 @@ message SaveShoppingTaskItemResponse {
 message TransitionToPendingDistributingRequest {
   int64 errand_task_id = 1;
   google.protobuf.Timestamp updated_at = 2;
+  int64 lifecycle_round = 3;
 }
 
 message TransitionToPendingDistributingResponse {
@@ -67,6 +70,7 @@ message GetDistributingTaskDetailResponse {
   int32 packaging_fee_cents = 4;
   repeated DistributingItem distributing_items = 5;
   google.protobuf.Timestamp updated_at = 6;
+  int64 lifecycle_round = 7;
 }
 
 message UpdateActualPriceRequest {
@@ -75,6 +79,7 @@ message UpdateActualPriceRequest {
   int32 actual_unit_price_cents = 3;
   // 前端读取 task_item 时拿到的 updated_at，用于改价并发校验
   google.protobuf.Timestamp errand_task_item_updated_at = 4;
+  int64 lifecycle_round = 5;
 }
 
 message UpdateActualPriceResponse {
@@ -87,6 +92,7 @@ message TransitionToDistributingRequest {
   int32 packaging_fee_cents = 2;
   // 前端读取 task 时拿到的 updated_at，用于状态流转并发校验
   google.protobuf.Timestamp updated_at = 3;
+  int64 lifecycle_round = 4;
 }
 
 message TransitionToDistributingResponse {
@@ -102,6 +108,7 @@ message SaveDistributingTaskAssignmentRequest {
   int32 distributed_quantity = 3;
   // 前端读取 assignment 时拿到的 updated_at，用于分发结果并发校验
   google.protobuf.Timestamp errand_task_assignment_updated_at = 4;
+  int64 lifecycle_round = 5;
 }
 
 message SaveDistributingTaskAssignmentResponse {
@@ -111,6 +118,7 @@ message SaveDistributingTaskAssignmentResponse {
 message TransitionToCollectingPaymentRequest {
   int64 errand_task_id = 1;
   google.protobuf.Timestamp updated_at = 2;
+  int64 lifecycle_round = 3;
 }
 
 message TransitionToCollectingPaymentResponse {
@@ -125,11 +133,13 @@ message GetCollectingPaymentDetailResponse {
   repeated CollectingPaymentBillDetail bills = 1;
   int64 errand_task_id = 2;
   google.protobuf.Timestamp updated_at = 3;
+  int64 lifecycle_round = 4;
 }
 
 message TransitionToCompletedRequest {
   int64 errand_task_id = 1;
   google.protobuf.Timestamp updated_at = 2;
+  int64 lifecycle_round = 3;
 }
 
 message TransitionToCompletedResponse {
@@ -160,6 +170,7 @@ message GetErrandTaskParticipantsResponse {
 message CancelTaskRequest {
   int64 errand_task_id = 1;
   google.protobuf.Timestamp updated_at = 2;
+  int64 lifecycle_round = 3;
 }
 
 message CancelTaskResponse {

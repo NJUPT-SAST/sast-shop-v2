@@ -30,6 +30,7 @@ message PayBillRequest {
   Channel channel = 2;
   // 前端读取账单时拿到的 updated_at，用于付款提交并发校验
   google.protobuf.Timestamp updated_at = 3;
+  int64 lifecycle_round = 4;
 }
 
 message PayBillResponse {
@@ -41,6 +42,7 @@ message ConfirmBillRequest {
   int64 bill_id = 1;
   // 前端读取账单时拿到的 updated_at，用于确认收款并发校验
   google.protobuf.Timestamp updated_at = 2;
+  int64 lifecycle_round = 3;
 }
 
 message ConfirmBillResponse {
@@ -63,6 +65,7 @@ message SupplementSerialNumberRequest {
   string serial_number = 2;
   // 前端读取账单时拿到的 updated_at，用于补充流水号并发校验
   google.protobuf.Timestamp updated_at = 3;
+  int64 lifecycle_round = 4;
 }
 
 message SupplementSerialNumberResponse {
@@ -78,6 +81,7 @@ message TransitionBillRequest {
   optional string reason = 3;
   // 管理员读取账单时拿到的 updated_at，用于状态修正并发校验
   google.protobuf.Timestamp updated_at = 4;
+  int64 lifecycle_round = 5;
 }
 
 message TransitionBillResponse {
