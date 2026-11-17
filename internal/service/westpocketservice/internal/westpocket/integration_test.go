@@ -242,7 +242,7 @@ func integrationService(t *testing.T) *Service {
 			t.Error(e)
 		}
 	})
-	for _, name := range []string{"001_init.sql", "002_west_pocket.sql", "003_spot_goods_delisting.sql", "004_product_title_search.sql", "005_admin_identity.sql", "006_admin_catalog_spot.sql", "007_admin_corrections.sql", "008_admin_errand_pocket.sql"} {
+	for _, name := range []string{"001_init.sql", "002_west_pocket.sql", "003_spot_goods_delisting.sql", "005_admin_identity.sql", "006_admin_catalog_spot.sql", "007_admin_corrections.sql", "008_admin_errand_pocket.sql"} {
 		// #nosec G304 -- names are a fixed migration allowlist declared above.
 		migration, e := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if e != nil {

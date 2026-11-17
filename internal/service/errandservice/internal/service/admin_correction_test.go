@@ -71,7 +71,6 @@ func setupErrandAdmin(t *testing.T) (*bun.DB, context.Context, *errandCorrection
 		t,
 		"002_west_pocket.sql",
 		"003_spot_goods_delisting.sql",
-		"004_product_title_search.sql",
 		"005_admin_identity.sql",
 		"006_admin_catalog_spot.sql",
 		"007_admin_corrections.sql",

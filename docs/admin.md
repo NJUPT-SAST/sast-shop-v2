@@ -76,6 +76,8 @@
 
 后端遵循现有 Go workspace 与 Buf 生成流程。集成测试使用专用 PostgreSQL 地址，自动创建/删除独立测试数据库；不要指向不允许创建测试数据库的生产环境。
 
+西口袋和采购纠错测试仅加载业务所需迁移，可使用普通 PostgreSQL 运行。以下全量命令还包含商品全文检索测试，需要测试数据库预装 zhparser；该专项测试继续执行 `004_product_title_search.sql`。
+
 ```sh
 buf lint
 make proto
