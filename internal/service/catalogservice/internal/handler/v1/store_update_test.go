@@ -12,7 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
-func TestStoreUpdateAllowsAuthenticatedUserAndAdmin(t *testing.T) {
+func TestStoreUpdateAllowsAuthenticatedMemberRoles(t *testing.T) {
 	db := testutil.NewPostgres(t, "006_admin_catalog_spot.sql")
 	previous := postgres.DB
 	postgres.DB = db
@@ -25,7 +25,7 @@ func TestStoreUpdateAllowsAuthenticatedUserAndAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := &CatalogServiceServer{}
-	for _, role := range []string{"user", "admin"} {
+	for _, role := range []string{"user", "admin", "superadmin"} {
 		t.Run(role, func(t *testing.T) {
 			authenticated := interceptor.SetUserToContext(
 				ctx,

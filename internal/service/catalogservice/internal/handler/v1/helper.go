@@ -1,15 +1,39 @@
 package v1
 
 import (
+	"context"
 	"errors"
+	"strings"
 
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	commonv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/common/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/service"
 )
+
+// Catalog maintenance is shared by all active member roles, including administrators.
+func requireCatalogMember(ctx context.Context) (*interceptor.AuthUser, error) {
+	user, ok := interceptor.UserFromContext(ctx)
+	if !ok || user.UserID <= 0 || !strings.EqualFold(strings.TrimSpace(user.Status), "active") {
+		return nil, connect.NewError(errmsg.Unauthenticated.Code, errmsg.Unauthenticated)
+	}
+	if !catalogRoleAllowed(user.Role) {
+		return nil, connect.NewError(errmsg.PermissionDenied.Code, errmsg.PermissionDenied)
+	}
+	return user, nil
+}
+
+func catalogRoleAllowed(role string) bool {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "user", "admin", "superadmin":
+		return true
+	default:
+		return false
+	}
+}
 
 func catalogError() *connect.Error {
 	return rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{

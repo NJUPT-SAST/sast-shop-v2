@@ -6,7 +6,6 @@ import (
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/catalog/v1/catalogv1connect"
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	"connectrpc.com/connect"
-	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
@@ -33,9 +32,9 @@ func (s *CatalogServiceServer) CreateStore(
 	ctx context.Context,
 	r *connect.Request[catalogv1.CreateStoreRequest],
 ) (*connect.Response[catalogv1.CreateStoreResponse], error) {
-	authUser, ok := interceptor.UserFromContext(ctx)
-	if !ok {
-		return nil, catalogError()
+	authUser, err := requireCatalogMember(ctx)
+	if err != nil {
+		return nil, err
 	}
 	store, err := service.CreateStore(
 		ctx,
@@ -57,9 +56,8 @@ func (s *CatalogServiceServer) UpdateStore(
 	ctx context.Context,
 	r *connect.Request[catalogv1.UpdateStoreRequest],
 ) (*connect.Response[catalogv1.UpdateStoreResponse], error) {
-	_, ok := interceptor.UserFromContext(ctx)
-	if !ok {
-		return nil, catalogError()
+	if _, err := requireCatalogMember(ctx); err != nil {
+		return nil, err
 	}
 
 	store, err := service.UpdateStore(ctx, r.Msg.Store, r.Msg.UpdateMask.GetPaths())
