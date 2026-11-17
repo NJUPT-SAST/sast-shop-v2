@@ -64,10 +64,6 @@ func (s *ProductTemplateServiceServer) CreateProductTemplate(
 	if !ok {
 		return nil, catalogError()
 	}
-	if authUser.Role == "admin" {
-		return nil, permissionDeniedError()
-	}
-
 	pt, err := service.CreateProductTemplate(
 		ctx,
 		r.Msg.StoreId,
@@ -104,14 +100,10 @@ func (s *ProductTemplateServiceServer) UpdateProductTemplate(
 	ctx context.Context,
 	r *connect.Request[catalogv1.UpdateProductTemplateRequest],
 ) (*connect.Response[catalogv1.UpdateProductTemplateResponse], error) {
-	authUser, ok := interceptor.UserFromContext(ctx)
+	_, ok := interceptor.UserFromContext(ctx)
 	if !ok {
 		return nil, catalogError()
 	}
-	if authUser.Role == "admin" {
-		return nil, permissionDeniedError()
-	}
-
 	pt, err := service.UpdateProductTemplate(ctx, r.Msg.ProductTemplate, r.Msg.UpdateMask.GetPaths())
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -142,10 +134,6 @@ func (s *ProductTemplateServiceServer) DeleteProductTemplate(
 	if !ok {
 		return nil, catalogError()
 	}
-	if authUser.Role == "admin" {
-		return nil, permissionDeniedError()
-	}
-
 	if err := service.DeleteProductTemplate(ctx, r.Msg.ProductTemplateId, authUser.UserID); err != nil {
 		return nil, mapServiceError(err)
 	}

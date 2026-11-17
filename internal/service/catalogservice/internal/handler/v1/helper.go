@@ -11,10 +11,6 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/service"
 )
 
-func permissionDeniedError() *connect.Error {
-	return connect.NewError(errmsg.AdminOnly.Code, errmsg.AdminOnly)
-}
-
 func catalogError() *connect.Error {
 	return rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
 		CatalogError: &catalogv1.CatalogError{

@@ -12,7 +12,7 @@ import (
 )
 
 func TestGetProductTemplateReturnsCurrentDetails(t *testing.T) {
-	db := testutil.NewPostgres(t)
+	db := testutil.NewPostgres(t, "006_admin_catalog_spot.sql")
 	previous := postgres.DB
 	postgres.DB = db
 	t.Cleanup(func() { postgres.DB = previous })

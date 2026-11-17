@@ -37,10 +37,6 @@ func (s *CatalogServiceServer) CreateStore(
 	if !ok {
 		return nil, catalogError()
 	}
-	if authUser.Role == "admin" {
-		return nil, permissionDeniedError()
-	}
-
 	store, err := service.CreateStore(
 		ctx,
 		r.Msg.Name,

@@ -72,6 +72,11 @@ func (h *ProductImageUploadHandler) Handle(w http.ResponseWriter, r *http.Reques
 	}
 
 	user, status, ok := h.authenticate(r)
+	log.Info().
+		Bool("has_authorization", r.Header.Get("Authorization") != "").
+		Bool("auth_ok", ok).
+		Bool("role_allowed", user != nil && h.allowedRole(user.Role)).
+		Msg("product_image_upload_auth")
 	if !ok {
 		writeUploadError(w, status, "UPLOAD_UNAUTHENTICATED")
 		return
@@ -131,6 +136,7 @@ func (h *ProductImageUploadHandler) authenticate(r *http.Request) (*rpcintercept
 	}
 	user, err := h.SessionStore.GetSession(r.Context(), token)
 	if err != nil || user == nil || user.UserID <= 0 {
+		log.Warn().Err(err).Msg("product_image_upload_invalid_session")
 		return nil, http.StatusUnauthorized, false
 	}
 	if status := strings.ToLower(strings.TrimSpace(user.Status)); status != "active" {
@@ -153,7 +159,7 @@ func bearerToken(value string) (string, bool) {
 func (h *ProductImageUploadHandler) allowedRole(role string) bool {
 	roles := h.AllowedRoles
 	if roles == nil {
-		roles = map[string]struct{}{"user": {}}
+		roles = map[string]struct{}{"user": {}, "admin": {}, "superadmin": {}}
 	}
 	_, ok := roles[strings.ToLower(strings.TrimSpace(role))]
 	return ok

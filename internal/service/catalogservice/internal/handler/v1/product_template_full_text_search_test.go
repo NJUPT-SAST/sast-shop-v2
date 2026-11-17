@@ -14,7 +14,7 @@ import (
 )
 
 func TestProductTemplateTitleFullTextSearch(t *testing.T) {
-	db := testutil.NewPostgres(t, "004_product_title_search.sql")
+	db := testutil.NewPostgres(t, "004_product_title_search.sql", "006_admin_catalog_spot.sql")
 
 	previous := postgres.DB
 	postgres.DB = db
