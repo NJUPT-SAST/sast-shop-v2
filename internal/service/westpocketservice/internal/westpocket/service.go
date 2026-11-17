@@ -127,6 +127,9 @@ func pocketTx(ctx context.Context, tx bun.Tx, actor, id, revision int64, draft b
 	if err != nil {
 		return nil, err
 	}
+	if err = checkPocketWrite(ctx, p); err != nil {
+		return nil, err
+	}
 	if p.OwnerID != actor {
 		return nil, ErrDenied
 	}
@@ -153,6 +156,13 @@ func membersTx(ctx context.Context, db bun.IDB, id int64) ([]Member, error) {
 }
 
 func queue(ctx context.Context, tx bun.Tx, j *Job) (int64, error) {
+	if j.PocketID != nil {
+		if e := tx.NewRaw("SELECT lifecycle_round FROM westpocket.pocket WHERE id=?", *j.PocketID).
+			Scan(ctx, &j.LifecycleRound); e != nil {
+			return 0, e
+		}
+		j.DedupeKey = fmt.Sprintf("%s:round:%d", j.DedupeKey, j.LifecycleRound)
+	}
 	j.Status = "queued"
 	j.Progress = json.RawMessage(`{}`)
 	if j.Payload == nil {
@@ -177,7 +187,7 @@ func (s *Service) Create(ctx context.Context, actor int64, title string, total i
 	}
 	return s.mutate(ctx, actor, "create", requestID, []any{title, total}, func(tx bun.Tx) (int64, error) {
 		p := &Pocket{OwnerID: actor, Title: title, TotalCents: total, Status: "draft", Revision: 1, ParticipantCount: 1}
-		if _, e := tx.NewInsert().Model(p).Returning("*").Exec(ctx); e != nil {
+		if _, e := tx.NewInsert().Model(p).Returning("id").Exec(ctx); e != nil {
 			return 0, e
 		}
 		m := &Member{PocketID: p.ID, UserID: actor, SelectionSource: "owner", AlbumAccess: "accepted"}

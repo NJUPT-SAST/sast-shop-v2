@@ -60,6 +60,7 @@ func pocketProto(p *Pocket, actor int64) *wp.Pocket {
 		TotalCents:       p.TotalCents,
 		Status:           p.Status,
 		Revision:         p.Revision,
+		LifecycleRound:   p.LifecycleRound,
 		ParticipantCount: p.ParticipantCount,
 		OwnerShareCents:  p.OwnerShareCents,
 		ReceivableCents:  p.ReceivableCents,
@@ -109,6 +110,7 @@ func jobProto(j *Job) *wp.Job {
 		ErrorCode:      j.ErrorCode,
 		Retryable:      j.Status == "failed" || j.Status == "partial_failed",
 		UpdatedAt:      timestamppb.New(j.UpdatedAt),
+		LifecycleRound: j.LifecycleRound,
 	}
 }
 
@@ -312,7 +314,10 @@ func (h *Handler) GetCollectionState(
 	if e != nil {
 		return nil, rpcError(e)
 	}
-	out := &wp.GetCollectionStateResponse{Status: p.Status, OwnerId: p.OwnerID}
+	out := &wp.GetCollectionStateResponse{Status: p.Status, OwnerId: p.OwnerID, LifecycleRound: p.LifecycleRound}
+	if p.AdminOperationID != "" {
+		return nil, failure(connect.CodeFailedPrecondition, "活动正在纠错")
+	}
 	for _, a := range m {
 		out.Members = append(
 			out.Members,

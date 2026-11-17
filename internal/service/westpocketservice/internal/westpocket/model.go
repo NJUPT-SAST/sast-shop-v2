@@ -17,6 +17,8 @@ type Pocket struct {
 	TotalCents       int32
 	Status           string
 	Revision         int64
+	LifecycleRound   int64  `bun:",notnull,default:1"`
+	AdminOperationID string `bun:",notnull,default:''"`
 	ParticipantCount int32
 	OwnerShareCents  int32
 	ReceivableCents  int32
@@ -117,6 +119,7 @@ type Job struct {
 	PocketID       *int64
 	ProfileID      *int64
 	InputVersion   int64
+	LifecycleRound int64           `bun:",notnull,default:1"`
 	Payload        json.RawMessage `bun:"type:jsonb"`
 	DedupeKey      string
 	Status         string
@@ -158,6 +161,7 @@ type Notification struct {
 	RecipientUserID int64
 	Kind            string
 	Sequence        int
+	LifecycleRound  int64 `bun:",notnull,default:1"`
 	Status          string
 	MessageUUID     string
 	FeishuMessageID string
@@ -173,6 +177,7 @@ type User struct {
 	Name, AvatarURL string
 }
 type Bill struct {
+	LifecycleRound                         int64
 	ID, PayerID, PayeeID, SourceID         int64
 	AmountCents                            int32
 	SourceType, Status, BillNo, VerifyCode string

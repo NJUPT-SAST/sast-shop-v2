@@ -197,7 +197,7 @@ func TestPostgresNotificationLinksUsePocketRoutes(t *testing.T) {
 				}
 				want := fmt.Sprintf("https://shop.sast.fun/pocket/%d", id)
 				if kind != "summary" {
-					want += "/pay"
+					want += "/pay?round=1"
 				}
 				if got := messenger.links[len(messenger.links)-1]; got != want {
 					t.Fatalf("notification link = %q, want %q", got, want)
@@ -242,12 +242,15 @@ func integrationService(t *testing.T) *Service {
 			t.Error(e)
 		}
 	})
-	migration, e := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", "002_west_pocket.sql"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	if _, e = db.ExecContext(ctx, string(migration)); e != nil {
-		t.Fatal(e)
+	for _, name := range []string{"001_init.sql", "002_west_pocket.sql", "003_spot_goods_delisting.sql", "004_product_title_search.sql", "005_admin_identity.sql", "006_admin_catalog_spot.sql", "007_admin_corrections.sql", "008_admin_errand_pocket.sql"} {
+		// #nosec G304 -- names are a fixed migration allowlist declared above.
+		migration, e := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = db.ExecContext(ctx, string(migration)); e != nil {
+			t.Fatalf("migration %s: %v", name, e)
+		}
 	}
 	vault, e := NewVault(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32)))
 	if e != nil {

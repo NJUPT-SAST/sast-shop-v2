@@ -144,6 +144,9 @@ func (s *Service) Photos(ctx context.Context, actor, id int64, album bool) ([]Ph
 
 func (s *Service) SetAlbum(ctx context.Context, actor, id int64, accepted bool, requestID string) error {
 	_, e := s.mutate(ctx, actor, "album", requestID, []any{id, accepted}, func(tx bun.Tx) (int64, error) {
+		if e := lockAlbumPocket(ctx, tx, id); e != nil {
+			return 0, e
+		}
 		m := new(Member)
 		if e := tx.NewSelect().
 			Model(m).
@@ -221,9 +224,10 @@ func (s *Service) Remind(ctx context.Context, actor, id int64, memberIDs []int64
 		}
 		if _, e = tx.ExecContext(
 			ctx,
-			"UPDATE westpocket.notification_outbox SET status='pending',attempt_count=0,next_attempt_at=now(),updated_at=now() WHERE pocket_id=? AND recipient_user_id=? AND kind='summary' AND status='failed'",
+			"UPDATE westpocket.notification_outbox SET status='pending',attempt_count=0,next_attempt_at=now(),updated_at=now() WHERE pocket_id=? AND recipient_user_id=? AND kind='summary' AND lifecycle_round=? AND status='failed'",
 			id,
 			actor,
+			p.LifecycleRound,
 		); e != nil {
 			return 0, e
 		}
@@ -238,9 +242,10 @@ func (s *Service) remindMember(ctx context.Context, tx bun.Tx, id int64, a *Memb
 	}
 	result, e := tx.ExecContext(
 		ctx,
-		"UPDATE westpocket.notification_outbox SET status='pending',attempt_count=0,next_attempt_at=now(),updated_at=now() WHERE pocket_id=? AND recipient_user_id=? AND status='failed'",
+		"UPDATE westpocket.notification_outbox SET status='pending',attempt_count=0,next_attempt_at=now(),updated_at=now() WHERE pocket_id=? AND recipient_user_id=? AND lifecycle_round=? AND status='failed'",
 		id,
 		a.UserID,
+		requestedRound(ctx),
 	)
 	if e != nil {
 		return e
@@ -251,7 +256,7 @@ func (s *Service) remindMember(ctx context.Context, tx bun.Tx, id int64, a *Memb
 	}
 	if count == 0 {
 		var sequence int
-		if e = tx.NewRaw("SELECT COALESCE(MAX(sequence),0)+1 FROM westpocket.notification_outbox WHERE pocket_id=? AND recipient_user_id=? AND kind='reminder'", id, a.UserID).
+		if e = tx.NewRaw("SELECT COALESCE(MAX(sequence),0)+1 FROM westpocket.notification_outbox WHERE pocket_id=? AND recipient_user_id=? AND kind='reminder' AND lifecycle_round=?", id, a.UserID, requestedRound(ctx)).
 			Scan(ctx, &sequence); e != nil {
 			return e
 		}
@@ -269,7 +274,7 @@ func (s *Service) Notifications(ctx context.Context, actor, id int64) ([]Notific
 		return nil, e
 	}
 	var n []Notification
-	q := s.DB.NewSelect().Model(&n).Where("pocket_id=?", id)
+	q := s.DB.NewSelect().Model(&n).Where("pocket_id=? AND lifecycle_round=?", id, p.LifecycleRound)
 	if p.OwnerID != actor {
 		q = q.Where("recipient_user_id=?", actor)
 	}
@@ -316,5 +321,5 @@ func reminderEligible(m Member, owner int64, requested map[int64]bool) bool {
 
 func matchesBill(b Bill, p *Pocket, m Member) bool {
 	return b.PayerID == m.UserID && b.PayeeID == p.OwnerID && b.AmountCents == m.ShareCents && b.SourceID == p.ID &&
-		b.SourceType == "west_pocket"
+		b.SourceType == "west_pocket" && normalRound(b.LifecycleRound) == normalRound(p.LifecycleRound)
 }
