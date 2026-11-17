@@ -35,6 +35,7 @@ func buildAuthUser(u *model.UserAccount, feishuAccessToken string) *rpcintercept
 		Role:        string(u.Role),
 		Status:      string(u.Status),
 		AccessToken: feishuAccessToken,
+		AuthVersion: u.AuthVersion,
 	}
 }
 

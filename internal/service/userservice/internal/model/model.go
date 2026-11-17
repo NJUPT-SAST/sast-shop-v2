@@ -13,6 +13,7 @@ type UserAccount struct {
 	FeishuOpenID string       `bun:"feishu_open_id,notnull,unique"`
 	Role         MemberRole   `bun:"role,notnull,default:'user'"`
 	Status       MemberStatus `bun:"status,notnull,default:'active'"`
+	AuthVersion  int64        `bun:"auth_version,notnull,default:1"`
 	DisplayName  string       `bun:"display_name,notnull"`
 	AvatarURL    string       `bun:"avatar_url,notnull,default:''"`
 	LastLoginAt  time.Time    `bun:"last_login_at,notnull,default:current_timestamp"`
@@ -51,8 +52,9 @@ type MemberAddress struct {
 type MemberRole string
 
 const (
-	MemberRoleUser  MemberRole = "user"
-	MemberRoleAdmin MemberRole = "admin"
+	MemberRoleUser       MemberRole = "user"
+	MemberRoleAdmin      MemberRole = "admin"
+	MemberRoleSuperadmin MemberRole = "superadmin"
 )
 
 type MemberStatus string
