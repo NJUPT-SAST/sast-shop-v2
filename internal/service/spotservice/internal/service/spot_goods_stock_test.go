@@ -22,7 +22,21 @@ import (
 )
 
 func TestCreateSpotGoodsStockLimit(t *testing.T) {
-	db := testutil.NewPostgres(t)
+	db := testutil.NewPostgres(
+		t,
+		"002_west_pocket.sql",
+		"005_admin_identity.sql",
+		"006_admin_catalog_spot.sql",
+		"007_admin_corrections.sql",
+		"009_spot_admin_inventory.sql",
+	)
+	if _, err := db.ExecContext(
+		context.Background(),
+		`INSERT INTO catalog.catalog_store (id,name,address,created_by_user_id) VALUES (1,'Shop','',10);
+        INSERT INTO catalog.catalog_product_template (id,store_id,title,price_cents,created_by_user_id) VALUES (2,1,'Product',100,10)`,
+	); err != nil {
+		t.Fatal(err)
+	}
 	oldDB, oldCatalog, oldUser := postgres.DB, client.CatalogInternalServiceClient, client.UserInternalServiceClient
 	postgres.DB, client.CatalogInternalServiceClient, client.UserInternalServiceClient = db,
 		stockLimitCatalogClient{}, stockLimitUserClient{}
@@ -71,7 +85,14 @@ func (stockLimitUserClient) GetUsers(
 }
 
 func TestUpdateSpotGoodsStockSupportsDelistingAndRelisting(t *testing.T) {
-	db := testutil.NewPostgres(t)
+	db := testutil.NewPostgres(
+		t,
+		"002_west_pocket.sql",
+		"005_admin_identity.sql",
+		"006_admin_catalog_spot.sql",
+		"007_admin_corrections.sql",
+		"009_spot_admin_inventory.sql",
+	)
 	previousDB := postgres.DB
 	postgres.DB = db
 	t.Cleanup(func() { postgres.DB = previousDB })
@@ -127,7 +148,14 @@ func TestUpdateSpotGoodsStockSupportsDelistingAndRelisting(t *testing.T) {
 }
 
 func TestStockPurchaseDecrementCanSellOutGoods(t *testing.T) {
-	db := testutil.NewPostgres(t)
+	db := testutil.NewPostgres(
+		t,
+		"002_west_pocket.sql",
+		"005_admin_identity.sql",
+		"006_admin_catalog_spot.sql",
+		"007_admin_corrections.sql",
+		"009_spot_admin_inventory.sql",
+	)
 	previousDB := postgres.DB
 	postgres.DB = db
 	t.Cleanup(func() { postgres.DB = previousDB })
@@ -176,7 +204,14 @@ func assertSpotStockChange(t *testing.T, goods *model.SpotGoods, stock, delta in
 }
 
 func TestDelistingMigrationUpgradesExistingStockConstraint(t *testing.T) {
-	db := testutil.NewPostgres(t)
+	db := testutil.NewPostgres(
+		t,
+		"002_west_pocket.sql",
+		"005_admin_identity.sql",
+		"006_admin_catalog_spot.sql",
+		"007_admin_corrections.sql",
+		"009_spot_admin_inventory.sql",
+	)
 	ctx := context.Background()
 	if _, err := db.ExecContext(ctx, `ALTER TABLE spot.spot_goods
 		DROP CONSTRAINT spot_goods_stock_total_check,

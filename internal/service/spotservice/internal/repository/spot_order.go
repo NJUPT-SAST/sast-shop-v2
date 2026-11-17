@@ -28,6 +28,9 @@ type SpotOrderRecord struct {
 	TotalAmountCents    int32                 `bun:"total_amount_cents"`
 	PaymentBillID       *int64                `bun:"payment_bill_id"`
 	Status              model.SpotOrderStatus `bun:"status"`
+	LifecycleRound      int64                 `bun:"lifecycle_round"`
+	AdminOperationID    string                `bun:"admin_operation_id"`
+	InventoryState      string                `bun:"inventory_state"`
 	PaidAt              *time.Time            `bun:"paid_at"`
 	CompletedAt         *time.Time            `bun:"completed_at"`
 	CancelledAt         *time.Time            `bun:"cancelled_at"`
@@ -133,6 +136,9 @@ func spotOrderRecordBaseQuery() *bun.SelectQuery {
 		ColumnExpr("so.total_amount_cents").
 		ColumnExpr("so.payment_bill_id").
 		ColumnExpr("so.status").
+		ColumnExpr("so.lifecycle_round").
+		ColumnExpr("so.admin_operation_id").
+		ColumnExpr("so.inventory_state").
 		ColumnExpr("so.paid_at").
 		ColumnExpr("so.completed_at").
 		ColumnExpr("so.cancelled_at").
@@ -166,6 +172,8 @@ func DecreaseSpotGoodsStock(ctx context.Context, tx bun.Tx, listingID int64, qua
 		Set("updated_at = now()").
 		Where("id = ?", listingID).
 		Where("stock_total >= ?", quantity).
+		Where("moderation_status = ?", "allowed").
+		Where("closed_at IS NULL").
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("decrease spot goods stock: %w", err)
@@ -237,11 +245,17 @@ func AttachPaymentBill(ctx context.Context, tx bun.Tx, orderID int64, billID int
 	return order, nil
 }
 
-func MarkSpotOrderCancelled(ctx context.Context, tx bun.Tx, orderID int64) (*model.SpotOrder, error) {
+func MarkSpotOrderCancelled(
+	ctx context.Context,
+	tx bun.Tx,
+	orderID int64,
+	inventoryState string,
+) (*model.SpotOrder, error) {
 	order := &model.SpotOrder{ID: orderID}
 	res, err := tx.NewUpdate().
 		Model(order).
 		Set("status = ?", model.SpotOrderStatusCancelled).
+		Set("inventory_state = ?", inventoryState).
 		Set("cancelled_at = now()").
 		Set("updated_at = now()").
 		WherePK().
