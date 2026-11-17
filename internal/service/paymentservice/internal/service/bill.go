@@ -116,6 +116,7 @@ func PayBill(
 	billId int64,
 	channel paymentv1.Channel,
 	expectedUpdatedAt time.Time,
+	expectedRound ...int64,
 ) (*paymentv1.Bill, error) {
 	if _, err := interceptor.UserIDFromContext(ctx); err != nil {
 		return nil, err
@@ -127,6 +128,10 @@ func PayBill(
 			return nil, ErrBillNotFound
 		}
 		return nil, fmt.Errorf("pay bill: %w", err)
+	}
+
+	if err := validateBillRound(bill, expectedRound); err != nil {
+		return nil, err
 	}
 
 	if err := requireBillUser(ctx, bill.PayerID); err != nil {
@@ -177,7 +182,12 @@ func PayBill(
 	return PaymentBillToProto(ctx, bill)
 }
 
-func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time) (*paymentv1.Bill, error) {
+func ConfirmBill(
+	ctx context.Context,
+	billId int64,
+	expectedUpdatedAt time.Time,
+	expectedRound ...int64,
+) (*paymentv1.Bill, error) {
 	if _, err := interceptor.UserIDFromContext(ctx); err != nil {
 		return nil, err
 	}
@@ -188,6 +198,10 @@ func ConfirmBill(ctx context.Context, billId int64, expectedUpdatedAt time.Time)
 			return nil, ErrBillNotFound
 		}
 		return nil, fmt.Errorf("confirm bill: %w", err)
+	}
+
+	if err := validateBillRound(bill, expectedRound); err != nil {
+		return nil, err
 	}
 
 	if err := requireBillUser(ctx, bill.PayeeID); err != nil {
@@ -236,6 +250,7 @@ func TransitionBill(
 	targetStatus paymentv1.BillStatus,
 	expectedUpdatedAt time.Time,
 	operatorID int64,
+	expectedRound ...int64,
 ) (*paymentv1.Bill, error) {
 	if err := requireBillUser(ctx, operatorID); err != nil {
 		return nil, err
@@ -247,6 +262,10 @@ func TransitionBill(
 			return nil, ErrBillNotFound
 		}
 		return nil, fmt.Errorf("transition bill: %w", err)
+	}
+
+	if err := validateBillRound(bill, expectedRound); err != nil {
+		return nil, err
 	}
 
 	newStatus, ok := model.ProtoStatusToModel(targetStatus)
@@ -305,6 +324,7 @@ func SupplementSerialNumber(
 	billId int64,
 	serialNumber string,
 	expectedUpdatedAt time.Time,
+	expectedRound ...int64,
 ) (*paymentv1.Bill, error) {
 	if _, err := interceptor.UserIDFromContext(ctx); err != nil {
 		return nil, err
@@ -316,6 +336,10 @@ func SupplementSerialNumber(
 			return nil, ErrBillNotFound
 		}
 		return nil, fmt.Errorf("supplement serial number: %w", err)
+	}
+
+	if err := validateBillRound(bill, expectedRound); err != nil {
+		return nil, err
 	}
 
 	if err := requireBillUser(ctx, bill.PayerID); err != nil {
@@ -354,15 +378,16 @@ func CreateBillForOrder(
 	sourceID int64,
 	payerID, payeeID int64,
 	amountCents int32,
+	expectedRound ...int64,
 ) (*paymentv1.Bill, error) {
-	if sourceType == "" || sourceID <= 0 || payerID <= 0 || payeeID <= 0 || amountCents < 0 {
-		return nil, ErrInvalidBillRequest
+	if err := validateOrderBillInput(sourceType, sourceID, payerID, payeeID, amountCents); err != nil {
+		return nil, err
 	}
-	if payerID == payeeID {
-		return nil, ErrSelfPayment
+	if err := validateSourceRound(ctx, sourceType, sourceID, requestedRound(expectedRound)); err != nil {
+		return nil, err
 	}
 	if sourceType == westPocketSource {
-		return createWestPocketBill(ctx, sourceID, payerID, payeeID, amountCents)
+		return createWestPocketBill(ctx, sourceID, payerID, payeeID, amountCents, requestedRound(expectedRound))
 	}
 
 	bill, err := repository.GetBillBySource(ctx, sourceType, sourceID, payerID)
@@ -371,6 +396,9 @@ func CreateBillForOrder(
 		return nil, fmt.Errorf("create bill for order: get bill by source: %w", err)
 	}
 	if bill != nil {
+		if err := validateBillRound(bill, expectedRound); err != nil {
+			return nil, err
+		}
 		return existingOrderBillToProto(ctx, bill, payeeID, amountCents)
 	}
 
@@ -381,14 +409,15 @@ func CreateBillForOrder(
 	}
 
 	bill = &model.PaymentBill{
-		BillNo:      billNo,
-		PayerID:     payerID,
-		PayeeID:     payeeID,
-		SourceType:  &sourceType,
-		SourceID:    &sourceID,
-		AmountCents: amountCents,
-		VerifyCode:  model.GenerateVerifyCode(),
-		Status:      model.PaymentBillStatusUnpaid,
+		BillNo:         billNo,
+		PayerID:        payerID,
+		PayeeID:        payeeID,
+		SourceType:     &sourceType,
+		SourceID:       &sourceID,
+		AmountCents:    amountCents,
+		VerifyCode:     model.GenerateVerifyCode(),
+		Status:         model.PaymentBillStatusUnpaid,
+		LifecycleRound: requestedRound(expectedRound),
 	}
 	err = repository.CreateBill(ctx, bill)
 	if err != nil {
@@ -399,6 +428,9 @@ func CreateBillForOrder(
 				AnErr("lookupErr", lookupErr).
 				Msg("CreateBillForOrder: CreateBill failed and fallback lookup also failed")
 			return nil, fmt.Errorf("create bill for order: %w", err)
+		}
+		if roundErr := validateBillRound(existing, expectedRound); roundErr != nil {
+			return nil, roundErr
 		}
 		return existingOrderBillToProto(ctx, existing, payeeID, amountCents)
 	}
@@ -442,11 +474,20 @@ func requireBillUser(ctx context.Context, allowedUserIDs ...int64) error {
 	return ErrBillPermissionDenied
 }
 
-func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) error {
+func CancelBillBySource(
+	ctx context.Context,
+	sourceType string,
+	sourceID int64,
+	payerID *int64,
+	expectedRound ...int64,
+) error {
 	if sourceType == westPocketSource {
 		return ErrInvalidBillStatus
 	}
-	_, err := repository.CancelBillBySource(ctx, sourceType, sourceID, payerID)
+	if err := validateSourceRound(ctx, sourceType, sourceID, requestedRound(expectedRound)); err != nil {
+		return err
+	}
+	_, err := repository.CancelBillBySource(ctx, sourceType, sourceID, payerID, requestedRound(expectedRound))
 	if errors.Is(err, repository.ErrBillAlreadyCompleted) {
 		return ErrInvalidBillStatus
 	}
@@ -469,9 +510,10 @@ func notifyGroupTradePaymentConfirmed(ctx context.Context, bill *model.PaymentBi
 	if _, err := client.GroupTradeInternalServiceClient.OnPaymentConfirmed(
 		ctx,
 		connect.NewRequest(&errandv1.OnPaymentConfirmedRequest{
-			SourceType: *bill.SourceType,
-			SourceId:   *bill.SourceID,
-			PayerId:    bill.PayerID,
+			SourceType:     *bill.SourceType,
+			SourceId:       *bill.SourceID,
+			PayerId:        bill.PayerID,
+			LifecycleRound: bill.LifecycleRound,
 		}),
 	); err != nil {
 		log.Error().
@@ -499,8 +541,9 @@ func notifyGroupTradePaymentConfirmed(ctx context.Context, bill *model.PaymentBi
 	if _, err := client.GroupTradeInternalServiceClient.OnAllPaymentsConfirmed(
 		ctx,
 		connect.NewRequest(&errandv1.OnAllPaymentsConfirmedRequest{
-			SourceType: *bill.SourceType,
-			SourceId:   *bill.SourceID,
+			SourceType:     *bill.SourceType,
+			SourceId:       *bill.SourceID,
+			LifecycleRound: bill.LifecycleRound,
 		}),
 	); err != nil {
 		log.Error().
@@ -563,13 +606,14 @@ func paymentBillToProtoWithoutUsers(bill *model.PaymentBill) (*paymentv1.Bill, e
 	}
 
 	pb := &paymentv1.Bill{
-		Id:          bill.ID,
-		BillNo:      bill.BillNo,
-		Status:      status,
-		AmountCents: bill.AmountCents,
-		VerifyCode:  bill.VerifyCode,
-		CreatedAt:   timestamppb.New(bill.CreatedAt),
-		UpdatedAt:   timestamppb.New(bill.UpdatedAt),
+		Id:             bill.ID,
+		BillNo:         bill.BillNo,
+		Status:         status,
+		AmountCents:    bill.AmountCents,
+		VerifyCode:     bill.VerifyCode,
+		CreatedAt:      timestamppb.New(bill.CreatedAt),
+		UpdatedAt:      timestamppb.New(bill.UpdatedAt),
+		LifecycleRound: bill.LifecycleRound,
 	}
 
 	if bill.SerialNumber != "" {
@@ -639,4 +683,14 @@ func uniquePositiveInt64s(values []int64) []int64 {
 		result = append(result, value)
 	}
 	return result
+}
+
+func validateOrderBillInput(sourceType string, sourceID, payerID, payeeID int64, amountCents int32) error {
+	if sourceType == "" || sourceID <= 0 || payerID <= 0 || payeeID <= 0 || amountCents < 0 {
+		return ErrInvalidBillRequest
+	}
+	if payerID == payeeID {
+		return ErrSelfPayment
+	}
+	return nil
 }

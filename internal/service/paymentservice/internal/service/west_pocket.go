@@ -51,9 +51,16 @@ func validateWestPocketBill(
 		*bill.SourceID <= 0 {
 		return ErrInvalidBillStatus
 	}
+	if requestedRound([]int64{state.LifecycleRound}) != requestedRound([]int64{bill.LifecycleRound}) {
+		return ErrConcurrencyConflict
+	}
 	if state.OwnerId != bill.PayeeID || bill.PayerID == bill.PayeeID || bill.AmountCents <= 0 {
 		return ErrInvalidBillRequest
 	}
+	return validatePocketPayer(state, bill)
+}
+
+func validatePocketPayer(state *westpocketv1.GetCollectionStateResponse, bill *model.PaymentBill) error {
 	for _, member := range state.Members {
 		if member.UserId == bill.PayerID && member.ShareCents == bill.AmountCents && !member.IsOwner {
 			return nil
@@ -80,14 +87,16 @@ func createWestPocketBill(
 	ctx context.Context,
 	pocketID, payerID, payeeID int64,
 	amountCents int32,
+	expectedRound ...int64,
 ) (*paymentv1.Bill, error) {
 	sourceType := westPocketSource
 	wanted := &model.PaymentBill{
-		PayerID:     payerID,
-		PayeeID:     payeeID,
-		SourceType:  &sourceType,
-		SourceID:    &pocketID,
-		AmountCents: amountCents,
+		PayerID:        payerID,
+		PayeeID:        payeeID,
+		SourceType:     &sourceType,
+		SourceID:       &pocketID,
+		AmountCents:    amountCents,
+		LifecycleRound: requestedRound(expectedRound),
 	}
 	var result *model.PaymentBill
 	err := repository.WithWestPocketSourceLock(ctx, pocketID, func(ctx context.Context, tx bun.Tx) error {
@@ -134,23 +143,29 @@ func createWestPocketBill(
 func sameWestPocketBill(a, b *model.PaymentBill) bool {
 	return a != nil && b != nil && a.SourceType != nil && b.SourceType != nil &&
 		a.SourceID != nil && b.SourceID != nil && *a.SourceType == *b.SourceType && *a.SourceID == *b.SourceID &&
-		a.PayerID == b.PayerID && a.PayeeID == b.PayeeID && a.AmountCents == b.AmountCents
+		a.PayerID == b.PayerID && a.PayeeID == b.PayeeID && a.AmountCents == b.AmountCents && requestedRound([]int64{a.LifecycleRound}) == requestedRound([]int64{b.LifecycleRound})
 }
 
-func CancelWestPocketBillsIfUnpaid(ctx context.Context, pocketID int64) error {
+func CancelWestPocketBillsIfUnpaid(ctx context.Context, pocketID int64, expectedRound ...int64) error {
 	if pocketID <= 0 {
 		return ErrInvalidBillRequest
+	}
+	if err := validateSourceRound(ctx, westPocketSource, pocketID, requestedRound(expectedRound)); err != nil {
+		return err
 	}
 	err := repository.CancelWestPocketBillsIfUnpaid(ctx, pocketID, func(ctx context.Context) error {
 		state, err := getWestPocketCollectionState(ctx, pocketID)
 		if err != nil {
 			return err
 		}
+		if requestedRound([]int64{state.LifecycleRound}) != requestedRound(expectedRound) {
+			return ErrConcurrencyConflict
+		}
 		if state.Status != "cancelling" && state.Status != "cancelled" {
 			return ErrInvalidBillStatus
 		}
 		return nil
-	})
+	}, requestedRound(expectedRound))
 	if errors.Is(err, repository.ErrWestPocketPaymentStarted) {
 		return ErrInvalidBillStatus
 	}

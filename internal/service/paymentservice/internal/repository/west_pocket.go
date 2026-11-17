@@ -30,6 +30,7 @@ func GetWestPocketBill(ctx context.Context, db bun.IDB, pocketID, payerID int64)
 	var bill model.PaymentBill
 	err := db.NewSelect().Model(&bill).
 		Where("source_type = ? AND source_id = ? AND payer_id = ?", "west_pocket", pocketID, payerID).
+		Where("superseded_at IS NULL").
 		Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -39,7 +40,13 @@ func GetWestPocketBill(ctx context.Context, db bun.IDB, pocketID, payerID int64)
 
 // CancelWestPocketBillsIfUnpaid is all-or-nothing: submitted is already a
 // payment claim and cannot be silently discarded along with the unpaid bills.
-func CancelWestPocketBillsIfUnpaid(ctx context.Context, pocketID int64, authorize func(context.Context) error) error {
+func CancelWestPocketBillsIfUnpaid(
+	ctx context.Context,
+	pocketID int64,
+	authorize func(context.Context) error,
+	expectedRound ...int64,
+) error {
+	round := billRoundArgument(expectedRound)
 	return WithWestPocketSourceLock(ctx, pocketID, func(ctx context.Context, tx bun.Tx) error {
 		if err := authorize(ctx); err != nil {
 			return err
@@ -47,6 +54,7 @@ func CancelWestPocketBillsIfUnpaid(ctx context.Context, pocketID int64, authoriz
 		var bills []model.PaymentBill
 		if err := tx.NewSelect().Model(&bills).
 			Where("source_type = ? AND source_id = ?", "west_pocket", pocketID).
+			Where("superseded_at IS NULL").Where("lifecycle_round=?", round).
 			OrderExpr("id ASC").For("UPDATE").Scan(ctx); err != nil {
 			return err
 		}
@@ -55,7 +63,7 @@ func CancelWestPocketBillsIfUnpaid(ctx context.Context, pocketID int64, authoriz
 				return ErrWestPocketPaymentStarted
 			}
 		}
-		_, err := cancelBillsBySource(ctx, tx, "west_pocket", pocketID, nil)
+		_, err := cancelBillsBySource(ctx, tx, "west_pocket", pocketID, nil, round)
 		return err
 	})
 }
