@@ -48,6 +48,7 @@ func GetBillBySource(
 	err := postgres.DB.NewSelect().
 		Model(&bill).
 		Where("source_type = ? AND source_id = ? AND payer_id = ? AND status != ?", sourceType, sourceID, payerID, model.PaymentBillStatusClosed).
+		Where("superseded_at IS NULL").
 		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -79,6 +80,7 @@ func UpdateBillStatus(ctx context.Context,
 		Set("status = ?", newStatus).
 		Set("updated_at = ?", now).
 		Where("id = ? AND updated_at = ?", billID, expectedUpdatedAt).
+		Where("superseded_at IS NULL AND admin_operation_id = ''").
 		Where("status != ?", model.PaymentBillStatusClosed)
 	for column, value := range extraUpdates {
 		q = q.Set("? = ?", bun.Ident(column), value)
@@ -102,16 +104,21 @@ func CountIncompleteBillsBySource(ctx context.Context, sourceType string, source
 		TableExpr("payment.payment_bill AS pb").
 		Where("pb.source_type = ?", sourceType).
 		Where("pb.source_id = ?", sourceID).
+		Where("pb.superseded_at IS NULL").
 		Where("pb.status != ?", model.PaymentBillStatusClosed).
 		Where("pb.status != ?", model.PaymentBillStatusCompleted).
 		Count(ctx)
 	return int64(count), err
 }
 
-func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, payerID *int64) (int64, error) {
-	if sourceType != "spot_order" {
-		return cancelBillsBySource(ctx, postgres.DB, sourceType, sourceID, payerID)
-	}
+func CancelBillBySource(
+	ctx context.Context,
+	sourceType string,
+	sourceID int64,
+	payerID *int64,
+	expectedRound ...int64,
+) (int64, error) {
+	round := billRoundArgument(expectedRound)
 	var affected int64
 	err := postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		// Serialize cancellation with confirmation. Checking a previous RPC
@@ -120,6 +127,8 @@ func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, 
 		query := tx.NewSelect().Model(&bills).
 			Where("source_type = ?", sourceType).
 			Where("source_id = ?", sourceID).
+			Where("superseded_at IS NULL").
+			Where("lifecycle_round=?", round).
 			OrderExpr("id ASC").For("UPDATE")
 		if payerID != nil {
 			query = query.Where("payer_id = ?", *payerID)
@@ -133,7 +142,7 @@ func CancelBillBySource(ctx context.Context, sourceType string, sourceID int64, 
 			}
 		}
 		var err error
-		affected, err = cancelBillsBySource(ctx, tx, sourceType, sourceID, payerID)
+		affected, err = cancelBillsBySource(ctx, tx, sourceType, sourceID, payerID, round)
 		return err
 	})
 	return affected, err
@@ -145,6 +154,7 @@ func cancelBillsBySource(
 	sourceType string,
 	sourceID int64,
 	payerID *int64,
+	round int64,
 ) (int64, error) {
 	now := time.Now()
 	q := db.NewUpdate().
@@ -154,6 +164,8 @@ func cancelBillsBySource(
 		Set("updated_at = ?", now).
 		Where("source_type = ?", sourceType).
 		Where("source_id = ?", sourceID).
+		Where("superseded_at IS NULL").
+		Where("lifecycle_round=?", round).
 		Where("status IN (?)", bun.List([]model.PaymentBillStatus{
 			model.PaymentBillStatusUnpaid,
 			model.PaymentBillStatusSubmitted,
@@ -177,4 +189,11 @@ func cancelBillsBySource(
 func CreateConfirmationLog(ctx context.Context, log *model.PaymentConfirmationLog) error {
 	_, err := postgres.DB.NewInsert().Model(log).Exec(ctx)
 	return err
+}
+
+func billRoundArgument(round []int64) int64 {
+	if len(round) == 0 || round[0] == 0 {
+		return 1
+	}
+	return round[0]
 }

@@ -131,7 +131,8 @@ func GetSpotOrderDetail(
 	if !canReadSpotOrder(userID, record) {
 		return nil, connect.NewError(connect.CodePermissionDenied, ErrSpotOrderPermissionDenied)
 	}
-	if record.Status == model.SpotOrderStatusPendingPayment && record.PaymentBillID != nil {
+	if record.Status == model.SpotOrderStatusPendingPayment && record.PaymentBillID != nil &&
+		record.AdminOperationID == "" {
 		bill, err := getBill(ctx, record.PaymentBillID)
 		if err != nil {
 			return nil, err
@@ -197,6 +198,9 @@ func cancelSpotOrderInTx(
 	if err != nil {
 		return err
 	}
+	if err := validateSpotOrderRound(order, req.GetLifecycleRound()); err != nil {
+		return err
+	}
 	if err := validateCancelableSpotOrder(order, userID, req.UpdatedAt.AsTime()); err != nil {
 		return err
 	}
@@ -206,6 +210,10 @@ func cancelSpotOrderInTx(
 	if err := releaseSpotOrderStock(ctx, tx, order, goods, userID); err != nil {
 		return err
 	}
+	order.InventoryState = "reserved"
+	if goods.StockTotal >= 0 {
+		order.InventoryState = "released"
+	}
 	return markSpotOrderCancelled(ctx, tx, order)
 }
 
@@ -214,6 +222,9 @@ func validateCancelableSpotOrder(
 	userID int64,
 	expectedUpdatedAt time.Time,
 ) error {
+	if order.AdminOperationID != "" {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("订单正在由管理员处理"))
+	}
 	if order.PurchaserID != userID {
 		return connect.NewError(connect.CodePermissionDenied, ErrSpotOrderPermissionDenied)
 	}
@@ -287,9 +298,10 @@ func cancelSpotOrderBill(ctx context.Context, order *model.SpotOrder) error {
 	_, err = client.PaymentInternalServiceClient.CancelBillBySource(
 		ctx,
 		connect.NewRequest(&paymentv1.CancelBillBySourceRequest{
-			SourceType: "spot_order",
-			SourceId:   order.ID,
-			PayerId:    &order.PurchaserID,
+			SourceType:     "spot_order",
+			SourceId:       order.ID,
+			PayerId:        &order.PurchaserID,
+			LifecycleRound: max(order.LifecycleRound, 1),
 		}),
 	)
 	if err != nil {
@@ -302,7 +314,7 @@ func cancelSpotOrderBill(ctx context.Context, order *model.SpotOrder) error {
 }
 
 func markSpotOrderCancelled(ctx context.Context, tx bun.Tx, order *model.SpotOrder) error {
-	if _, err := repository.MarkSpotOrderCancelled(ctx, tx, order.ID); err != nil {
+	if _, err := repository.MarkSpotOrderCancelled(ctx, tx, order.ID, order.InventoryState); err != nil {
 		log.Error().
 			Err(err).
 			Int64("spot_order_id", order.ID).
@@ -355,6 +367,12 @@ func completeSpotOrderInTx(
 	}
 	if order.PurchaserID != userID {
 		return connect.NewError(connect.CodePermissionDenied, ErrSpotOrderPermissionDenied)
+	}
+	if order.AdminOperationID != "" {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("订单正在由管理员处理"))
+	}
+	if err := validateSpotOrderRound(order, req.GetLifecycleRound()); err != nil {
+		return err
 	}
 	if !order.UpdatedAt.UTC().Equal(req.UpdatedAt.AsTime().UTC()) {
 		return connect.NewError(connect.CodeAborted, ErrSpotOrderVersionConflict)
@@ -493,6 +511,9 @@ func lockGoodsForCreateSpotOrder(
 			Msg("failed to lock spot goods")
 		return nil, spotInternalError()
 	}
+	if err := repository.LockCatalogForSale(ctx, tx, goods.StoreID, goods.ProductTemplateID); err != nil {
+		return nil, err
+	}
 	if err := validateGoodsForCreateSpotOrder(goods, item); err != nil {
 		return nil, err
 	}
@@ -517,7 +538,7 @@ func validateGoodsForCreateSpotOrder(goods *model.SpotGoods, item *spotv1.Create
 		Time("goods_updated_at", goodsTime).
 		Time("item_updated_at", itemTime).
 		Msg("validating spot order goods")
-	if goods.ClosedAt != nil || goods.StockTotal < 0 {
+	if goods.ClosedAt != nil || goods.StockTotal < 0 || goods.ModerationStatus == "blocked" {
 		return connect.NewError(connect.CodeFailedPrecondition, ErrSpotGoodsClosed)
 	}
 	if !timeutil.SameUpdatedAtSecond(goodsTime, itemTime) {
@@ -645,11 +666,12 @@ func createPaymentBillForSpotOrder(
 	billResp, err := client.PaymentInternalServiceClient.CreateBillForOrder(
 		ctx,
 		connect.NewRequest(&paymentv1.CreateBillForOrderRequest{
-			SourceType:  "spot_order",
-			SourceId:    order.ID,
-			PayerId:     purchaserID,
-			PayeeId:     goods.SellerID,
-			AmountCents: totalAmount,
+			SourceType:     "spot_order",
+			SourceId:       order.ID,
+			PayerId:        purchaserID,
+			PayeeId:        goods.SellerID,
+			AmountCents:    totalAmount,
+			LifecycleRound: max(order.LifecycleRound, 1),
 		}),
 	)
 	if err != nil {
@@ -735,6 +757,7 @@ func spotOrderToDetail(
 ) *spotv1.SpotOrderDetail {
 	return &spotv1.SpotOrderDetail{
 		Id:               order.ID,
+		LifecycleRound:   max(order.LifecycleRound, 1),
 		OrderNo:          order.OrderNo,
 		Store:            store,
 		ProductSnapshot:  product,
@@ -780,6 +803,7 @@ func spotOrderRecordToBrief(
 ) *spotv1.SpotOrderBrief {
 	return &spotv1.SpotOrderBrief{
 		Id:               record.ID,
+		LifecycleRound:   max(record.LifecycleRound, 1),
 		OrderNo:          record.OrderNo,
 		Store:            store,
 		ProductSnapshot:  productSnapshotFromRecord(record),
@@ -800,6 +824,7 @@ func spotOrderRecordToDetail(
 ) *spotv1.SpotOrderDetail {
 	return &spotv1.SpotOrderDetail{
 		Id:               record.ID,
+		LifecycleRound:   max(record.LifecycleRound, 1),
 		OrderNo:          record.OrderNo,
 		Store:            store,
 		ProductSnapshot:  productSnapshotFromRecord(record),
@@ -985,4 +1010,17 @@ func spotInternalError() error {
 			Code: spotv1.SpotErrorCode_SPOT_ERROR_CODE_INTERNAL_ERROR,
 		},
 	}, "")
+}
+
+func validateSpotOrderRound(order *model.SpotOrder, requested int64) error {
+	if requested < 0 {
+		return connect.NewError(connect.CodeInvalidArgument, ErrInvalidSpotOrderStatus)
+	}
+	if requested == 0 {
+		requested = 1
+	}
+	if requested != max(order.LifecycleRound, 1) {
+		return connect.NewError(connect.CodeAborted, errors.New("订单已进入新的处理轮次，请刷新后重试"))
+	}
+	return nil
 }

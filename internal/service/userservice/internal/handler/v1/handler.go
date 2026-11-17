@@ -25,4 +25,5 @@ func Init(e *echo.Echo) {
 	InitUserInternalHandler(e, sharedOpts)
 	InitAuthHandler(e, sharedOpts)
 	InitAddressHandler(e, sharedOpts, authOpts)
+	InitUserAdminHandler(e, sharedOpts, authOpts)
 }

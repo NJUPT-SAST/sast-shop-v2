@@ -22,6 +22,8 @@ func Init(e *echo.Echo) {
 	)
 
 	InitBillServiceHandler(e, sharedOpts, authOpts)
+	InitPaymentAdminHandler(e, sharedOpts, authOpts)
 	InitQrCodeServiceHandler(e, sharedOpts, authOpts)
 	InitPaymentInternalServiceHandler(e, sharedOpts)
+	InitPaymentCorrectionInternalHandler(e, sharedOpts)
 }

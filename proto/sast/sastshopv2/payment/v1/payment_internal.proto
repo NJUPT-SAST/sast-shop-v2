@@ -11,6 +11,7 @@ message CreateBillForOrderRequest {
   int64 payer_id = 3;
   int64 payee_id = 4;
   int32 amount_cents = 5;
+  int64 lifecycle_round = 6;
 }
 
 message CreateBillForOrderResponse {
@@ -22,6 +23,7 @@ message CancelBillBySourceRequest {
   int64 source_id = 2;
   // 指定时只取消该付款人的账单，未指定时取消同一业务来源下所有未完成账单
   optional int64 payer_id = 3;
+  int64 lifecycle_round = 4;
 }
 
 message CancelBillBySourceResponse {}
@@ -44,6 +46,7 @@ message GetPayeeQrCodeResponse {
 }
 message CancelWestPocketBillsIfUnpaidRequest {
   int64 pocket_id = 1;
+  int64 lifecycle_round = 2;
 }
 message CancelWestPocketBillsIfUnpaidResponse {}
 

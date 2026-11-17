@@ -159,6 +159,9 @@ func (c *spotCreateTestConn) ExecContext(_ context.Context, q string, _ []driver
 }
 
 func (c *spotCreateTestConn) QueryContext(_ context.Context, q string, _ []driver.NamedValue) (driver.Rows, error) {
+	if strings.Contains(q, "SELECT cpt.id FROM catalog.catalog_store") {
+		return &spotPaymentRows{columns: []string{"id"}, values: [][]driver.Value{{int64(2)}}}, nil
+	}
 	if strings.HasPrefix(q, "SELECT ") && strings.Contains(q, "spot_goods") {
 		return &spotPaymentRows{
 			columns: []string{

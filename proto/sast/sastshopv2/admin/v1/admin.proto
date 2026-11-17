@@ -1,0 +1,207 @@
+syntax = "proto3";
+
+package sast.sastshopv2.admin.v1;
+
+import "google/protobuf/timestamp.proto";
+
+enum ResourceKind {
+  RESOURCE_KIND_UNSPECIFIED = 0;
+  RESOURCE_KIND_USER = 1;
+  RESOURCE_KIND_STORE = 2;
+  RESOURCE_KIND_PRODUCT = 3;
+  RESOURCE_KIND_SPOT_GOODS = 4;
+  RESOURCE_KIND_SPOT_ORDER = 5;
+  RESOURCE_KIND_ERRAND_DEMAND = 6;
+  RESOURCE_KIND_ERRAND_TASK = 7;
+  RESOURCE_KIND_BILL = 8;
+  RESOURCE_KIND_POCKET = 9;
+  RESOURCE_KIND_JOB = 10;
+}
+
+message RecordField {
+  string key = 1;
+  string label = 2;
+  string value = 3;
+}
+
+message AdminRecord {
+  ResourceKind resource = 1;
+  string id = 2;
+  string title = 3;
+  string status = 4;
+  string owner_id = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  int64 lifecycle_round = 8;
+  optional int64 amount_cents = 9;
+  repeated RecordField fields = 10;
+  repeated string allowed_actions = 11;
+}
+
+message GetContextRequest {}
+message GetContextResponse {
+  string user_id = 1;
+  string display_name = 2;
+  string avatar_url = 3;
+  string role = 4;
+  string status = 5;
+  int64 auth_version = 6;
+  repeated string capabilities = 7;
+}
+
+message ListRecordsRequest {
+  ResourceKind resource = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  string keyword = 4;
+  string status = 5;
+  string user_id = 6;
+  google.protobuf.Timestamp created_from = 7;
+  google.protobuf.Timestamp created_to = 8;
+}
+message ListRecordsResponse {
+  repeated AdminRecord records = 1;
+  int64 total_count = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message GetRecordRequest {
+  ResourceKind resource = 1;
+  string id = 2;
+}
+message GetRecordResponse {
+  AdminRecord record = 1;
+  repeated AdminRecord related_records = 2;
+}
+
+message MutateRecordRequest {
+  ResourceKind resource = 1;
+  string id = 2;
+  string action = 3;
+  google.protobuf.Timestamp expected_updated_at = 4;
+  int64 expected_round = 5;
+  string request_id = 6;
+  string reason = 7;
+  string evidence = 8;
+  // Each resource accepts an explicit allowlist of named form fields.
+  map<string, string> values = 9;
+}
+message MutateRecordResponse {
+  AdminRecord record = 1;
+  string operation_id = 2;
+}
+
+message Impact {
+  ResourceKind resource = 1;
+  string resource_id = 2;
+  string description = 3;
+  string before = 4;
+  string after = 5;
+}
+message PreviewCorrectionRequest {
+  ResourceKind resource = 1;
+  string id = 2;
+  string action = 3;
+  google.protobuf.Timestamp expected_updated_at = 4;
+  int64 expected_round = 5;
+  string reason = 6;
+  string evidence = 7;
+  map<string, string> values = 8;
+}
+message PreviewCorrectionResponse {
+  string preview_id = 1;
+  string digest = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  AdminRecord record = 4;
+  repeated Impact impacts = 5;
+  repeated string warnings = 6;
+  repeated RecordField restoration_fields = 7;
+}
+message ExecuteCorrectionRequest {
+  string preview_id = 1;
+  string digest = 2;
+  string request_id = 3;
+}
+message ExecuteCorrectionResponse {
+  Correction correction = 1;
+}
+message GetCorrectionRequest {
+  string id = 1;
+}
+message GetCorrectionResponse {
+  Correction correction = 1;
+}
+message ListCorrectionsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string status = 3;
+  string resource_id = 4;
+}
+message ListCorrectionsResponse {
+  repeated Correction corrections = 1;
+  int64 total_count = 2;
+}
+message CorrectionStep {
+  string key = 1;
+  string description = 2;
+  string status = 3;
+  string error = 4;
+}
+message Correction {
+  string id = 1;
+  ResourceKind resource = 2;
+  string resource_id = 3;
+  string action = 4;
+  string status = 5;
+  string reason = 6;
+  string evidence = 7;
+  string actor_id = 8;
+  int64 lifecycle_round = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  repeated CorrectionStep steps = 12;
+  repeated Impact impacts = 13;
+  string error = 14;
+  string digest = 15;
+  string request_id = 16;
+}
+
+message AuditEntry {
+  string id = 1;
+  string actor_id = 2;
+  ResourceKind resource = 3;
+  string resource_id = 4;
+  string action = 5;
+  string reason = 6;
+  string evidence = 7;
+  string request_id = 8;
+  google.protobuf.Timestamp created_at = 9;
+  repeated RecordField before = 10;
+  repeated RecordField after = 11;
+}
+message ListAuditRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string actor_id = 3;
+  ResourceKind resource = 4;
+  string resource_id = 5;
+  string action = 6;
+  google.protobuf.Timestamp created_from = 7;
+  google.protobuf.Timestamp created_to = 8;
+  string request_id = 9;
+}
+message ListAuditResponse {
+  repeated AuditEntry entries = 1;
+  int64 total_count = 2;
+}
+message GetStatsRequest {}
+message Metric {
+  string key = 1;
+  string label = 2;
+  int64 value = 3;
+  bool is_money = 4;
+}
+message GetStatsResponse {
+  repeated Metric metrics = 1;
+}

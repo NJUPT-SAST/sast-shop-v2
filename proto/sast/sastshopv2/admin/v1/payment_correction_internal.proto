@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package sast.sastshopv2.admin.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message SourceBill {
+  string id = 1;
+  string payer_id = 2;
+  string payee_id = 3;
+  int64 amount_cents = 4;
+  string status = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  int64 lifecycle_round = 7;
+  bool refund_registered = 8;
+  bool superseded = 9;
+  bool confirmation_reversed = 10;
+}
+message GetSourceBillsRequest {
+  string source_type = 1;
+  string source_id = 2;
+  int64 lifecycle_round = 3;
+  string actor_id = 4;
+}
+message GetSourceBillsResponse {
+  repeated SourceBill bills = 1;
+}
+message CorrectSourceBillsRequest {
+  string operation_id = 1;
+  string actor_id = 2;
+  string source_type = 3;
+  string source_id = 4;
+  int64 expected_round = 5;
+  int64 target_round = 6;
+  string action = 7;
+  repeated SourceBill expected_bills = 8;
+  string reason = 9;
+  string evidence = 10;
+  // no_payment_received, retain, refunded, or confirmation_error; never a transfer.
+  string funds_handling = 11;
+  repeated SourceBill restoration_bills = 12;
+  bool submitted_unreceived_confirmed = 13;
+}
+message CorrectSourceBillsResponse {
+  repeated SourceBill bills = 1;
+  bool all_paid = 2;
+}
+service PaymentCorrectionInternalService {
+  rpc GetSourceBills(GetSourceBillsRequest) returns (GetSourceBillsResponse);
+  rpc CorrectSourceBills(CorrectSourceBillsRequest) returns (CorrectSourceBillsResponse);
+}

@@ -33,6 +33,8 @@ func Init(e *echo.Echo, uploadDeps ...UploadDependencies) {
 		rpcinterceptor.AuthRequired(sessionStore, log.Logger, isDev),
 	)
 
+	InitCatalogAdminHandler(e, sharedOpts, authOpts)
+
 	InitCatalogServiceHandler(e, sharedOpts, authOpts)
 	InitProductTemplateServiceHandler(e, sharedOpts, authOpts)
 	InitCatalogInternalServiceHandler(e, sharedOpts)

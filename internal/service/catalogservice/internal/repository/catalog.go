@@ -49,7 +49,11 @@ func GetStoreByIDForUpdate(ctx context.Context, db bun.IDB, id int64) (*model.Ca
 // ListStores 查询所有店铺。
 func ListStores(ctx context.Context) ([]*model.CatalogStore, error) {
 	var stores []*model.CatalogStore
-	err := postgres.DB.NewSelect().Model(&stores).Scan(ctx)
+	err := postgres.DB.NewSelect().
+		Model(&stores).
+		Where("cs.moderation_status = ?", "allowed").
+		Where("cs.status != ?", model.CatalogStatusRemoved).
+		Scan(ctx)
 	return stores, err
 }
 
@@ -115,7 +119,9 @@ func filterProductTemplates(
 	keyword string,
 	titleFullText bool,
 ) *bun.SelectQuery {
-	query = query.Where("cpt.status != ?", model.CatalogStatusRemoved)
+	query = query.Where("cpt.status != ?", model.CatalogStatusRemoved).
+		Where("cpt.moderation_status = ?", "allowed").
+		Where("EXISTS (SELECT 1 FROM catalog.catalog_store cs WHERE cs.id = cpt.store_id AND cs.moderation_status = 'allowed' AND cs.status != 'removed')")
 
 	if storeID != 0 {
 		query = query.Where("cpt.store_id = ?", storeID)
@@ -257,6 +263,8 @@ func ListProductTemplatesByBarcode(ctx context.Context, barcode string) ([]*mode
 		Join("JOIN catalog.catalog_product_barcode AS cpb ON cpb.product_template_id = cpt.id").
 		Where("cpb.barcode = ?", barcode).
 		Where("cpt.status = ?", model.CatalogStatusActive).
+		Where("cpt.moderation_status = ?", "allowed").
+		Where("EXISTS (SELECT 1 FROM catalog.catalog_store cs WHERE cs.id = cpt.store_id AND cs.moderation_status = 'allowed' AND cs.status != 'removed')").
 		OrderExpr("cpt.store_id ASC, cpt.updated_at DESC, cpt.id DESC").
 		Scan(ctx)
 	return templates, err

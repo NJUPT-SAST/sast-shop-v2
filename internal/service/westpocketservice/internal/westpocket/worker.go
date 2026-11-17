@@ -17,6 +17,7 @@ import (
 )
 
 func (s *Service) Run(ctx context.Context) {
+	go s.AdminEngine().Run(ctx)
 	for i := 0; i < 2; i++ {
 		go s.work(ctx)
 	}
@@ -59,7 +60,7 @@ func (s *Service) work(ctx context.Context) {
 func (s *Service) runNextJob(ctx context.Context) error {
 	j := new(Job)
 	lease := randomUUID()
-	err := s.DB.NewRaw(`UPDATE westpocket.async_job SET status='running',lease_owner=?,lease_expires_at=now()+interval '2 minutes',attempt_count=attempt_count+1,updated_at=now() WHERE id=(SELECT id FROM westpocket.async_job WHERE ((status='queued' AND next_attempt_at<=now()) OR (status='running' AND lease_expires_at<now())) ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`, lease).
+	err := s.DB.NewRaw(`UPDATE westpocket.async_job SET status='running',lease_owner=?,lease_expires_at=now()+interval '2 minutes',attempt_count=attempt_count+1,updated_at=now() WHERE id=(SELECT j.id FROM westpocket.async_job j WHERE ((j.status='queued' AND j.next_attempt_at<=now()) OR (j.status='running' AND j.lease_expires_at<now())) AND (j.kind NOT IN ('publish','cancel','recognize') OR NOT EXISTS(SELECT 1 FROM westpocket.pocket p WHERE p.id=j.pocket_id AND p.admin_operation_id<>'')) ORDER BY j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1) RETURNING *`, lease).
 		Scan(ctx, j)
 	if err != nil {
 		return err
@@ -95,6 +96,25 @@ func (s *Service) runNextJob(ctx context.Context) error {
 	}()
 	jobctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
+	jobctx = context.WithValue(jobctx, pocketRoundKey{}, normalRound(j.LifecycleRound))
+	if j.PocketID != nil && (j.Kind == "publish" || j.Kind == "cancel" || j.Kind == "recognize") {
+		p, _, e := s.internalPocket(ctx, *j.PocketID)
+		if e != nil {
+			return e
+		}
+		if p.AdminOperationID != "" {
+			_, e = s.DB.ExecContext(
+				ctx,
+				"UPDATE westpocket.async_job SET status='queued',attempt_count=attempt_count-1,next_attempt_at=now()+interval '5 seconds',lease_expires_at=NULL WHERE id=? AND lease_owner=?",
+				j.ID,
+				lease,
+			)
+			return e
+		}
+		if e = checkPocketWrite(jobctx, p); e != nil {
+			return s.finishJob(ctx, j, lease, e)
+		}
+	}
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -283,7 +303,14 @@ func enqueueNotification(ctx context.Context, tx bun.Tx, pocket, recipient int64
 		Status:          "pending",
 		MessageUUID:     randomUUID(),
 	}
-	_, e := tx.NewInsert().Model(&n).On("CONFLICT (pocket_id,recipient_user_id,kind,sequence) DO NOTHING").Exec(ctx)
+	if e := tx.NewRaw("SELECT lifecycle_round FROM westpocket.pocket WHERE id=?", pocket).
+		Scan(ctx, &n.LifecycleRound); e != nil {
+		return e
+	}
+	_, e := tx.NewInsert().
+		Model(&n).
+		On("CONFLICT (pocket_id,recipient_user_id,kind,sequence,lifecycle_round) DO NOTHING").
+		Exec(ctx)
 	return e
 }
 
@@ -785,7 +812,7 @@ func (s *Service) Refresh(ctx context.Context, id int64) error {
 	if e != nil {
 		return e
 	}
-	if !collectionReadable(p.Status) {
+	if !collectionReadable(p.Status) || p.AdminOperationID != "" {
 		return nil
 	}
 	var ids []int64
@@ -825,8 +852,9 @@ func (s *Service) Refresh(ctx context.Context, id int64) error {
 	if completed && p.Status == "collecting" {
 		_, e = s.DB.ExecContext(
 			ctx,
-			"UPDATE westpocket.pocket SET status='settled',settled_at=now(),revision=revision+1,updated_at=now() WHERE id=? AND status='collecting'",
+			"UPDATE westpocket.pocket SET status='settled',settled_at=now(),revision=revision+1,updated_at=now() WHERE id=? AND status='collecting' AND lifecycle_round=? AND admin_operation_id=''",
 			id,
+			p.LifecycleRound,
 		)
 	}
 	return e
@@ -859,7 +887,7 @@ func (s *Service) reconcile(ctx context.Context) error {
 
 func (s *Service) runNextNotification(ctx context.Context) error {
 	n := new(Notification)
-	e := s.DB.NewRaw(`UPDATE westpocket.notification_outbox SET status='sending',lease_expires_at=now()+interval '2 minutes',attempt_count=attempt_count+1,updated_at=now() WHERE id=(SELECT id FROM westpocket.notification_outbox WHERE (status IN ('pending','retrying','unknown') AND next_attempt_at<=now()) OR (status='sending' AND lease_expires_at<now()) ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`).
+	e := s.DB.NewRaw(`UPDATE westpocket.notification_outbox SET status='sending',lease_expires_at=now()+interval '2 minutes',attempt_count=attempt_count+1,updated_at=now() WHERE id=(SELECT n.id FROM westpocket.notification_outbox n WHERE ((n.status IN ('pending','retrying','unknown') AND n.next_attempt_at<=now()) OR (n.status='sending' AND n.lease_expires_at<now())) AND NOT EXISTS(SELECT 1 FROM westpocket.pocket p WHERE p.id=n.pocket_id AND p.admin_operation_id<>'') ORDER BY n.id FOR UPDATE OF n SKIP LOCKED LIMIT 1) RETURNING *`).
 		Scan(ctx, n)
 	if e != nil {
 		return e
@@ -895,11 +923,28 @@ func (s *Service) sendNotification(ctx context.Context, n *Notification) (string
 	if s.Messenger == nil {
 		return "", ErrUnavailable
 	}
+	conn, e := s.DB.Conn(ctx)
+	if e != nil {
+		return "", e
+	}
+	defer closeResource(conn)
+	lockKey := fmt.Sprintf("wp-pocket:%d", n.PocketID)
+	if _, e = conn.ExecContext(ctx, "SELECT pg_advisory_lock(hashtextextended(?,1))", lockKey); e != nil {
+		return "", e
+	}
+	defer func() {
+		observeExec(
+			conn.ExecContext(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock(hashtextextended(?,1))", lockKey),
+		)
+	}()
 	p, m, e := s.internalPocket(ctx, n.PocketID)
 	if e != nil {
 		return "", e
 	}
-	if !collectionReadable(p.Status) {
+	if p.AdminOperationID != "" {
+		return "", ErrUnavailable
+	}
+	if !collectionReadable(p.Status) || p.LifecycleRound != normalRound(n.LifecycleRound) {
 		return "", ErrState
 	}
 	openID, e := s.Directory.OpenID(ctx, n.RecipientUserID)
@@ -913,7 +958,7 @@ func (s *Service) sendNotification(ctx context.Context, n *Notification) (string
 		text, e = s.summaryText(ctx, p, m)
 	} else {
 		text, qr, e = s.paymentText(ctx, p, n, m)
-		link += "/pay"
+		link += fmt.Sprintf("/pay?round=%d", p.LifecycleRound)
 	}
 	if e != nil {
 		return "", e
@@ -1043,5 +1088,6 @@ func (s *Service) cleanupEnrollment(ctx context.Context, j *Job) error {
 }
 
 func billSourceMatches(b Bill, p *Pocket) bool {
-	return b.SourceType == "west_pocket" && b.SourceID == p.ID && b.PayeeID == p.OwnerID
+	return b.SourceType == "west_pocket" && b.SourceID == p.ID && b.PayeeID == p.OwnerID &&
+		normalRound(b.LifecycleRound) == normalRound(p.LifecycleRound)
 }

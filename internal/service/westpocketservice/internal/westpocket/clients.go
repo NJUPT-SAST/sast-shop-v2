@@ -99,17 +99,18 @@ func billFromProto(b *paymentv1.Bill) (Bill, error) {
 		return Bill{}, ErrState
 	}
 	return Bill{
-		ID:          b.Id,
-		PayerID:     b.Payer.Id,
-		PayeeID:     b.Payee.Id,
-		SourceID:    b.GetSourceId(),
-		AmountCents: b.AmountCents,
-		SourceType:  b.GetSourceType(),
-		Status:      status,
-		BillNo:      b.BillNo,
-		VerifyCode:  b.VerifyCode,
-		UpdatedAt:   b.UpdatedAt.AsTime(),
-		Proto:       b,
+		ID:             b.Id,
+		PayerID:        b.Payer.Id,
+		PayeeID:        b.Payee.Id,
+		SourceID:       b.GetSourceId(),
+		AmountCents:    b.AmountCents,
+		SourceType:     b.GetSourceType(),
+		Status:         status,
+		BillNo:         b.BillNo,
+		VerifyCode:     b.VerifyCode,
+		UpdatedAt:      b.UpdatedAt.AsTime(),
+		Proto:          b,
+		LifecycleRound: b.LifecycleRound,
 	}, nil
 }
 
@@ -118,11 +119,12 @@ func (p *RPCPayments) Create(ctx context.Context, id, payer, payee int64, amount
 		ctx,
 		connect.NewRequest(
 			&paymentv1.CreateBillForOrderRequest{
-				SourceType:  "west_pocket",
-				SourceId:    id,
-				PayerId:     payer,
-				PayeeId:     payee,
-				AmountCents: amount,
+				SourceType:     "west_pocket",
+				SourceId:       id,
+				PayerId:        payer,
+				PayeeId:        payee,
+				AmountCents:    amount,
+				LifecycleRound: requestedRound(ctx),
 			},
 		),
 	)

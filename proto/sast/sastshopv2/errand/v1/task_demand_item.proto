@@ -10,4 +10,5 @@ message TaskDemandItem {
   int64 errand_demand_item_id = 1;
   // 前端读取需求行时拿到的 updated_at，用于防止重复接单
   google.protobuf.Timestamp updated_at = 2;
+  int64 demand_lifecycle_round = 3;
 }

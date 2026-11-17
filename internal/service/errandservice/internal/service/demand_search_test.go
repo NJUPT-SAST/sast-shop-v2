@@ -39,7 +39,14 @@ func (demandSearchUserClient) GetUsers(
 }
 
 func TestGetDemandListPreservesSearchPagination(t *testing.T) {
-	db := testutil.NewPostgres(t)
+	db := testutil.NewPostgres(
+		t,
+		"002_west_pocket.sql",
+		"005_admin_identity.sql",
+		"006_admin_catalog_spot.sql",
+		"007_admin_corrections.sql",
+		"008_admin_errand_pocket.sql",
+	)
 	previousDB := postgres.DB
 	previousCatalog := client.CatalogInternalClient
 	previousUser := client.UserInternalClient

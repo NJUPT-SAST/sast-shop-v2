@@ -44,7 +44,7 @@ func (s *BillServiceServer) PayBill(
 	if connErr != nil {
 		return nil, connErr
 	}
-	bill, err := service.PayBill(ctx, r.Msg.BillId, r.Msg.Channel, updatedAt)
+	bill, err := service.PayBill(ctx, r.Msg.BillId, r.Msg.Channel, updatedAt, r.Msg.LifecycleRound)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}
@@ -61,7 +61,7 @@ func (s *BillServiceServer) ConfirmBill(
 	if connErr != nil {
 		return nil, connErr
 	}
-	bill, err := service.ConfirmBill(ctx, r.Msg.BillId, updatedAt)
+	bill, err := service.ConfirmBill(ctx, r.Msg.BillId, updatedAt, r.Msg.LifecycleRound)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}
@@ -104,6 +104,7 @@ func (s *BillServiceServer) TransitionBill(
 		r.Msg.TargetStatus,
 		updatedAt,
 		userID,
+		r.Msg.LifecycleRound,
 	)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -121,7 +122,7 @@ func (s *BillServiceServer) SupplementSerialNumber(
 	if connErr != nil {
 		return nil, connErr
 	}
-	bill, err := service.SupplementSerialNumber(ctx, r.Msg.BillId, r.Msg.SerialNumber, updatedAt)
+	bill, err := service.SupplementSerialNumber(ctx, r.Msg.BillId, r.Msg.SerialNumber, updatedAt, r.Msg.LifecycleRound)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}

@@ -68,7 +68,14 @@ func (sellerListSessions) SaveSession(context.Context, string, *rpcinterceptor.A
 }
 
 func TestListMySpotGoodsFiltersBeforePagination(t *testing.T) {
-	db := testutil.NewPostgres(t)
+	db := testutil.NewPostgres(
+		t,
+		"002_west_pocket.sql",
+		"005_admin_identity.sql",
+		"006_admin_catalog_spot.sql",
+		"007_admin_corrections.sql",
+		"009_spot_admin_inventory.sql",
+	)
 	previousDB, previousCatalog, previousUser := postgres.DB, client.CatalogInternalServiceClient, client.UserInternalServiceClient
 	postgres.DB = db
 	catalog := &searchCatalogClient{requests: make(chan []int64, 1)}

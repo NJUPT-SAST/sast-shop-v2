@@ -21,6 +21,8 @@ func Init(e *echo.Echo) {
 		rpcinterceptor.AuthRequired(sessionStore, log.Logger, isDev),
 	)
 
+	InitSpotAdminHandler(e, sharedOpts, authOpts)
+
 	InitSpotGoodsServiceHandler(e, sharedOpts, authOpts)
 	InitSpotOrderServiceHandler(e, sharedOpts, authOpts)
 }

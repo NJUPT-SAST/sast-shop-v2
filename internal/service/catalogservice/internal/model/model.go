@@ -9,30 +9,38 @@ import (
 type CatalogStore struct {
 	bun.BaseModel `bun:"table:catalog.catalog_store,alias:cs"`
 
-	ID              int64         `bun:"id,pk,autoincrement"`
-	Name            string        `bun:"name,notnull"`
-	Address         string        `bun:"address,notnull"`
-	LogoURL         string        `bun:"logo_url,notnull,default:''"`
-	ThemeColor      string        `bun:"theme_color,notnull,default:'#FFFFFF'"`
-	Status          CatalogStatus `bun:"status,notnull,default:'active'"`
-	CreatedByUserID int64         `bun:"created_by_user_id,notnull"`
-	CreatedAt       time.Time     `bun:"created_at,notnull,default:current_timestamp"`
-	UpdatedAt       time.Time     `bun:"updated_at,notnull,default:current_timestamp"`
+	ID               int64         `bun:"id,pk,autoincrement"`
+	Name             string        `bun:"name,notnull"`
+	Address          string        `bun:"address,notnull"`
+	LogoURL          string        `bun:"logo_url,notnull,default:''"`
+	ThemeColor       string        `bun:"theme_color,notnull,default:'#FFFFFF'"`
+	Status           CatalogStatus `bun:"status,notnull,default:'active'"`
+	ModerationStatus string        `bun:"moderation_status,notnull,default:'allowed'"`
+	ModerationReason string        `bun:"moderation_reason,notnull,default:''"`
+	ModerationBy     *int64        `bun:"moderation_by"`
+	ModerationAt     *time.Time    `bun:"moderation_at"`
+	CreatedByUserID  int64         `bun:"created_by_user_id,notnull"`
+	CreatedAt        time.Time     `bun:"created_at,notnull,default:current_timestamp"`
+	UpdatedAt        time.Time     `bun:"updated_at,notnull,default:current_timestamp"`
 }
 
 type CatalogProductTemplate struct {
 	bun.BaseModel `bun:"table:catalog.catalog_product_template,alias:cpt"`
 
-	ID              int64         `bun:"id,pk,autoincrement"`
-	Title           string        `bun:"title,notnull"`
-	Description     string        `bun:"description,notnull,default:''"`
-	PriceCents      int32         `bun:"price_cents,notnull"`
-	StoreID         int64         `bun:"store_id,notnull"`
-	Status          CatalogStatus `bun:"status,notnull,default:'active'"`
-	CreatedByUserID int64         `bun:"created_by_user_id,notnull"`
-	PublishedAt     *time.Time    `bun:"published_at"`
-	CreatedAt       time.Time     `bun:"created_at,notnull,default:current_timestamp"`
-	UpdatedAt       time.Time     `bun:"updated_at,notnull,default:current_timestamp"`
+	ID               int64         `bun:"id,pk,autoincrement"`
+	Title            string        `bun:"title,notnull"`
+	Description      string        `bun:"description,notnull,default:''"`
+	PriceCents       int32         `bun:"price_cents,notnull"`
+	StoreID          int64         `bun:"store_id,notnull"`
+	Status           CatalogStatus `bun:"status,notnull,default:'active'"`
+	ModerationStatus string        `bun:"moderation_status,notnull,default:'allowed'"`
+	ModerationReason string        `bun:"moderation_reason,notnull,default:''"`
+	ModerationBy     *int64        `bun:"moderation_by"`
+	ModerationAt     *time.Time    `bun:"moderation_at"`
+	CreatedByUserID  int64         `bun:"created_by_user_id,notnull"`
+	PublishedAt      *time.Time    `bun:"published_at"`
+	CreatedAt        time.Time     `bun:"created_at,notnull,default:current_timestamp"`
+	UpdatedAt        time.Time     `bun:"updated_at,notnull,default:current_timestamp"`
 }
 
 type CatalogProductBarcode struct {

@@ -37,7 +37,7 @@ func (s *PaymentInternalServer) CancelWestPocketBillsIfUnpaid(
 	if err := interceptor.RequireWestPocketService(r.Header()); err != nil {
 		return nil, err
 	}
-	if err := service.CancelWestPocketBillsIfUnpaid(ctx, r.Msg.PocketId); err != nil {
+	if err := service.CancelWestPocketBillsIfUnpaid(ctx, r.Msg.PocketId, r.Msg.LifecycleRound); err != nil {
 		return nil, mapServiceError(err)
 	}
 	return connect.NewResponse(&paymentv1.CancelWestPocketBillsIfUnpaidResponse{}), nil
@@ -59,6 +59,7 @@ func (s *PaymentInternalServer) CreateBillForOrder(
 		r.Msg.GetPayerId(),
 		r.Msg.GetPayeeId(),
 		r.Msg.GetAmountCents(),
+		r.Msg.LifecycleRound,
 	)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -82,6 +83,7 @@ func (s *PaymentInternalServer) CancelBillBySource(
 		r.Msg.GetSourceType(),
 		r.Msg.GetSourceId(),
 		r.Msg.PayerId,
+		r.Msg.LifecycleRound,
 	)
 	if err != nil {
 		return nil, mapServiceError(err)

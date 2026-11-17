@@ -6,6 +6,9 @@ modules:
 lint:
   use:
     - STANDARD
+  ignore_only:
+    RPC_REQUEST_RESPONSE_UNIQUE:
+      - proto/sast/sastshopv2/admin/v1/admin_service.proto
 breaking:
   use:
     - FILE

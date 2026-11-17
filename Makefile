@@ -3,7 +3,7 @@ WORKSPACE_MODULES := ./internal/pkg $(addprefix ./internal/service/,$(SERVICES))
 PROTOBUF_GEN_DIR := gen/protocolbuffers/go
 CONNECT_GEN_DIR := gen/connectrpc/go
 
-.PHONY: lint lint-fix build run-% run-all proto proto-lint proto-format migrate migrate-west-pocket setup tidy
+.PHONY: lint lint-fix build run-% run-all proto proto-lint proto-format migrate migrate-west-pocket migrate-admin setup tidy
 
 # --- Development ---
 
@@ -53,6 +53,12 @@ migrate:
 # Additive migration for existing installations; never rerun initialization.
 migrate-west-pocket:
 	psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_west_pocket.sql
+
+# Run once after 001 and 002; migrations are deliberately additive, not reset scripts.
+migrate-admin:
+	@for migration in migrations/005_admin_identity.sql migrations/006_admin_catalog_spot.sql migrations/007_admin_corrections.sql migrations/008_admin_errand_pocket.sql migrations/009_spot_admin_inventory.sql; do \
+		psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$$migration" || exit 1; \
+	done
 
 # --- Code quality ---
 

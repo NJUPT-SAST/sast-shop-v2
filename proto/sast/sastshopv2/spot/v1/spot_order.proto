@@ -31,6 +31,7 @@ message SpotOrderBrief {
   SpotOrderStatus status = 9;
   // 下单时间
   google.protobuf.Timestamp created_at = 10;
+  int64 lifecycle_round = 11;
 }
 
 // 现货订单详情，包含支付账单、卖家和状态时间线
@@ -56,4 +57,5 @@ message SpotOrderDetail {
   // 订单取消时间
   optional google.protobuf.Timestamp cancelled_at = 15;
   google.protobuf.Timestamp updated_at = 16;
+  int64 lifecycle_round = 17;
 }

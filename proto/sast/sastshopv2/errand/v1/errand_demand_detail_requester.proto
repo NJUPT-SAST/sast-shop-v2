@@ -22,4 +22,5 @@ message ErrandDemandDetailRequester {
   google.protobuf.Timestamp deadline = 7;
   // 需求行最近更新时间，用于接单并发校验
   google.protobuf.Timestamp updated_at = 8;
+  int64 demand_lifecycle_round = 9;
 }

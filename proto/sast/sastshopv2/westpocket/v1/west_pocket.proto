@@ -24,6 +24,7 @@ message Pocket {
   string cancel_reason = 13;
   bool is_owner = 14;
   sast.sastshopv2.user.v1.UserInfo owner = 15;
+  int64 lifecycle_round = 16;
 }
 
 message PocketMember {
@@ -98,6 +99,7 @@ message Job {
   string error_code = 7;
   bool retryable = 8;
   google.protobuf.Timestamp updated_at = 9;
+  int64 lifecycle_round = 10;
 }
 
 message Notification {
@@ -172,6 +174,7 @@ message UpdatePocketRequest {
   optional int32 total_cents = 3;
   int64 expected_revision = 4;
   string request_id = 5;
+  int64 lifecycle_round = 6;
 }
 message UpdatePocketResponse {
   Pocket pocket = 1;
@@ -204,6 +207,7 @@ message AddPocketPhotosRequest {
   string capture_authorization_version = 4;
   int64 expected_revision = 5;
   string request_id = 6;
+  int64 lifecycle_round = 7;
 }
 message AddPocketPhotosResponse {
   repeated PocketPhoto photos = 1;
@@ -213,12 +217,14 @@ message DeletePocketPhotoRequest {
   int64 pocket_id = 1;
   int64 photo_id = 2;
   string request_id = 3;
+  int64 lifecycle_round = 4;
 }
 message DeletePocketPhotoResponse {}
 message StartRecognitionRequest {
   int64 pocket_id = 1;
   repeated int64 photo_ids = 2;
   string request_id = 3;
+  int64 lifecycle_round = 4;
 }
 message StartRecognitionResponse {
   Job job = 1;
@@ -232,6 +238,7 @@ message GetJobResponse {
 message RetryJobRequest {
   int64 job_id = 1;
   string request_id = 2;
+  int64 lifecycle_round = 3;
 }
 message RetryJobResponse {
   Job job = 1;
@@ -250,6 +257,7 @@ message ResolveFaceMatchRequest {
   bool ignore = 4;
   int64 expected_revision = 5;
   string request_id = 6;
+  int64 lifecycle_round = 7;
 }
 message ResolveFaceMatchResponse {
   FaceMatch match = 1;
@@ -270,6 +278,7 @@ message ReplaceMembersRequest {
   repeated MemberSelection members = 2;
   int64 expected_revision = 3;
   string request_id = 4;
+  int64 lifecycle_round = 5;
 }
 message ReplaceMembersResponse {
   Pocket pocket = 1;
@@ -292,6 +301,7 @@ message PublishPocketRequest {
   int64 pocket_id = 1;
   int64 expected_revision = 2;
   string request_id = 3;
+  int64 lifecycle_round = 4;
 }
 message PublishPocketResponse {
   Pocket pocket = 1;
@@ -299,6 +309,7 @@ message PublishPocketResponse {
 }
 message GetMyPaymentRequest {
   int64 pocket_id = 1;
+  int64 lifecycle_round = 2;
 }
 message GetMyPaymentResponse {
   Pocket pocket = 1;
@@ -312,6 +323,7 @@ message CancelPocketRequest {
   string reason = 2;
   int64 expected_revision = 3;
   string request_id = 4;
+  int64 lifecycle_round = 5;
 }
 message CancelPocketResponse {
   Pocket pocket = 1;
@@ -321,6 +333,7 @@ message RemindMembersRequest {
   int64 pocket_id = 1;
   repeated int64 member_ids = 2;
   string request_id = 3;
+  int64 lifecycle_round = 4;
 }
 message RemindMembersResponse {
   repeated Notification notifications = 1;
@@ -329,6 +342,7 @@ message SetAlbumAccessRequest {
   int64 pocket_id = 1;
   bool accepted = 2;
   string request_id = 3;
+  int64 lifecycle_round = 4;
 }
 message SetAlbumAccessResponse {}
 message ListAlbumPhotosRequest {
@@ -349,6 +363,7 @@ message GetCollectionStateResponse {
   string status = 1;
   int64 owner_id = 2;
   repeated PocketMember members = 3;
+  int64 lifecycle_round = 4;
 }
 
 service FaceProfileService {

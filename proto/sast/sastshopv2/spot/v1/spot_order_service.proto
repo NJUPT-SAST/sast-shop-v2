@@ -53,6 +53,7 @@ message GetSpotOrderSellerContactResponse {
 message CancelSpotOrderRequest {
   int64 spot_order_id = 1;
   google.protobuf.Timestamp updated_at = 2;
+  int64 lifecycle_round = 3;
 }
 
 message CancelSpotOrderResponse {
@@ -62,6 +63,7 @@ message CancelSpotOrderResponse {
 message CompleteSpotOrderRequest {
   int64 spot_order_id = 1;
   google.protobuf.Timestamp updated_at = 2;
+  int64 lifecycle_round = 3;
 }
 
 message CompleteSpotOrderResponse {

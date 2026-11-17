@@ -21,6 +21,7 @@ func ListPendingSpotOrderPayments(
 	query := spotOrderRecordBaseQuery().
 		Where("sg.store_id = ?", storeID).
 		Where("so.status = ?", model.SpotOrderStatusPendingPayment).
+		Where("so.admin_operation_id = ''").
 		Where("so.payment_bill_id IS NOT NULL").
 		Where("so.id > ?", afterID).
 		OrderExpr("so.id ASC").
@@ -48,6 +49,7 @@ func MarkSpotOrderPaid(ctx context.Context, db bun.IDB, orderID, billID int64, p
 		Where("id = ?", orderID).
 		Where("payment_bill_id = ?", billID).
 		Where("status = ?", model.SpotOrderStatusPendingPayment).
+		Where("admin_operation_id = ''").
 		Exec(ctx)
 	return err
 }

@@ -14,6 +14,7 @@ import (
 )
 
 type BuyerOrderBrief struct {
+	LifecycleRound         int64
 	ErrandDemandID         int64
 	StoreID                int64
 	CreatedAt              time.Time
@@ -41,6 +42,7 @@ type BuyerOrderProductItem struct {
 }
 
 type BuyerOrderDetail struct {
+	LifecycleRound          int64
 	ErrandDemandID          int64
 	StoreID                 int64
 	CreatedAt               time.Time
@@ -132,6 +134,7 @@ func GetBuyerOrderBriefList(
 
 		results = append(results, &BuyerOrderBrief{
 			ErrandDemandID:         d.ID,
+			LifecycleRound:         max(d.LifecycleRound, 1),
 			StoreID:                d.StoreID,
 			CreatedAt:              d.CreatedAt,
 			Status:                 d.Status,
@@ -226,6 +229,7 @@ func GetBuyerOrderDetail(ctx context.Context, requesterID, demandID int64) (*Buy
 
 	return &BuyerOrderDetail{
 		ErrandDemandID:          demand.ID,
+		LifecycleRound:          max(demand.LifecycleRound, 1),
 		StoreID:                 demand.StoreID,
 		CreatedAt:               demand.CreatedAt,
 		Status:                  demand.Status,

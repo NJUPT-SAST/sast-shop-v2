@@ -16,6 +16,10 @@ type SpotGoods struct {
 	SalePriceCents    int32      `bun:"sale_price_cents,notnull"`
 	StockTotal        int32      `bun:"stock_total,notnull"`
 	ClosedAt          *time.Time `bun:"closed_at"`
+	ModerationStatus  string     `bun:"moderation_status,notnull,default:'allowed'"`
+	ModerationReason  string     `bun:"moderation_reason,notnull,default:''"`
+	ModerationBy      *int64     `bun:"moderation_by"`
+	ModerationAt      *time.Time `bun:"moderation_at"`
 	CreatedAt         time.Time  `bun:"created_at,notnull,default:current_timestamp"`
 	UpdatedAt         time.Time  `bun:"updated_at,notnull,default:current_timestamp"`
 }
@@ -49,6 +53,9 @@ type SpotOrder struct {
 	TotalAmountCents    int32           `bun:"total_amount_cents,notnull"`
 	PaymentBillID       *int64          `bun:"payment_bill_id"`
 	Status              SpotOrderStatus `bun:"status,notnull,default:'pending_payment'"`
+	LifecycleRound      int64           `bun:"lifecycle_round,notnull,default:1"`
+	AdminOperationID    string          `bun:"admin_operation_id,notnull,default:''"`
+	InventoryState      string          `bun:"inventory_state,notnull,default:'reserved'"`
 	PaidAt              *time.Time      `bun:"paid_at"`
 	CompletedAt         *time.Time      `bun:"completed_at"`
 	CancelledAt         *time.Time      `bun:"cancelled_at"`

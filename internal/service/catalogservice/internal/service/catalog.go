@@ -202,6 +202,9 @@ func UpdateStore(
 		}, "")
 	}
 
+	if existing.ModerationStatus == "blocked" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("店铺已被管理员停用"))
+	}
 	updates := buildStoreUpdates(store, updateMask)
 	if len(updates) == 0 {
 		return storeToProto(existing), nil
@@ -307,25 +310,14 @@ func CreateProductTemplate(
 		CreatedByUserID: createdByUserID,
 	}
 	err = postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if err := repository.CreateProductTemplate(ctx, tx, pt); err != nil {
-			return err
-		}
-		if barcode != "" {
-			b := &model.CatalogProductBarcode{ProductTemplateID: pt.ID, Barcode: barcode}
-			if err := repository.CreateBarcode(ctx, tx, b); err != nil {
-				return err
-			}
-		}
-		if mainImageURL != "" {
-			img := &model.CatalogProductImage{ProductTemplateID: pt.ID, ImageURL: mainImageURL, SortOrder: 0}
-			if err := repository.CreateImage(ctx, tx, img); err != nil {
-				return err
-			}
-		}
-		return nil
+		return createTemplateRecords(ctx, tx, pt, barcode, mainImageURL)
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create product template with barcode and image")
+		var connErr *connect.Error
+		if errors.As(err, &connErr) {
+			return nil, err
+		}
 		return nil, catalogInternalError()
 	}
 
@@ -450,11 +442,8 @@ func applyProductTemplateUpdatesTx(
 		}
 		return catalogInternalError()
 	}
-	if current.Status == model.CatalogStatusRemoved {
-		return ErrProductNotFound
-	}
-	if !current.UpdatedAt.Equal(pt.UpdatedAt.AsTime()) {
-		return connect.NewError(connect.CodeAborted, errors.New("商品模板已被修改，请刷新后重试"))
+	if err := validateCurrentTemplate(ctx, tx, &current, pt); err != nil {
+		return err
 	}
 	// Barcode-only and image-only edits must advance the template version too.
 	updates["updated_at"] = time.Now()
@@ -502,20 +491,39 @@ func applyProductTemplateImageTx(
 
 // DeleteProductTemplate 软删除商品模板，仅创建者本人可删除。
 func DeleteProductTemplate(ctx context.Context, id int64, callerUserID int64) error {
-	pt, err := repository.GetProductTemplateByID(ctx, id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrProductNotFound
+	return postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		var pt model.CatalogProductTemplate
+		if err := tx.NewSelect().Model(&pt).Where("id = ?", id).For("UPDATE").Scan(ctx); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrProductNotFound
+			}
+			return catalogInternalError()
 		}
-		log.Error().Err(err).Msgf("Failed to get product template for delete: %d", id)
-		return catalogInternalError()
+		if pt.CreatedByUserID != callerUserID {
+			return ErrProductTemplateForbidden
+		}
+		if pt.ModerationStatus == "blocked" {
+			return connect.NewError(connect.CodeFailedPrecondition, errors.New("商品模板已被管理员停用"))
+		}
+		if err := requireStoreAvailable(ctx, tx, pt.StoreID); err != nil {
+			return err
+		}
+		_, err := tx.NewUpdate().Model(&pt).Set("status = ?", model.CatalogStatusRemoved).
+			Set("updated_at = ?", time.Now()).Where("id = ?", id).Exec(ctx)
+		return err
+	})
+}
+
+func requireStoreAvailable(ctx context.Context, db bun.IDB, storeID int64) error {
+	var store model.CatalogStore
+	if err := db.NewSelect().Model(&store).Where("id = ?", storeID).For("SHARE").Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrStoreNotFound
+		}
+		return err
 	}
-	if pt.CreatedByUserID != callerUserID {
-		return ErrProductTemplateForbidden
-	}
-	if err := repository.SoftDeleteProductTemplate(ctx, id); err != nil {
-		log.Error().Err(err).Msgf("Failed to soft delete product template: %d", id)
-		return catalogInternalError()
+	if store.ModerationStatus == "blocked" || store.Status == model.CatalogStatusRemoved {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("店铺当前不可用"))
 	}
 	return nil
 }
@@ -647,4 +655,57 @@ func applyStoreUpdates(store *model.CatalogStore, updates map[string]any) {
 			store.ThemeColor = s
 		}
 	}
+}
+
+func createTemplateRecords(
+	ctx context.Context,
+	tx bun.Tx,
+	pt *model.CatalogProductTemplate,
+	barcode, mainImageURL string,
+) error {
+	if err := requireStoreAvailable(ctx, tx, pt.StoreID); err != nil {
+		return err
+	}
+	if err := repository.CreateProductTemplate(ctx, tx, pt); err != nil {
+		return err
+	}
+	if barcode != "" {
+		b := &model.CatalogProductBarcode{ProductTemplateID: pt.ID, Barcode: barcode}
+		if err := repository.CreateBarcode(ctx, tx, b); err != nil {
+			return err
+		}
+	}
+	if mainImageURL != "" {
+		img := &model.CatalogProductImage{ProductTemplateID: pt.ID, ImageURL: mainImageURL, SortOrder: 0}
+		if err := repository.CreateImage(ctx, tx, img); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCurrentTemplate(
+	ctx context.Context,
+	tx bun.Tx,
+	current *model.CatalogProductTemplate,
+	pt *catalogv1.ProductTemplate,
+) error {
+	if current.Status == model.CatalogStatusRemoved {
+		return ErrProductNotFound
+	}
+	if current.ModerationStatus == "blocked" {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("商品模板已被管理员停用"))
+	}
+	if err := requireStoreAvailable(ctx, tx, current.StoreID); err != nil {
+		return err
+	}
+	if pt.StoreId > 0 && pt.StoreId != current.StoreID {
+		if err := requireStoreAvailable(ctx, tx, pt.StoreId); err != nil {
+			return err
+		}
+	}
+	if !current.UpdatedAt.Equal(pt.UpdatedAt.AsTime()) {
+		return connect.NewError(connect.CodeAborted, errors.New("商品模板已被修改，请刷新后重试"))
+	}
+	return nil
 }

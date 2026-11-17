@@ -11,6 +11,8 @@ import (
 )
 
 type SelectedDemandItemRow struct {
+	DemandLifecycleRound   int64                        `bun:"demand_lifecycle_round"`
+	DemandAdminOperationID string                       `bun:"demand_admin_operation_id"`
 	DemandItemID           int64                        `bun:"demand_item_id"`
 	DemandItemUpdatedAt    time.Time                    `bun:"demand_item_updated_at"`
 	DemandItemStatus       model.ErrandDemandItemStatus `bun:"demand_item_status"`
@@ -34,11 +36,12 @@ type ProductSnapshotRow struct {
 }
 
 type ShoppingTaskHeaderRow struct {
-	TaskID    int64                  `bun:"task_id"`
-	StoreID   int64                  `bun:"store_id"`
-	StoreName string                 `bun:"store_name"`
-	Status    model.ErrandTaskStatus `bun:"status"`
-	UpdatedAt time.Time              `bun:"updated_at"`
+	LifecycleRound int64                  `bun:"lifecycle_round"`
+	TaskID         int64                  `bun:"task_id"`
+	StoreID        int64                  `bun:"store_id"`
+	StoreName      string                 `bun:"store_name"`
+	Status         model.ErrandTaskStatus `bun:"status"`
+	UpdatedAt      time.Time              `bun:"updated_at"`
 }
 
 type ShoppingTaskItemRow struct {
@@ -81,6 +84,7 @@ func LoadSelectedDemandItemsForUpdate(ctx context.Context, db bun.IDB, ids []int
 		ColumnExpr("edi.status AS demand_item_status").
 		ColumnExpr("ed.id AS demand_id").
 		ColumnExpr("ed.status AS demand_status").
+		ColumnExpr("ed.lifecycle_round AS demand_lifecycle_round, ed.admin_operation_id AS demand_admin_operation_id").
 		ColumnExpr("edi.requester_id AS requester_id").
 		ColumnExpr("edi.store_id AS store_id").
 		ColumnExpr("edi.product_template_id AS product_template_id").
@@ -237,6 +241,7 @@ func GetShoppingTaskHeader(ctx context.Context, db bun.IDB, taskID, captainID in
 	err := db.NewSelect().
 		TableExpr("errand.errand_task as et").
 		Join("left join catalog.catalog_store as cs on cs.id = et.store_id").
+		ColumnExpr("et.lifecycle_round AS lifecycle_round").
 		ColumnExpr("et.id as task_id").
 		ColumnExpr("et.store_id as store_id").
 		ColumnExpr("coalesce(cs.name, '') as store_name").
@@ -511,6 +516,7 @@ func ListNonPurchasedDemandItemNotifications(
 }
 
 type DistributingTaskHeaderRow struct {
+	LifecycleRound    int64                  `bun:"lifecycle_round"`
 	TaskID            int64                  `bun:"task_id"`
 	StoreID           int64                  `bun:"store_id"`
 	StoreName         string                 `bun:"store_name"`
@@ -557,6 +563,7 @@ func GetDistributingTaskHeader(
 	err := db.NewSelect().
 		TableExpr("errand.errand_task AS et").
 		Join("LEFT JOIN catalog.catalog_store AS cs ON cs.id = et.store_id").
+		ColumnExpr("et.lifecycle_round AS lifecycle_round").
 		ColumnExpr("et.id AS task_id").
 		ColumnExpr("et.store_id AS store_id").
 		ColumnExpr("COALESCE(cs.name, '') AS store_name").

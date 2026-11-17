@@ -6,6 +6,7 @@ message OnPaymentConfirmedRequest {
   string source_type = 1;
   int64 source_id = 2;
   int64 payer_id = 3;
+  int64 lifecycle_round = 4;
 }
 
 message OnPaymentConfirmedResponse {}
@@ -13,6 +14,7 @@ message OnPaymentConfirmedResponse {}
 message OnAllPaymentsConfirmedRequest {
   string source_type = 1;
   int64 source_id = 2;
+  int64 lifecycle_round = 3;
 }
 
 message OnAllPaymentsConfirmedResponse {}

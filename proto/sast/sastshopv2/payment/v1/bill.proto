@@ -52,4 +52,5 @@ message Bill {
   optional string source_type = 15;
   // 业务来源 ID
   optional int64 source_id = 16;
+  int64 lifecycle_round = 17;
 }

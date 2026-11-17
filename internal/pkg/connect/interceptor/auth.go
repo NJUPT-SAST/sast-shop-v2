@@ -18,6 +18,7 @@ type AuthUser struct {
 	Role        string `json:"role"`
 	Status      string `json:"status"`
 	AccessToken string `json:"access_token,omitempty"`
+	AuthVersion int64  `json:"auth_version,omitempty"`
 }
 
 // 抽象出会话存储，避免拦截器依赖具体数据库，让每个数据库自己实现

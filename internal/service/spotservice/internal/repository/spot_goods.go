@@ -40,7 +40,9 @@ func ListSellerSpotGoods(ctx context.Context, sellerID int64, offset, limit int)
 }
 
 func filterSpotGoods(query *bun.SelectQuery, storeID int64, keyword string) *bun.SelectQuery {
-	query = query.Where("sg.closed_at IS NULL").Where("sg.stock_total >= 0")
+	query = query.Where("sg.closed_at IS NULL").Where("sg.stock_total >= 0").
+		Where("sg.moderation_status = ?", "allowed").
+		Where("EXISTS (SELECT 1 FROM catalog.catalog_product_template cpt JOIN catalog.catalog_store cs ON cs.id = cpt.store_id WHERE cpt.id = sg.product_template_id AND cpt.moderation_status = 'allowed' AND cs.moderation_status = 'allowed' AND cpt.status != 'removed' AND cs.status != 'removed')")
 	if storeID != 0 {
 		query = query.Where("sg.store_id = ?", storeID)
 	}
@@ -108,6 +110,7 @@ func UpdateSpotGoodsStockTx(
 		Set("updated_at = ?", time.Now()).
 		Where("id = ?", goodsID).
 		Where("closed_at IS NULL").
+		Where("moderation_status = ?", "allowed").
 		Where("updated_at = ?", updatedAt).
 		Exec(ctx)
 	if err != nil {
@@ -132,6 +135,7 @@ func CloseSpotGoods(
 		Set("updated_at = ?", now).
 		Where("id = ?", goodsID).
 		Where("closed_at IS NULL").
+		Where("moderation_status = ?", "allowed").
 		Where("updated_at = ?", updatedAt).
 		Exec(ctx)
 	if err != nil {
@@ -156,6 +160,7 @@ func UpdateSpotGoodsPrice(
 		Set("updated_at = ?", time.Now()).
 		Where("id = ?", goodsID).
 		Where("closed_at IS NULL").
+		Where("moderation_status = ?", "allowed").
 		Where("updated_at = ?", updatedAt).
 		Exec(ctx)
 	if err != nil {

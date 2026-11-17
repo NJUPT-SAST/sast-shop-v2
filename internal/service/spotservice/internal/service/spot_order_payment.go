@@ -105,6 +105,15 @@ func ensureSpotOrderPaymentCompleted(ctx context.Context, tx bun.Tx, order *mode
 	if order.Status != model.SpotOrderStatusPendingPayment && order.Status != model.SpotOrderStatusPaid {
 		return connect.NewError(connect.CodeFailedPrecondition, ErrInvalidSpotOrderStatus)
 	}
+	if order.PaymentBillID == nil {
+		goods, err := repository.GetSpotGoodsByID(ctx, order.ListingID)
+		if err != nil {
+			return err
+		}
+		if goods.SellerID == order.PurchaserID && order.Status == model.SpotOrderStatusPaid {
+			return nil
+		}
+	}
 	bill, err := getBill(ctx, order.PaymentBillID)
 	if err != nil {
 		return err

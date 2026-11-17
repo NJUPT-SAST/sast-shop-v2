@@ -178,6 +178,7 @@ func UpdateTaskAssignmentPaymentBillIDByPayer(
 }
 
 type CollectingPaymentTaskHeaderRow struct {
+	LifecycleRound    int64                  `bun:"lifecycle_round"`
 	TaskID            int64                  `bun:"task_id"`
 	PackagingFeeCents int32                  `bun:"packaging_fee_cents"`
 	Status            model.ErrandTaskStatus `bun:"status"`
@@ -192,6 +193,7 @@ func GetCollectingPaymentTaskHeader(
 	var row CollectingPaymentTaskHeaderRow
 	err := db.NewSelect().
 		TableExpr("errand.errand_task AS et").
+		ColumnExpr("et.lifecycle_round AS lifecycle_round").
 		ColumnExpr("et.id AS task_id").
 		ColumnExpr("et.packaging_fee_cents AS packaging_fee_cents").
 		ColumnExpr("et.status AS status").
@@ -520,11 +522,12 @@ func ListTaskPaymentBillRefs(ctx context.Context, db bun.IDB, taskID int64) ([]T
 }
 
 type ErrandTaskListRow struct {
-	TaskID    int64                  `bun:"task_id"`
-	StoreID   int64                  `bun:"store_id"`
-	StoreName string                 `bun:"store_name"`
-	Status    model.ErrandTaskStatus `bun:"status"`
-	CreatedAt time.Time              `bun:"created_at"`
+	LifecycleRound int64                  `bun:"lifecycle_round"`
+	TaskID         int64                  `bun:"task_id"`
+	StoreID        int64                  `bun:"store_id"`
+	StoreName      string                 `bun:"store_name"`
+	Status         model.ErrandTaskStatus `bun:"status"`
+	CreatedAt      time.Time              `bun:"created_at"`
 }
 
 func CountErrandTasks(
@@ -559,6 +562,7 @@ func ListErrandTasks(
 	q := db.NewSelect().
 		TableExpr("errand.errand_task AS et").
 		Join("LEFT JOIN catalog.catalog_store AS cs ON cs.id = et.store_id").
+		ColumnExpr("et.lifecycle_round AS lifecycle_round").
 		ColumnExpr("et.id AS task_id").
 		ColumnExpr("et.store_id AS store_id").
 		ColumnExpr("COALESCE(cs.name, '') AS store_name").

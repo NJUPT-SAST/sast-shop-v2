@@ -91,6 +91,7 @@ func GetDistinctRequestersByStore(
 
 // OpenDemandItemRow 是 errand_demand_item JOIN errand_demand 的查询结果。
 type OpenDemandItemRow struct {
+	DemandLifecycleRound int64 `bun:"demand_lifecycle_round"`
 	model.ErrandDemandItem
 	Deadline time.Time `bun:"deadline"`
 }
@@ -101,7 +102,7 @@ func GetOpenDemandItemsByStore(
 ) ([]*OpenDemandItemRow, error) {
 	var rows []*OpenDemandItemRow
 	err := postgres.DB.NewSelect().
-		ColumnExpr("edi.*, ed.deadline").
+		ColumnExpr("edi.*, ed.deadline, ed.lifecycle_round AS demand_lifecycle_round").
 		TableExpr("errand.errand_demand_item AS edi").
 		Join("JOIN errand.errand_demand AS ed ON edi.errand_demand_id = ed.id").
 		Where("edi.store_id = ?", storeID).

@@ -48,6 +48,7 @@ type productSnapshot struct {
 
 type createTaskSelection struct {
 	SelectedUpdatedAt map[int64]time.Time
+	SelectedRounds    map[int64]int64
 	SelectedIDs       []int64
 }
 
@@ -120,6 +121,7 @@ func CreateTask(ctx context.Context, captainID int64, req *errandv1.CreateTaskRe
 
 func buildCreateTaskSelection(req *errandv1.CreateTaskRequest) (*createTaskSelection, error) {
 	selectedUpdatedAt := make(map[int64]time.Time, len(req.DemandItems))
+	selectedRounds := make(map[int64]int64, len(req.DemandItems))
 	selectedIDs := make([]int64, 0, len(req.DemandItems))
 
 	for i, item := range req.DemandItems {
@@ -132,11 +134,13 @@ func buildCreateTaskSelection(req *errandv1.CreateTaskRequest) (*createTaskSelec
 		}
 
 		selectedUpdatedAt[item.ErrandDemandItemId] = item.UpdatedAt.AsTime().UTC()
+		selectedRounds[item.ErrandDemandItemId] = item.DemandLifecycleRound
 		selectedIDs = append(selectedIDs, item.ErrandDemandItemId)
 	}
 
 	return &createTaskSelection{
 		SelectedUpdatedAt: selectedUpdatedAt,
+		SelectedRounds:    selectedRounds,
 		SelectedIDs:       selectedIDs,
 	}, nil
 }
@@ -171,6 +175,13 @@ func loadCreateTaskData(
 				Msg("expected updated_at not found in selection map")
 			return nil, err
 		}
+		if err := checkErrandLifecycle(
+			row.DemandLifecycleRound,
+			selection.SelectedRounds[row.DemandItemID],
+			row.DemandAdminOperationID,
+		); err != nil {
+			return nil, err
+		}
 		// 校验其仍处于 open 状态，并基于 updated_at 做并发校验
 		// 校验每一行，失败时记录详细日志
 		if err := validateSelectedDemandItemRow(row, storeID, expectedUpdatedAt, now); err != nil {
@@ -194,6 +205,9 @@ func loadCreateTaskData(
 		productIDsSet[row.ProductTemplateID] = struct{}{}                // map键具有唯一性，自动去重
 	}
 
+	if err := lockDemandSelectionCatalog(ctx, tx, storeID, rows); err != nil {
+		return nil, err
+	}
 	snapshots, err := loadValidatedSnapshots(ctx, storeID, productIDsSet)
 	if err != nil {
 		return nil, err
@@ -576,11 +590,12 @@ func GetShoppingTaskDetail(
 	}
 
 	return &errandv1.GetShoppingTaskDetailResponse{
-		ErrandTaskId: header.TaskID,
-		StoreId:      header.StoreID,
-		StoreName:    header.StoreName,
-		TaskItems:    taskItems,
-		UpdatedAt:    timestamppb.New(header.UpdatedAt),
+		LifecycleRound: max(header.LifecycleRound, 1),
+		ErrandTaskId:   header.TaskID,
+		StoreId:        header.StoreID,
+		StoreName:      header.StoreName,
+		TaskItems:      taskItems,
+		UpdatedAt:      timestamppb.New(header.UpdatedAt),
 	}, nil
 }
 
@@ -650,6 +665,9 @@ func executeSaveShoppingTask(
 	expectedUpdatedAt := req.ErrandTaskItemUpdatedAt.AsTime().UTC()
 	var updatedAt time.Time
 	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if err := guardErrandTask(ctx, tx, req.ErrandTaskId, captainID, req.LifecycleRound); err != nil {
+			return err
+		}
 		row, err := loadTaskItem(ctx, tx, req, captainID)
 		if err != nil {
 			return err
@@ -774,13 +792,13 @@ func TransitionToPendingDistributing(
 	captainID int64,
 	req *errandv1.TransitionToPendingDistributingRequest,
 ) (*timestamppb.Timestamp, error) {
-	if req == nil || req.ErrandTaskId <= 0 {
+	if req == nil || req.ErrandTaskId <= 0 || req.UpdatedAt == nil || !req.UpdatedAt.IsValid() {
 		return nil, connect.NewError(errmsg.InvalidTransitionRequest.Code, errmsg.InvalidTransitionRequest)
 	}
 	updatedAt, notificationRows, err := transitionTaskToPendingDistributing(
 		ctx,
 		captainID,
-		req.ErrandTaskId,
+		req.ErrandTaskId, req.LifecycleRound, req.UpdatedAt.AsTime(),
 	)
 	if err != nil {
 		return nil, err
@@ -793,12 +811,20 @@ func TransitionToPendingDistributing(
 // 在数据库事务中将指定的跑腿任务状态更新为“待分发”，并返回需要推送通知的未购买需求项列表。
 func transitionTaskToPendingDistributing(
 	ctx context.Context,
-	captainID, taskID int64,
+	captainID, taskID, round int64,
+	expectedUpdatedAt time.Time,
 ) (time.Time, []repository.NonPurchasedDemandItemNotificationRow, error) {
 	var updatedAt time.Time
 	var notificationRows []repository.NonPurchasedDemandItemNotificationRow
 
 	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		task, err := lockCurrentErrandTask(ctx, tx, taskID, captainID, round)
+		if err != nil {
+			return err
+		}
+		if !task.UpdatedAt.Equal(expectedUpdatedAt) {
+			return ErrConcurrencyConflict
+		}
 		taskUpdatedAt, rows, err := executeTransitionToPendingDistributingTx(
 			ctx,
 			tx,
@@ -1061,6 +1087,7 @@ func GetDistributingTaskDetail(
 	}
 
 	return &errandv1.GetDistributingTaskDetailResponse{
+		LifecycleRound:    max(header.LifecycleRound, 1),
 		ErrandTaskId:      header.TaskID,
 		StoreId:           header.StoreID,
 		StoreName:         header.StoreName,
@@ -1101,6 +1128,9 @@ func updateActualPriceInTx(
 ) (time.Time, error) {
 	var updatedAt time.Time
 	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if err := guardErrandTask(ctx, tx, req.ErrandTaskId, captainID, req.LifecycleRound); err != nil {
+			return err
+		}
 		var err error
 		updatedAt, err = executeUpdateActualPriceTx(ctx, tx, captainID, req, expectedUpdatedAt)
 		return err
@@ -1272,6 +1302,9 @@ func TransitionToDistributing(
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
 	var updatedAt time.Time
 	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if err := guardErrandTask(ctx, tx, req.ErrandTaskId, captainID, req.LifecycleRound); err != nil {
+			return err
+		}
 		task, err := loadPendingDistributingTaskForTransition(
 			ctx,
 			tx,
@@ -1407,6 +1440,15 @@ func SaveDistributingTaskAssignment(
 	expectedUpdatedAt := req.ErrandTaskAssignmentUpdatedAt.AsTime().UTC()
 	var updatedAt time.Time
 	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if err := guardErrandAssignment(
+			ctx,
+			tx,
+			req.ErrandTaskAssignmentId,
+			captainID,
+			req.LifecycleRound,
+		); err != nil {
+			return err
+		}
 		var err error
 		updatedAt, err = executeSaveDistributingTaskAssignmentTx(ctx, tx, captainID, req, expectedUpdatedAt)
 		return err
@@ -1613,8 +1655,11 @@ func TransitionToCollectingPayment(
 		return nil, connect.NewError(errmsg.InvalidTransitionRequest.Code, errmsg.InvalidTransitionRequest)
 	}
 
+	if err := preflightErrandCollection(ctx, captainID, req); err != nil {
+		return nil, err
+	}
 	// 先通过 RPC 创建账单（事务外，失败则任务状态不变）
-	billDrafts, err := createPaymentBillsViaRPC(ctx, req.ErrandTaskId)
+	billDrafts, err := createPaymentBillsViaRPC(ctx, req.ErrandTaskId, req.LifecycleRound)
 	if err != nil {
 		return nil, err
 	}
@@ -1623,11 +1668,14 @@ func TransitionToCollectingPayment(
 
 	// 全部为团长自购，无需收款，直接完成
 	if len(billDrafts) == 0 {
-		return completeTaskWithoutBills(ctx, captainID, req.ErrandTaskId, expectedUpdatedAt)
+		return completeTaskWithoutBills(ctx, captainID, req.ErrandTaskId, expectedUpdatedAt, req.LifecycleRound)
 	}
 
 	var updatedAt time.Time
 	if err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if err := guardErrandTask(ctx, tx, req.ErrandTaskId, captainID, req.LifecycleRound); err != nil {
+			return err
+		}
 		updatedAt, err = transitionToCollectingPaymentTx(
 			ctx, tx, captainID, req.ErrandTaskId, expectedUpdatedAt, billDrafts,
 		)
@@ -1656,6 +1704,10 @@ func transitionToCollectingPaymentTx(
 		return time.Time{}, err
 	}
 	if err := ensureTaskDistributionCompleted(ctx, tx, task.TaskID); err != nil {
+		return time.Time{}, err
+	}
+
+	if err := validateErrandBoundBills(ctx, tx, task.TaskID, billDrafts); err != nil {
 		return time.Time{}, err
 	}
 
@@ -1770,86 +1822,16 @@ func ensureTaskDistributionCompleted(ctx context.Context, tx bun.Tx, taskID int6
 
 func OnPaymentConfirmed(ctx context.Context, req *errandv1.OnPaymentConfirmedRequest) error {
 	if req == nil || req.SourceType != "errand_task" || req.SourceId <= 0 || req.PayerId <= 0 {
-		return connect.NewError(errmsg.InvalidPaymentConfirmedRequest.Code, errmsg.InvalidPaymentConfirmedRequest)
+		return connect.NewError(connect.CodeInvalidArgument, ErrInvalidDemandItem)
 	}
-
-	now := time.Now().UTC()
-	if err := repository.UpdateTaskDemandItemsToCompletedByPayer(
-		ctx,
-		postgres.DB,
-		req.SourceId,
-		req.PayerId,
-		now,
-	); err != nil {
-		log.Error().
-			Err(err).
-			Int64("errand_task_id", req.SourceId).
-			Int64("payer_id", req.PayerId).
-			Msg("failed to update payer demand items to completed")
-		return newErrandInternalError("")
-	}
-
-	return nil
+	return OnErrandTaskPaymentConfirmed(ctx, req.SourceId, req.PayerId, req.LifecycleRound)
 }
 
 func OnAllPaymentsConfirmed(ctx context.Context, req *errandv1.OnAllPaymentsConfirmedRequest) error {
 	if req == nil || req.SourceType != "errand_task" || req.SourceId <= 0 {
-		return connect.NewError(
-			errmsg.InvalidAllPaymentsConfirmedRequest.Code,
-			errmsg.InvalidAllPaymentsConfirmedRequest,
-		)
+		return connect.NewError(connect.CodeInvalidArgument, ErrInvalidDemandItem)
 	}
-
-	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		task, err := repository.GetErrandTaskForUpdateByID(ctx, tx, req.SourceId)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return connect.NewError(errmsg.TaskNotFound.Code, errmsg.TaskNotFound)
-			}
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", req.SourceId).
-				Msg("failed to load task for all payments confirmed")
-			return newErrandInternalError("")
-		}
-		if task.Status == model.ErrandTaskStatusCompleted {
-			return nil
-		}
-		if task.Status != model.ErrandTaskStatusCollectingPayment {
-			return connect.NewError(errmsg.TaskNotInCollectingPayment.Code, errmsg.TaskNotInCollectingPayment)
-		}
-		if err := ensureTaskPaymentsCompleted(ctx, tx, task.TaskID); err != nil {
-			return err
-		}
-
-		now := time.Now().UTC()
-		if err := repository.UpdateTaskToCompletedWithoutUpdatedAt(ctx, tx, task.TaskID, now); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrConcurrencyConflict
-			}
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", task.TaskID).
-				Msg("failed to update task to completed after all payments confirmed")
-			return newErrandInternalError("")
-		}
-		if err := repository.UpdateTaskRelatedDemandsToCompleted(ctx, tx, task.TaskID, now); err != nil {
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", task.TaskID).
-				Msg("failed to update related demands to completed after all payments confirmed")
-			return newErrandInternalError("")
-		}
-		if err := repository.UpdateTaskRelatedDemandItemsToCompleted(ctx, tx, task.TaskID, now); err != nil {
-			log.Error().
-				Err(err).
-				Int64("errand_task_id", task.TaskID).
-				Msg("failed to update related demand items to completed after all payments confirmed")
-			return newErrandInternalError("")
-		}
-
-		return nil
-	})
+	return OnErrandTaskAllPaymentsConfirmed(ctx, req.SourceId, req.LifecycleRound)
 }
 
 type taskPaymentBillDraft struct {
@@ -1859,14 +1841,16 @@ type taskPaymentBillDraft struct {
 }
 
 type boundBillDraft struct {
-	PayerID int64
-	BillID  int64
+	PayerID     int64
+	BillID      int64
+	PayeeID     int64
+	AmountCents int32
 }
 
 // 生成支付订单，放在事务外，订单创建失败不影响状态转换
 // createPaymentBillsViaRPC 仅通过 RPC 创建账单并返回含 bill_id 的草案，
 // 不写入数据库。DB 写入（绑定 assignment.payment_bill_id）由调用方在事务内完成。
-func createPaymentBillsViaRPC(ctx context.Context, taskID int64) ([]boundBillDraft, error) {
+func createPaymentBillsViaRPC(ctx context.Context, taskID, round int64) ([]boundBillDraft, error) {
 	if client.PaymentInternalServiceClient == nil {
 		log.Error().Int64("errand_task_id", taskID).Msg("payment internal service client is not initialized")
 		return nil, newErrandInternalError("")
@@ -1894,11 +1878,12 @@ func createPaymentBillsViaRPC(ctx context.Context, taskID int64) ([]boundBillDra
 		resp, err := client.PaymentInternalServiceClient.CreateBillForOrder(
 			ctx,
 			connect.NewRequest(&paymentv1.CreateBillForOrderRequest{
-				SourceType:  "errand_task",
-				SourceId:    taskID,
-				PayerId:     draft.PayerID,
-				PayeeId:     draft.PayeeID,
-				AmountCents: draft.AmountCents,
+				SourceType:     "errand_task",
+				LifecycleRound: max(round, 1),
+				SourceId:       taskID,
+				PayerId:        draft.PayerID,
+				PayeeId:        draft.PayeeID,
+				AmountCents:    draft.AmountCents,
 			}),
 		)
 		if err != nil {
@@ -1911,9 +1896,14 @@ func createPaymentBillsViaRPC(ctx context.Context, taskID int64) ([]boundBillDra
 				Int64("payer_id", draft.PayerID).Msg("payment service returned empty bill")
 			return nil, newErrandInternalError("")
 		}
+		if err := validateCreatedErrandBill(resp.Msg.Bill, taskID, round, draft); err != nil {
+			return nil, err
+		}
 		results = append(results, boundBillDraft{
-			PayerID: draft.PayerID,
-			BillID:  resp.Msg.Bill.Id,
+			PayerID:     draft.PayerID,
+			BillID:      resp.Msg.Bill.Id,
+			PayeeID:     draft.PayeeID,
+			AmountCents: draft.AmountCents,
 		})
 	}
 	return results, nil
@@ -1925,14 +1915,22 @@ func completeTaskWithoutBills(
 	captainID int64,
 	taskID int64,
 	expectedUpdatedAt time.Time,
+	round int64,
 ) (*timestamppb.Timestamp, error) {
 	var updatedAt time.Time
 	if err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if err := guardErrandTask(ctx, tx, taskID, captainID, round); err != nil {
+			return err
+		}
 		task, err := loadDistributingTaskForCollectingPayment(ctx, tx, captainID, taskID, expectedUpdatedAt)
 		if err != nil {
 			return err
 		}
 		if err := ensureTaskDistributionCompleted(ctx, tx, task.TaskID); err != nil {
+			return err
+		}
+
+		if err := validateErrandBoundBills(ctx, tx, task.TaskID, nil); err != nil {
 			return err
 		}
 
@@ -2069,9 +2067,10 @@ func GetCollectingPaymentDetail(
 	}
 
 	return &errandv1.GetCollectingPaymentDetailResponse{
-		Bills:        bills,
-		ErrandTaskId: header.TaskID,
-		UpdatedAt:    timestamppb.New(header.UpdatedAt),
+		LifecycleRound: max(header.LifecycleRound, 1),
+		Bills:          bills,
+		ErrandTaskId:   header.TaskID,
+		UpdatedAt:      timestamppb.New(header.UpdatedAt),
 	}, nil
 }
 
@@ -2286,6 +2285,9 @@ func TransitionToCompleted(
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
 	var updatedAt time.Time
 	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if err := guardErrandTask(ctx, tx, req.ErrandTaskId, captainID, req.LifecycleRound); err != nil {
+			return err
+		}
 		task, err := loadCollectingPaymentTaskForCompletion(ctx, tx, captainID, req.ErrandTaskId, expectedUpdatedAt)
 		if err != nil {
 			return err
@@ -2525,12 +2527,13 @@ func errandTaskListRowsToProto(rows []repository.ErrandTaskListRow) ([]*errandv1
 	for _, row := range rows {
 		status, _ := modelErrandTaskStatusToProto(row.Status)
 		tasks = append(tasks, &errandv1.ErrandTask{
-			TaskId:    row.TaskID,
-			StoreId:   row.StoreID,
-			StoreName: row.StoreName,
-			Status:    status,
-			Items:     make([]*errandv1.ErrandTaskItem, 0),
-			CreatedAt: timestamppb.New(row.CreatedAt),
+			LifecycleRound: max(row.LifecycleRound, 1),
+			TaskId:         row.TaskID,
+			StoreId:        row.StoreID,
+			StoreName:      row.StoreName,
+			Status:         status,
+			Items:          make([]*errandv1.ErrandTaskItem, 0),
+			CreatedAt:      timestamppb.New(row.CreatedAt),
 		})
 		taskIDs = append(taskIDs, row.TaskID)
 	}
@@ -2591,13 +2594,19 @@ func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRe
 
 	expectedUpdatedAt := req.UpdatedAt.AsTime().UTC()
 	var updatedAt time.Time
-	var cancelledFromStatus model.ErrandTaskStatus
 	if err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if err := guardErrandTask(ctx, tx, req.ErrandTaskId, captainID, req.LifecycleRound); err != nil {
+			return err
+		}
 		task, err := loadTaskForCancellation(ctx, tx, captainID, req.ErrandTaskId, expectedUpdatedAt)
 		if err != nil {
 			return err
 		}
-		cancelledFromStatus = task.Status
+		if task.Status == model.ErrandTaskStatusCollectingPayment {
+			if err := cancelTaskPaymentBills(ctx, req.ErrandTaskId, req.LifecycleRound); err != nil {
+				return err
+			}
+		}
 
 		now := time.Now().UTC()
 		updatedAt, err = repository.UpdateTaskToCancelled(ctx, tx, task.TaskID, task.UpdatedAt, now)
@@ -2638,12 +2647,6 @@ func CancelTask(ctx context.Context, captainID int64, req *errandv1.CancelTaskRe
 		return nil, err
 	}
 
-	if cancelledFromStatus == model.ErrandTaskStatusCollectingPayment {
-		if err := cancelTaskPaymentBills(ctx, req.ErrandTaskId); err != nil {
-			return nil, err
-		}
-	}
-
 	return timestamppb.New(updatedAt), nil
 }
 
@@ -2675,7 +2678,7 @@ func loadTaskForCancellation(
 	return task, nil
 }
 
-func cancelTaskPaymentBills(ctx context.Context, taskID int64) error {
+func cancelTaskPaymentBills(ctx context.Context, taskID, round int64) error {
 	if client.PaymentInternalServiceClient == nil {
 		log.Error().Int64("errand_task_id", taskID).Msg("payment internal service client is not initialized")
 		return newErrandInternalError("")
@@ -2684,8 +2687,9 @@ func cancelTaskPaymentBills(ctx context.Context, taskID int64) error {
 	if _, err := client.PaymentInternalServiceClient.CancelBillBySource(
 		ctx,
 		connect.NewRequest(&paymentv1.CancelBillBySourceRequest{
-			SourceType: "errand_task",
-			SourceId:   taskID,
+			SourceType:     "errand_task",
+			LifecycleRound: max(round, 1),
+			SourceId:       taskID,
 		}),
 	); err != nil {
 		log.Error().

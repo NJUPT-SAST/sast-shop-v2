@@ -40,7 +40,7 @@ func (s *GroupTradeInternalServer) OnPaymentConfirmed(
 	// source_type 路由
 	switch msg.SourceType {
 	case SourceTypeErrandTask:
-		if err := service.OnErrandTaskPaymentConfirmed(ctx, msg.SourceId, msg.PayerId); err != nil {
+		if err := service.OnErrandTaskPaymentConfirmed(ctx, msg.SourceId, msg.PayerId, msg.LifecycleRound); err != nil {
 			// service 层已经记过日志了，这里只把它翻译成 connect.Error
 			if errors.Is(err, service.ErrAssignmentNotFound) {
 				log.Warn().
@@ -76,7 +76,7 @@ func (s *GroupTradeInternalServer) OnAllPaymentsConfirmed(
 
 	switch msg.SourceType {
 	case SourceTypeErrandTask:
-		if err := service.OnErrandTaskAllPaymentsConfirmed(ctx, msg.SourceId); err != nil {
+		if err := service.OnErrandTaskAllPaymentsConfirmed(ctx, msg.SourceId, msg.LifecycleRound); err != nil {
 			return nil, mapGroupTradeInternalError(err)
 		}
 		return connect.NewResponse(&errandv1.OnAllPaymentsConfirmedResponse{}), nil

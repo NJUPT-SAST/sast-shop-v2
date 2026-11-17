@@ -198,6 +198,9 @@ func ValidateProductTemplate(
 
 func CreateSpotGoodsTx(ctx context.Context, goods *model.SpotGoods) error {
 	return postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := repository.LockCatalogForSale(ctx, tx, goods.StoreID, goods.ProductTemplateID); err != nil {
+			return err
+		}
 		if err := repository.CreateSpotGoodsTx(ctx, tx, goods); err != nil {
 			return err
 		}
@@ -267,7 +270,7 @@ func validateEditableSpotGoods(goods *model.SpotGoods, callerID int64, updatedAt
 	if goods.SellerID != callerID {
 		return connect.NewError(connect.CodePermissionDenied, errmsg.SpotPermissionDenied)
 	}
-	if goods.ClosedAt != nil {
+	if goods.ClosedAt != nil || goods.ModerationStatus == "blocked" {
 		return connect.NewError(connect.CodeFailedPrecondition, errmsg.SpotGoodsClosed)
 	}
 	if !goods.UpdatedAt.Equal(updatedAt.AsTime()) {
@@ -288,36 +291,61 @@ func UpdateSpotGoodsStock(
 		return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
 	}
 	return postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		goods, err := repository.LockSpotGoods(ctx, tx, goodsID)
-		if errors.Is(err, repository.ErrNotFound) {
-			return connect.NewError(connect.CodeNotFound, errmsg.SpotGoodsNotFound)
-		}
-		if err != nil {
-			return spotInternalError()
-		}
-		if err := validateEditableSpotGoods(goods, callerID, updatedAt); err != nil {
-			return err
-		}
-		if goods.StockTotal == -1 && newStockTotal == 0 {
-			return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
-		}
-		rows, err := repository.UpdateSpotGoodsStockTx(ctx, tx, goodsID, newStockTotal, goods.UpdatedAt)
-		if err != nil {
-			return spotInternalError()
-		}
-		if rows == 0 {
-			return connect.NewError(connect.CodeAborted, errmsg.SpotGoodsVersionConflict)
-		}
-		if err := repository.CreateStockLedger(ctx, tx, &model.SpotStockLedger{
-			ListingID:  goodsID,
-			Delta:      max(newStockTotal, 0) - max(goods.StockTotal, 0),
-			Reason:     model.StockLedgerReasonManualAdjust,
-			OperatorID: &callerID,
-		}); err != nil {
-			return spotInternalError()
-		}
-		return nil
+		return updateSpotGoodsStockInTx(ctx, tx, callerID, goodsID, newStockTotal, updatedAt)
 	})
+}
+
+func updateSpotGoodsStockInTx(
+	ctx context.Context,
+	tx bun.Tx,
+	callerID, goodsID int64,
+	newStockTotal int32,
+	updatedAt *timestamppb.Timestamp,
+) error {
+	goods, err := repository.LockSpotGoods(ctx, tx, goodsID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return connect.NewError(connect.CodeNotFound, errmsg.SpotGoodsNotFound)
+	}
+	if err != nil {
+		return spotInternalError()
+	}
+	if err := validateEditableSpotGoods(goods, callerID, updatedAt); err != nil {
+		return err
+	}
+	if err := requireNoSpotInventoryCorrection(ctx, tx, goodsID); err != nil {
+		return err
+	}
+	if goods.StockTotal == -1 && newStockTotal == 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+	}
+	rows, err := repository.UpdateSpotGoodsStockTx(ctx, tx, goodsID, newStockTotal, goods.UpdatedAt)
+	if err != nil {
+		return spotInternalError()
+	}
+	if rows == 0 {
+		return connect.NewError(connect.CodeAborted, errmsg.SpotGoodsVersionConflict)
+	}
+	if err := repository.CreateStockLedger(ctx, tx, &model.SpotStockLedger{
+		ListingID:  goodsID,
+		Delta:      max(newStockTotal, 0) - max(goods.StockTotal, 0),
+		Reason:     model.StockLedgerReasonManualAdjust,
+		OperatorID: &callerID,
+	}); err != nil {
+		return spotInternalError()
+	}
+	return nil
+}
+
+func requireNoSpotInventoryCorrection(ctx context.Context, tx bun.Tx, goodsID int64) error {
+	busy, err := tx.NewSelect().Model((*model.SpotOrder)(nil)).
+		Where("listing_id = ? AND admin_operation_id <> ''", goodsID).Exists(ctx)
+	if err != nil {
+		return spotInternalError()
+	}
+	if busy {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("关联订单正在纠错，完成后可调整库存"))
+	}
+	return nil
 }
 
 func CloseSpotGoods(
@@ -341,7 +369,7 @@ func CloseSpotGoods(
 	if goods.SellerID != callerID {
 		return connect.NewError(connect.CodePermissionDenied, errmsg.SpotPermissionDenied)
 	}
-	if goods.ClosedAt != nil {
+	if goods.ClosedAt != nil || goods.ModerationStatus == "blocked" {
 		return connect.NewError(connect.CodeFailedPrecondition, errmsg.SpotGoodsClosed)
 	}
 	if !timeutil.SameUpdatedAtSecond(goods.UpdatedAt, updatedAt.AsTime()) {

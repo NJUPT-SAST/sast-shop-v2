@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	adminconnect "buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/admin/v1/adminv1connect"
 	wpconnect "buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/westpocket/v1/westpocketv1connect"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/config"
@@ -112,10 +113,13 @@ func Register(e *echo.Echo, s *Service) error {
 	// 创造鉴权拦截器，要求请求必须登录
 	auth := connect.WithInterceptors(interceptor.AuthRequired(store, log.Logger, dev))
 	// 开发环境下 AuthRequired 可能允许特殊调试逻辑。
-	opts := []connect.HandlerOption{shared, auth}
+	opts := []connect.HandlerOption{shared, auth, connect.WithInterceptors(s.lifecycleInterceptor())}
 	handler := &Handler{S: s}
 	// 注册connect服务
 	for _, register := range []func() (string, http.Handler){
+		func() (string, http.Handler) {
+			return adminconnect.NewWestPocketAdminServiceHandler(&AdminHandler{S: s}, opts...)
+		},
 		func() (string, http.Handler) {
 			return wpconnect.NewWestPocketServiceHandler(handler, opts...)
 		},
