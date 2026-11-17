@@ -159,7 +159,7 @@ func bearerToken(value string) (string, bool) {
 func (h *ProductImageUploadHandler) allowedRole(role string) bool {
 	roles := h.AllowedRoles
 	if roles == nil {
-		roles = map[string]struct{}{"user": {}, "admin": {}, "superadmin": {}}
+		return catalogRoleAllowed(role)
 	}
 	_, ok := roles[strings.ToLower(strings.TrimSpace(role))]
 	return ok

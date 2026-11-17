@@ -133,3 +133,12 @@ jobs:
         env:
           WEST_POCKET_TEST_DSN: ${{ matrix.module == 'internal/service/westpocketservice' && 'postgres://west_pocket_test:west_pocket_test@localhost:5432/postgres?sslmode=disable' || '' }}
         run: go test -race -count=1 ./...
+
+      - name: Test catalog permissions with PostgreSQL
+        if: ${{ matrix.module == 'internal/service/catalogservice' && contains(fromJson(needs.changes.outputs.modules), matrix.module) }}
+        working-directory: ${{ matrix.module }}
+        env:
+          SAST_SHOP_TEST_POSTGRES_URL: postgres://west_pocket_test:west_pocket_test@localhost:5432/postgres?sslmode=disable
+        run: >-
+          go test -race -count=1 ./internal/handler/v1
+          -run '^(TestCatalogWritesAllowMemberRoles|TestStoreUpdateAllowsAuthenticatedMemberRoles)$'
