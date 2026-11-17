@@ -68,6 +68,9 @@ func CreateErrandDemand(
 
 	var demandID int64
 	err = repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if err := lockDemandCatalogForSale(ctx, tx, storeID, items); err != nil {
+			return err
+		}
 		// 3. 插入 errand_demand 主记录
 		demand := &model.ErrandDemand{
 			RequesterID: requesterID,
@@ -306,6 +309,7 @@ func buildDemandResults(
 // GetDemandDetail — 队长查看某店铺的需求详情
 // DemandDetailResult 某个商品的需求详情聚合。
 type DemandDetailResult struct {
+	LifecycleRound          int64
 	ErrandDemandID          int64
 	ProductTemplateID       int64
 	ProductTitle            string
@@ -318,6 +322,7 @@ type DemandDetailResult struct {
 
 // DemandDetailRequester 某个商品下单个买家的需求明细。
 type DemandDetailRequester struct {
+	DemandLifecycleRound   int64
 	RequesterID            int64
 	RequesterName          string
 	RequesterAvatarURL     string
@@ -373,6 +378,7 @@ func aggregateDemandItems(rows []*repository.OpenDemandItemRow) (map[int64]*Dema
 		if _, exists := productMap[row.ProductTemplateID]; !exists {
 			productMap[row.ProductTemplateID] = &DemandDetailResult{
 				ErrandDemandID:          row.ErrandDemandID,
+				LifecycleRound:          max(row.DemandLifecycleRound, 1),
 				ProductTemplateID:       row.ProductTemplateID,
 				EstimatedUnitPriceCents: row.EstimatedUnitPriceCents,
 				Requesters:              []*DemandDetailRequester{},
@@ -385,6 +391,7 @@ func aggregateDemandItems(rows []*repository.OpenDemandItemRow) (map[int64]*Dema
 			Quantity:               row.Quantity,
 			ServiceFeePerUnitCents: row.ServiceFeePerUnitCents,
 			ErrandDemandItemID:     row.ID,
+			DemandLifecycleRound:   max(row.DemandLifecycleRound, 1),
 			Deadline:               row.Deadline,
 			UpdatedAt:              row.UpdatedAt,
 		})
@@ -443,6 +450,7 @@ func CancelErrandDemand(
 	ctx context.Context,
 	requesterID, demandID int64,
 	expectedUpdatedAt time.Time,
+	expectedRound int64,
 ) (*time.Time, error) {
 	var updatedAt time.Time
 	err := repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
@@ -453,6 +461,9 @@ func CancelErrandDemand(
 			}
 			log.Error().Err(err).Int64("demand_id", demandID).Msg("load demand for cancel failed")
 			return ErrInternal
+		}
+		if err := checkErrandLifecycle(demand.LifecycleRound, expectedRound, demand.AdminOperationID); err != nil {
+			return err
 		}
 		if demand.RequesterID != requesterID {
 			log.Warn().Int64("demand_id", demandID).Msg("demand does not belong to requester")
@@ -488,6 +499,7 @@ func CancelErrandDemand(
 
 // UpdateErrandDemandParams 修改需求的入参。
 type UpdateErrandDemandParams struct {
+	LifecycleRound    int64
 	DemandID          int64
 	StoreID           int64
 	Deadline          time.Time
@@ -540,6 +552,9 @@ func updateErrandDemandTx(
 		log.Error().Err(err).Int64("demand_id", params.DemandID).Msg("load demand for update failed")
 		return time.Time{}, ErrInternal
 	}
+	if err := checkErrandLifecycle(demand.LifecycleRound, params.LifecycleRound, demand.AdminOperationID); err != nil {
+		return time.Time{}, err
+	}
 	if demand.RequesterID != requesterID {
 		log.Warn().Int64("demand_id", params.DemandID).Msg("demand does not belong to requester")
 		return time.Time{}, ErrDemandNotFound
@@ -551,6 +566,9 @@ func updateErrandDemandTx(
 		return time.Time{}, ErrConcurrencyConflict
 	}
 
+	if err := lockDemandCatalogForSale(ctx, tx, params.StoreID, params.Items); err != nil {
+		return time.Time{}, err
+	}
 	now := time.Now().UTC()
 	// 3. 更新 demand 主记录（店铺、期望送达时间）
 	if err := repository.UpdateDemandBasic(

@@ -72,6 +72,7 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderBrief(
 
 		orders = append(orders, &errandv1.BuyerErrandOrderBrief{
 			ErrandDemandId:         r.ErrandDemandID,
+			LifecycleRound:         r.LifecycleRound,
 			StoreId:                r.StoreID,
 			CreatedAt:              timestamppb.New(r.CreatedAt),
 			StoreInfo:              r.StoreInfo,
@@ -133,6 +134,7 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderDetail(
 
 	protoDetail := &errandv1.BuyerErrandOrderDetail{
 		ErrandDemandId:         detail.ErrandDemandID,
+		LifecycleRound:         detail.LifecycleRound,
 		StoreId:                detail.StoreID,
 		CreatedAt:              timestamppb.New(detail.CreatedAt),
 		StoreInfo:              detail.StoreInfo,

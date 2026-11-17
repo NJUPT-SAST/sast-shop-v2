@@ -58,7 +58,7 @@ func (s *ErrandDemandServiceServer) CreateErrandDemand(
 		} else if errors.Is(err, service.ErrInvalidDeadline) {
 			log.Warn().Err(err).Msg("invalid deadline")
 		}
-		return nil, errandError()
+		return nil, mapDemandServiceError(err)
 	}
 
 	// 5. 返回响应
@@ -165,6 +165,7 @@ func (s *ErrandDemandServiceServer) GetDemandDetail(
 				Quantity:               req.Quantity,
 				ServiceFeePerUnitCents: req.ServiceFeePerUnitCents,
 				ErrandDemandItemId:     req.ErrandDemandItemID,
+				DemandLifecycleRound:   req.DemandLifecycleRound,
 				Deadline:               timestamppb.New(req.Deadline),
 				UpdatedAt:              timestamppb.New(req.UpdatedAt),
 			})
@@ -172,6 +173,7 @@ func (s *ErrandDemandServiceServer) GetDemandDetail(
 
 		details = append(details, &errandv1.ErrandDemandDetail{
 			ErrandDemandId: result.ErrandDemandID,
+			LifecycleRound: result.LifecycleRound,
 			ProductTemplate: &catalogv1.ProductTemplate{
 				Id:           result.ProductTemplateID,
 				Title:        result.ProductTitle,
@@ -211,6 +213,7 @@ func (s *ErrandDemandServiceServer) CancelErrandDemand(
 		requesterID,
 		r.Msg.ErrandDemandId,
 		r.Msg.UpdatedAt.AsTime().UTC(),
+		r.Msg.LifecycleRound,
 	)
 	if err != nil {
 		log.Error().Err(err).Int64("errand_demand_id", r.Msg.ErrandDemandId).Msg("CancelErrandDemand failed")
@@ -250,6 +253,7 @@ func (s *ErrandDemandServiceServer) UpdateErrandDemand(
 
 	updatedAt, err := service.UpdateErrandDemand(ctx, requesterID, &service.UpdateErrandDemandParams{
 		DemandID:          r.Msg.ErrandDemandId,
+		LifecycleRound:    r.Msg.LifecycleRound,
 		StoreID:           r.Msg.StoreId,
 		Deadline:          r.Msg.Deadline.AsTime(),
 		Items:             items,

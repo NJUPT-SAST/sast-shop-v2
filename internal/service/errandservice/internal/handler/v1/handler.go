@@ -25,4 +25,5 @@ func Init(e *echo.Echo) {
 	InitErrandTaskServiceHandler(e, sharedOpts, authOpts)
 	InitBuyerErrandOrderServiceHandler(e, sharedOpts, authOpts)
 	InitGroupTradeInternalServiceHandler(e, sharedOpts)
+	InitErrandAdminHandler(e, sharedOpts, authOpts)
 }

@@ -8,7 +8,9 @@ import (
 )
 
 type ErrandDemand struct {
-	bun.BaseModel `bun:"table:errand.errand_demand,alias:ed"`
+	bun.BaseModel    `bun:"table:errand.errand_demand,alias:ed"`
+	LifecycleRound   int64  `bun:"lifecycle_round,notnull,default:1"`
+	AdminOperationID string `bun:"admin_operation_id,notnull,default:''"`
 
 	ID                      int64              `bun:"id,pk,autoincrement"`
 	RequesterID             int64              `bun:"requester_id,notnull"`
@@ -43,7 +45,9 @@ type ErrandDemandItem struct {
 }
 
 type ErrandTask struct {
-	bun.BaseModel `bun:"table:errand.errand_task,alias:et"`
+	bun.BaseModel    `bun:"table:errand.errand_task,alias:et"`
+	LifecycleRound   int64  `bun:"lifecycle_round,notnull,default:1"`
+	AdminOperationID string `bun:"admin_operation_id,notnull,default:''"`
 
 	ID                      int64            `bun:"id,pk,autoincrement"`
 	TaskNo                  string           `bun:"task_no,notnull,unique"`

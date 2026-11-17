@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -21,15 +20,11 @@ var (
 )
 
 // 单笔账单确认收款，流转推这个买家的demand_item和demand状态。
-func OnErrandTaskPaymentConfirmed(ctx context.Context, taskID, payerID int64) error {
+func OnErrandTaskPaymentConfirmed(ctx context.Context, taskID, payerID, round int64) error {
 	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		task, err := repository.GetTaskByID(ctx, tx, taskID)
+		task, err := lockCurrentErrandTask(ctx, tx, taskID, 0, round)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrTaskNotFound
-			}
-			log.Error().Err(err).Int64("task_id", taskID).Msg("get task failed")
-			return newErrandInternalError(fmt.Sprintf("failed to get errand task, task_id=%d", taskID))
+			return err
 		}
 
 		// 已经completed的不变
@@ -93,15 +88,11 @@ func OnErrandTaskPaymentConfirmed(ctx context.Context, taskID, payerID int64) er
 }
 
 // 流转整个 task 到 completed。
-func OnErrandTaskAllPaymentsConfirmed(ctx context.Context, taskID int64) error {
+func OnErrandTaskAllPaymentsConfirmed(ctx context.Context, taskID, round int64) error {
 	return repository.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		task, err := repository.GetTaskByID(ctx, tx, taskID)
+		task, err := lockCurrentErrandTask(ctx, tx, taskID, 0, round)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrTaskNotFound
-			}
-			log.Error().Err(err).Int64("task_id", taskID).Msg("get task failed")
-			return newErrandInternalError(fmt.Sprintf("failed to get errand task, task_id=%d", taskID))
+			return err
 		}
 
 		if task.Status == model.ErrandTaskStatusCompleted {
@@ -115,6 +106,9 @@ func OnErrandTaskAllPaymentsConfirmed(ctx context.Context, taskID int64) error {
 			return ErrTaskNotInCollectingPayment
 		}
 
+		if err := ensureTaskPaymentsCompleted(ctx, tx, taskID); err != nil {
+			return err
+		}
 		if _, err := repository.MarkTaskCompleted(ctx, tx, taskID, time.Now().UTC()); err != nil {
 			log.Error().Err(err).Int64("task_id", taskID).Msg("mark task completed failed")
 			return newErrandInternalError(fmt.Sprintf("failed to mark errand task completed, task_id=%d", taskID))
