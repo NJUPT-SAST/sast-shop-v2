@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	paymentconnect "buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/payment/v1/paymentv1connect"
@@ -15,6 +16,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/feishu"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/redis"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
@@ -234,3 +236,41 @@ func (m *FeishuMessenger) Send(ctx context.Context, openID, uuid, text, link str
 }
 
 func feishuReady() bool { return feishu.AppClient != nil && feishu.AppClient.SDK != nil }
+
+func (m *FeishuMessenger) ReadStatus(ctx context.Context, messageID string) (bool, error) {
+	if !feishuReady() {
+		return false, ErrUnavailable
+	}
+	key := "notification-read:" + messageID
+	if redis.Client != nil {
+		switch redis.Client.Get(ctx, key).Val() {
+		case "true":
+			return true, nil
+		case "false":
+			return false, nil
+		case "unknown":
+			return false, ErrUnavailable
+		}
+	}
+	// Payment notifications are sent as direct messages to one recipient.
+	resp, err := feishu.AppClient.SDK.Im.Message.ReadUsers(ctx, larkim.NewReadUsersMessageReqBuilder().
+		MessageId(messageID).UserIdType("open_id").PageSize(10).Build())
+	if err != nil {
+		return false, err
+	}
+	if resp == nil || !resp.Success() || resp.Data == nil {
+		if redis.Client != nil {
+			support.ObserveError(redis.Client.Set(ctx, key, "unknown", time.Minute).Err())
+		}
+		return false, ErrUnavailable
+	}
+	read := len(resp.Data.Items) > 0
+	if redis.Client != nil {
+		expiration := 20 * time.Second
+		if read {
+			expiration = 24 * time.Hour
+		}
+		support.ObserveError(redis.Client.Set(ctx, key, strconv.FormatBool(read), expiration).Err())
+	}
+	return read, nil
+}

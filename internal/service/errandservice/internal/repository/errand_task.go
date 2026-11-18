@@ -446,6 +446,20 @@ func UpdateTaskToPendingDistributing(
 	return task.UpdatedAt, nil
 }
 
+func PrefillPurchasedTaskItemPrices(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
+	_, err := db.NewUpdate().
+		Model((*model.ErrandTaskItem)(nil)).
+		TableExpr("catalog.catalog_product_template AS cpt").
+		Set("actual_unit_price_cents = cpt.price_cents").
+		Set("updated_at = ?", now).
+		Where("eti.task_id = ?", taskID).
+		Where("eti.product_template_id = cpt.id").
+		Where("eti.purchased_quantity > 0").
+		Where("eti.actual_unit_price_cents IS NULL").
+		Exec(ctx)
+	return err
+}
+
 func UpdateTaskRelatedDemandsToPendingDistributing(ctx context.Context, db bun.IDB, taskID int64, now time.Time) error {
 	_, err := db.NewUpdate().
 		Model((*model.ErrandDemand)(nil)).

@@ -113,6 +113,7 @@ func notificationsProto(n []model.Notification) []*wp.Notification {
 				Kind:            v.Kind,
 				Status:          v.Status,
 				ErrorCode:       v.ErrorCode,
+				IsRead:          v.IsRead,
 			},
 		)
 	}
@@ -511,6 +512,9 @@ func (h *Handler) GetPocket(
 	n, e := h.S.Notifications(ctx, uid, id)
 	if e != nil {
 		return nil, support.RPCError(e)
+	}
+	if out.IsOwner {
+		h.S.LoadNotificationReads(ctx, n)
 	}
 	out.Notifications = notificationsProto(n)
 	return connect.NewResponse(out), nil
