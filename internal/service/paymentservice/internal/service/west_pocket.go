@@ -22,13 +22,14 @@ const westPocketSource = "west_pocket"
 func getWestPocketCollectionState(
 	ctx context.Context,
 	pocketID int64,
+	checkAlipay bool,
 ) (*westpocketv1.GetCollectionStateResponse, error) {
 	if client.WestPocketInternalServiceClient == nil || os.Getenv("WEST_POCKET_INTERNAL_TOKEN") == "" {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("west pocket service is not configured"))
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	req := connect.NewRequest(&westpocketv1.GetCollectionStateRequest{PocketId: pocketID})
+	req := connect.NewRequest(&westpocketv1.GetCollectionStateRequest{PocketId: pocketID, CheckAlipay: checkAlipay})
 	req.Header().Set(interceptor.WestPocketServiceHeader, os.Getenv("WEST_POCKET_INTERNAL_TOKEN"))
 	res, err := client.WestPocketInternalServiceClient.GetCollectionState(ctx, req)
 	if err != nil {
@@ -70,17 +71,27 @@ func validatePocketPayer(state *westpocketv1.GetCollectionStateResponse, bill *m
 }
 
 func requireWestPocketCollecting(ctx context.Context, bill *model.PaymentBill) error {
+	return requireWestPocketCollection(ctx, bill, false)
+}
+
+func requireWestPocketCollection(ctx context.Context, bill *model.PaymentBill, checkAlipay bool) error {
 	if bill.SourceType == nil || *bill.SourceType != westPocketSource {
 		return nil
 	}
 	if bill.SourceID == nil || *bill.SourceID <= 0 {
 		return ErrInvalidBillRequest
 	}
-	state, err := getWestPocketCollectionState(ctx, *bill.SourceID)
+	state, err := getWestPocketCollectionState(ctx, *bill.SourceID, checkAlipay)
 	if err != nil {
 		return err
 	}
-	return validateWestPocketBill(state, bill, "collecting")
+	if err := validateWestPocketBill(state, bill, "collecting"); err != nil {
+		return err
+	}
+	if checkAlipay && !state.AlipayAvailable {
+		return ErrInvalidChannel
+	}
+	return nil
 }
 
 func createWestPocketBill(
@@ -100,7 +111,7 @@ func createWestPocketBill(
 	}
 	var result *model.PaymentBill
 	err := repository.WithWestPocketSourceLock(ctx, pocketID, func(ctx context.Context, tx bun.Tx) error {
-		state, err := getWestPocketCollectionState(ctx, pocketID)
+		state, err := getWestPocketCollectionState(ctx, pocketID, false)
 		if err != nil {
 			return err
 		}
@@ -154,7 +165,7 @@ func CancelWestPocketBillsIfUnpaid(ctx context.Context, pocketID int64, expected
 		return err
 	}
 	err := repository.CancelWestPocketBillsIfUnpaid(ctx, pocketID, func(ctx context.Context) error {
-		state, err := getWestPocketCollectionState(ctx, pocketID)
+		state, err := getWestPocketCollectionState(ctx, pocketID, false)
 		if err != nil {
 			return err
 		}
@@ -180,14 +191,22 @@ func GetPayeeQrCode(ctx context.Context, ownerID int64) (*paymentv1.GetPayeeQrCo
 	if err != nil {
 		return nil, err
 	}
+	response := &paymentv1.GetPayeeQrCodeResponse{}
 	for _, code := range codes {
-		if code.Channel == model.PaymentChannelWechat && code.Content != "" {
-			return &paymentv1.GetPayeeQrCodeResponse{
-				Id:        code.ID,
-				Content:   code.Content,
-				UpdatedAt: timestamppb.New(code.UpdatedAt),
-			}, nil
+		if code.Content == "" {
+			continue
+		}
+		switch code.Channel {
+		case model.PaymentChannelWechat:
+			response.Id = code.ID
+			response.Content = code.Content
+			response.UpdatedAt = timestamppb.New(code.UpdatedAt)
+		case model.PaymentChannelAlipay:
+			response.AlipayQrContent = code.Content
 		}
 	}
-	return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("请先上传微信收款码"))
+	if response.Content == "" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("请先上传微信收款码"))
+	}
+	return response, nil
 }

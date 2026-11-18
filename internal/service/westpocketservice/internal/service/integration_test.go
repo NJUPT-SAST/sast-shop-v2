@@ -1,4 +1,4 @@
-package westpocket
+package service
 
 import (
 	"bytes"
@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/model"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -43,10 +45,11 @@ type fakePayments struct {
 	bills     map[string]Bill
 	failPayer int64
 	next      int64
+	alipayQR  string
 }
 
 func (p *fakePayments) QR(context.Context, int64) (QR, error) {
-	return QR{ID: 1, Content: "wxp://test-qr", UpdatedAt: time.Now()}, nil
+	return QR{ID: 1, Content: "wxp://test-qr", AlipayContent: p.alipayQR, UpdatedAt: time.Now()}, nil
 }
 
 func (p *fakePayments) Create(_ context.Context, id, payer, payee int64, amount int32) (Bill, error) {
@@ -95,7 +98,7 @@ func (p *fakePayments) Cancel(_ context.Context, id int64) error {
 	defer p.mu.Unlock()
 	for _, b := range p.bills {
 		if b.SourceID == id && (b.Status == "submitted" || b.Status == "completed") {
-			return failure(connect.CodeFailedPrecondition, "payment already submitted")
+			return support.Failure(connect.CodeFailedPrecondition, "payment already submitted")
 		}
 	}
 	for key, b := range p.bills {
@@ -186,7 +189,7 @@ func TestPostgresNotificationLinksUsePocketRoutes(t *testing.T) {
 		for _, kind := range []string{"summary", "payment", "payment_qr"} {
 			t.Run(mobileURL+"/"+kind, func(t *testing.T) {
 				s.MobileURL = mobileURL
-				notice := &Notification{
+				notice := &model.Notification{
 					PocketID:        id,
 					RecipientUserID: 20,
 					MessageUUID:     randomUUID(),
@@ -272,6 +275,33 @@ func integrationService(t *testing.T) *Service {
 	}
 }
 
+func TestPostgresPublishedAlipaySnapshot(t *testing.T) {
+	s := integrationService(t)
+	ctx := context.Background()
+	payments := mustType[*fakePayments](t, s.Payments)
+	const alipay = "https://qr.alipay.com/fkx-published"
+	for _, publishedCode := range []string{"", alipay} {
+		payments.alipayQR = publishedCode
+		id := mustCreate(t, s, 10)
+		mustMembers(t, s, id)
+		if _, err := s.Publish(ctx, 10, id, 2, randomUUID()); err != nil {
+			t.Fatal(err)
+		}
+		payments.alipayQR = "https://qr.alipay.com/fkx-replaced"
+		if err := s.runNextJob(ctx); err != nil {
+			t.Fatal(err)
+		}
+		_, _, qr, err := s.Snapshot(ctx, 20, id)
+		if err != nil || qr.Content != "wxp://test-qr" || qr.AlipayContent != publishedCode {
+			t.Fatalf("payment methods must come from the published snapshot: %v", err)
+		}
+		_, _, available, err := s.CollectionState(ctx, id, true)
+		if err != nil || available != (publishedCode != "") {
+			t.Fatalf("incorrect Alipay availability: %v %v", available, err)
+		}
+	}
+}
+
 func mustCreate(t *testing.T, s *Service, owner int64) int64 {
 	t.Helper()
 	id, e := s.Create(context.Background(), owner, "AA", 10000, randomUUID())
@@ -288,7 +318,7 @@ func mustMembers(t *testing.T, s *Service, id int64) {
 		10,
 		id,
 		1,
-		[]Member{
+		[]model.Member{
 			{UserID: 10, SelectionSource: "owner"},
 			{UserID: 20, SelectionSource: "search"},
 			{UserID: 30, SelectionSource: "search"},
@@ -634,7 +664,7 @@ func TestPostgresWorkflow(t *testing.T) {
 			10,
 			id,
 			3,
-			[]Member{
+			[]model.Member{
 				{UserID: 10, SelectionSource: "owner"},
 				{UserID: 20, SelectionSource: "face", FaceMatchID: &matches[0].ID},
 			},
@@ -655,7 +685,7 @@ func TestPostgresWorkflow(t *testing.T) {
 	})
 	t.Run("privacy_deletion_keeps_retrying_after_five_failures", func(t *testing.T) {
 		now := time.Now()
-		p := Profile{
+		p := model.Profile{
 			UserID:            70,
 			Status:            "revoking",
 			Revision:          2,
@@ -667,7 +697,7 @@ func TestPostgresWorkflow(t *testing.T) {
 		if _, e := s.DB.NewInsert().Model(&p).Returning("id").Exec(ctx); e != nil {
 			t.Fatal(e)
 		}
-		j := Job{
+		j := model.Job{
 			Kind:         "revoke",
 			OwnerID:      70,
 			ProfileID:    &p.ID,
@@ -708,7 +738,7 @@ func TestPostgresWorkflow(t *testing.T) {
 	})
 	t.Run("obsolete_cleanup_preserves_current_active_person", func(t *testing.T) {
 		now := time.Now()
-		p := Profile{
+		p := model.Profile{
 			UserID:            50,
 			PersonID:          "still-active",
 			Status:            "active",
@@ -725,7 +755,7 @@ func TestPostgresWorkflow(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		j := Job{ProfileID: &p.ID, InputVersion: 1, Payload: payload}
+		j := model.Job{ProfileID: &p.ID, InputVersion: 1, Payload: payload}
 		faces := mustType[*fakeFaces](t, s.Faces)
 		before := len(faces.deleted)
 		if e := s.enrollJob(ctx, &j); e != nil {
@@ -752,7 +782,7 @@ func mustType[T any](t *testing.T, v any) T {
 	return typed
 }
 
-func mustPocket(t *testing.T, s *Service, id int64) *Pocket {
+func mustPocket(t *testing.T, s *Service, id int64) *model.Pocket {
 	t.Helper()
 	p, _, e := s.internalPocket(context.Background(), id)
 	if e != nil {
@@ -761,7 +791,7 @@ func mustPocket(t *testing.T, s *Service, id int64) *Pocket {
 	return p
 }
 
-func mustProfile(t *testing.T, s *Service, id int64) *Profile {
+func mustProfile(t *testing.T, s *Service, id int64) *model.Profile {
 	t.Helper()
 	p, _, e := s.Profile(context.Background(), id)
 	if e != nil {

@@ -1,10 +1,8 @@
-package westpocket
+package v1
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"strconv"
 	"time"
 
@@ -13,10 +11,13 @@ import (
 	wp "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/westpocket/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/model"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/service"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type Handler struct{ S *Service }
+type Handler struct{ S *service.Service }
 
 var (
 	_ wpconnect.WestPocketServiceHandler         = (*Handler)(nil)
@@ -24,19 +25,6 @@ var (
 	_ wpconnect.WestPocketInternalServiceHandler = (*Handler)(nil)
 )
 
-func rpcError(e error) error {
-	if e == nil {
-		return nil
-	}
-	var c *connect.Error
-	if errors.As(e, &c) {
-		return e
-	}
-	if errors.Is(e, sql.ErrNoRows) {
-		return failure(connect.CodeNotFound, "资源不存在")
-	}
-	return failure(connect.CodeInternal, "暂时无法完成操作，请稍后重试")
-}
 func actor(ctx context.Context) (int64, error) { return interceptor.UserIDFromContext(ctx) }
 func timestamp(t *time.Time) *timestamppb.Timestamp {
 	if t == nil {
@@ -45,11 +33,11 @@ func timestamp(t *time.Time) *timestamppb.Timestamp {
 	return timestamppb.New(*t)
 }
 
-func userProto(u User) *userv1.UserInfo {
+func userProto(u service.User) *userv1.UserInfo {
 	return &userv1.UserInfo{Id: u.ID, Name: u.Name, AvatarUrl: u.AvatarURL}
 }
 
-func pocketProto(p *Pocket, actor int64) *wp.Pocket {
+func pocketProto(p *model.Pocket, actor int64) *wp.Pocket {
 	if p == nil {
 		return nil
 	}
@@ -72,7 +60,7 @@ func pocketProto(p *Pocket, actor int64) *wp.Pocket {
 	}
 }
 
-func profileProto(p *Profile, count int) *wp.FaceProfile {
+func profileProto(p *model.Profile, count int) *wp.FaceProfile {
 	if p == nil {
 		return nil
 	}
@@ -80,7 +68,7 @@ func profileProto(p *Profile, count int) *wp.FaceProfile {
 		Id:               p.ID,
 		Status:           p.Status,
 		Revision:         p.Revision,
-		SampleCount:      boundedInt32(count),
+		SampleCount:      support.BoundedInt32(count),
 		ConsentVersion:   p.ConsentVersion,
 		ConsentedAt:      timestamppb.New(p.ConsentedAt),
 		ConsentExpiresAt: timestamppb.New(p.ConsentExpiresAt),
@@ -88,7 +76,7 @@ func profileProto(p *Profile, count int) *wp.FaceProfile {
 	}
 }
 
-func jobProto(j *Job) *wp.Job {
+func jobProto(j *model.Job) *wp.Job {
 	if j == nil {
 		return nil
 	}
@@ -98,7 +86,7 @@ func jobProto(j *Job) *wp.Job {
 		Failed    int32 `json:"failed"`
 	}
 	if err := json.Unmarshal(j.Progress, &progress); err != nil {
-		observeError(err)
+		support.ObserveError(err)
 	}
 	return &wp.Job{
 		Id:             j.ID,
@@ -114,7 +102,7 @@ func jobProto(j *Job) *wp.Job {
 	}
 }
 
-func notificationsProto(n []Notification) []*wp.Notification {
+func notificationsProto(n []model.Notification) []*wp.Notification {
 	out := make([]*wp.Notification, 0, len(n))
 	for _, v := range n {
 		out = append(
@@ -136,14 +124,14 @@ func uploadIDs(ids []string) ([]int64, error) {
 	for _, id := range ids {
 		v, e := strconv.ParseInt(id, 10, 64)
 		if e != nil || v <= 0 {
-			return nil, failure(connect.CodeInvalidArgument, "上传编号无效")
+			return nil, support.Failure(connect.CodeInvalidArgument, "上传编号无效")
 		}
 		out = append(out, v)
 	}
 	return out, nil
 }
 
-func (h *Handler) membersProto(ctx context.Context, p *Pocket, m []Member) ([]*wp.PocketMember, error) {
+func (h *Handler) membersProto(ctx context.Context, p *model.Pocket, m []model.Member) ([]*wp.PocketMember, error) {
 	ids := make([]int64, 0, len(m))
 	billIDs := []int64{}
 	for _, v := range m {
@@ -164,7 +152,7 @@ func (h *Handler) membersProto(ctx context.Context, p *Pocket, m []Member) ([]*w
 	if e != nil {
 		return nil, e
 	}
-	versions := map[int64]Bill{}
+	versions := map[int64]service.Bill{}
 	for _, b := range bills {
 		versions[b.ID] = b
 	}
@@ -175,9 +163,9 @@ func (h *Handler) membersProto(ctx context.Context, p *Pocket, m []Member) ([]*w
 			UserId:          v.UserID,
 			User:            mapping[v.UserID],
 			SelectionSource: v.SelectionSource,
-			FaceMatchId:     value(v.FaceMatchID),
+			FaceMatchId:     support.Value(v.FaceMatchID),
 			ShareCents:      v.ShareCents,
-			PaymentBillId:   value(v.PaymentBillID),
+			PaymentBillId:   support.Value(v.PaymentBillID),
 			BillStatus:      v.BillStatus,
 			IsOwner:         v.UserID == p.OwnerID,
 			AlbumAccess:     v.AlbumAccess,
@@ -207,7 +195,7 @@ func (h *Handler) pocket(ctx context.Context, uid, id int64) (*wp.Pocket, error)
 	return out, nil
 }
 
-func (h *Handler) photosProto(ctx context.Context, photos []Photo) ([]*wp.PocketPhoto, error) {
+func (h *Handler) photosProto(ctx context.Context, photos []model.Photo) ([]*wp.PocketPhoto, error) {
 	out := make([]*wp.PocketPhoto, 0, len(photos))
 	for _, p := range photos {
 		url := ""
@@ -225,20 +213,20 @@ func (h *Handler) photosProto(ctx context.Context, photos []Photo) ([]*wp.Pocket
 				PocketId:               p.PocketID,
 				PreviewUrl:             url,
 				Status:                 p.Status,
-				Width:                  boundedInt32(p.Width),
-				Height:                 boundedInt32(p.Height),
+				Width:                  support.BoundedInt32(p.Width),
+				Height:                 support.BoundedInt32(p.Height),
 				DetectedFaceCount:      p.DetectedFaceCount,
 				RetentionMode:          p.RetentionMode,
 				RetentionUntil:         timestamppb.New(p.RetentionUntil),
 				ErrorCode:              p.ErrorCode,
-				LatestRecognitionJobId: value(p.LatestJobID),
+				LatestRecognitionJobId: support.Value(p.LatestJobID),
 			},
 		)
 	}
 	return out, nil
 }
 
-func (h *Handler) matchesProto(ctx context.Context, matches []Match) ([]*wp.FaceMatch, error) {
+func (h *Handler) matchesProto(ctx context.Context, matches []model.Match) ([]*wp.FaceMatch, error) {
 	ids := []int64{}
 	seen := map[int64]bool{}
 	for _, m := range matches {
@@ -263,13 +251,13 @@ func (h *Handler) matchesProto(ctx context.Context, matches []Match) ([]*wp.Face
 			Id:               m.ID,
 			PhotoId:          m.PhotoID,
 			RecognitionJobId: m.JobID,
-			FaceIndex:        boundedInt32(m.FaceIndex),
-			BboxX:            boundedInt32(m.BboxX),
-			BboxY:            boundedInt32(m.BboxY),
-			BboxWidth:        boundedInt32(m.BboxWidth),
-			BboxHeight:       boundedInt32(m.BboxHeight),
-			SuggestedUserId:  value(m.SuggestedUserID),
-			ConfirmedUserId:  value(m.ConfirmedUserID),
+			FaceIndex:        support.BoundedInt32(m.FaceIndex),
+			BboxX:            support.BoundedInt32(m.BboxX),
+			BboxY:            support.BoundedInt32(m.BboxY),
+			BboxWidth:        support.BoundedInt32(m.BboxWidth),
+			BboxHeight:       support.BoundedInt32(m.BboxHeight),
+			SuggestedUserId:  support.Value(m.SuggestedUserID),
+			ConfirmedUserId:  support.Value(m.ConfirmedUserID),
 			Score:            m.Score,
 			MatchStatus:      m.MatchStatus,
 			Resolution:       m.Resolution,
@@ -310,13 +298,12 @@ func (h *Handler) GetCollectionState(
 	if e := interceptor.RequireWestPocketService(r.Header()); e != nil {
 		return nil, e
 	}
-	p, m, e := h.S.internalPocket(ctx, r.Msg.PocketId)
+	p, m, alipayAvailable, e := h.S.CollectionState(ctx, r.Msg.PocketId, r.Msg.CheckAlipay)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
-	out := &wp.GetCollectionStateResponse{Status: p.Status, OwnerId: p.OwnerID, LifecycleRound: p.LifecycleRound}
-	if p.AdminOperationID != "" {
-		return nil, failure(connect.CodeFailedPrecondition, "活动正在纠错")
+	out := &wp.GetCollectionStateResponse{
+		Status: p.Status, OwnerId: p.OwnerID, LifecycleRound: p.LifecycleRound, AlipayAvailable: alipayAvailable,
 	}
 	for _, a := range m {
 		out.Members = append(
@@ -325,7 +312,7 @@ func (h *Handler) GetCollectionState(
 				Id:            a.ID,
 				UserId:        a.UserID,
 				ShareCents:    a.ShareCents,
-				PaymentBillId: value(a.PaymentBillID),
+				PaymentBillId: support.Value(a.PaymentBillID),
 				IsOwner:       a.UserID == p.OwnerID,
 			},
 		)
@@ -346,7 +333,7 @@ func (h *Handler) GetCapabilities(
 			PhotoConsentVersion:      h.S.PhotoPolicy,
 			MaxPhotos:                10,
 			MaxMembers:               50,
-			MaxUploadBytes:           MaxUploadBytes,
+			MaxUploadBytes:           service.MaxUploadBytes,
 		},
 	), nil
 }
@@ -359,21 +346,13 @@ func (h *Handler) GetMyFaceProfile(
 	if e != nil {
 		return nil, e
 	}
-	p, count, e := h.S.Profile(ctx, uid)
+	p, count, jobID, e := h.S.ProfileWithLatestJob(ctx, uid)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	out := profileProto(p, count)
-	if p != nil {
-		j := new(Job)
-		if e = h.S.DB.NewSelect().
-			Model(j).
-			Where("profile_id=?", p.ID).
-			OrderExpr("id DESC").
-			Limit(1).
-			Scan(ctx); e == nil {
-			out.JobId = j.ID
-		}
+	if out != nil {
+		out.JobId = jobID
 	}
 	return connect.NewResponse(&wp.GetMyFaceProfileResponse{FaceProfile: out}), nil
 }
@@ -392,11 +371,11 @@ func (h *Handler) EnrollMyFace(
 	}
 	id, e := h.S.Enroll(ctx, uid, 0, ids, r.Msg.ConsentVersion, r.Msg.RequestId, false)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	p, j, e := h.faceAndJob(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.EnrollMyFaceResponse{FaceProfile: p, Job: j}), nil
 }
@@ -415,11 +394,11 @@ func (h *Handler) ReplaceMyFace(
 	}
 	id, e := h.S.Enroll(ctx, uid, r.Msg.ExpectedRevision, ids, r.Msg.ConsentVersion, r.Msg.RequestId, true)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	p, j, e := h.faceAndJob(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.ReplaceMyFaceResponse{FaceProfile: p, Job: j}), nil
 }
@@ -434,11 +413,11 @@ func (h *Handler) RevokeMyFace(
 	}
 	id, e := h.S.Revoke(ctx, uid, r.Msg.ExpectedRevision, r.Msg.RequestId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	p, j, e := h.faceAndJob(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.RevokeMyFaceResponse{FaceProfile: p, Job: j}), nil
 }
@@ -453,11 +432,11 @@ func (h *Handler) CreatePocket(
 	}
 	id, e := h.S.Create(ctx, uid, r.Msg.Title, r.Msg.TotalCents, r.Msg.RequestId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	p, e := h.pocket(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.CreatePocketResponse{Pocket: p}), nil
 }
@@ -480,11 +459,11 @@ func (h *Handler) UpdatePocket(
 		r.Msg.RequestId,
 	)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	p, e := h.pocket(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.UpdatePocketResponse{Pocket: p}), nil
 }
@@ -499,46 +478,39 @@ func (h *Handler) GetPocket(
 	}
 	id := r.Msg.PocketId
 	if _, _, e = h.S.Pocket(ctx, uid, id); e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	if e = h.S.Refresh(ctx, id); e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	p, m, e := h.S.Pocket(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	out := &wp.GetPocketResponse{IsOwner: p.OwnerID == uid}
 	if out.Pocket, e = h.pocket(ctx, uid, id); e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	if out.Members, e = h.membersProto(ctx, p, m); e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	photos, e := h.S.Photos(ctx, uid, id, false)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	if out.Photos, e = h.photosProto(ctx, photos); e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
-	if out.IsOwner {
-		var jobs []Job
-		if e = h.S.DB.NewSelect().
-			Model(&jobs).
-			Where("pocket_id=?", id).
-			OrderExpr("id DESC").
-			Limit(20).
-			Scan(ctx); e != nil {
-			return nil, rpcError(e)
-		}
-		for i := range jobs {
-			out.Jobs = append(out.Jobs, jobProto(&jobs[i]))
-		}
+	jobs, e := h.S.RecentPocketJobs(ctx, uid, p)
+	if e != nil {
+		return nil, support.RPCError(e)
+	}
+	for i := range jobs {
+		out.Jobs = append(out.Jobs, jobProto(&jobs[i]))
 	}
 	n, e := h.S.Notifications(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	out.Notifications = notificationsProto(n)
 	return connect.NewResponse(out), nil
@@ -554,7 +526,7 @@ func (h *Handler) ListMyPockets(
 	}
 	pockets, next, e := h.S.List(ctx, uid, r.Msg.Perspective, r.Msg.Status, int(r.Msg.PageSize), r.Msg.PageToken)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	out := &wp.ListMyPocketsResponse{NextPageToken: next}
 	for i := range pockets {
@@ -586,19 +558,19 @@ func (h *Handler) AddPocketPhotos(
 		r.Msg.RequestId,
 	)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	p, e := h.pocket(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	photos, e := h.S.Photos(ctx, uid, id, false)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	ph, e := h.photosProto(ctx, photos)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.AddPocketPhotosResponse{Pocket: p, Photos: ph}), nil
 }
@@ -613,7 +585,7 @@ func (h *Handler) DeletePocketPhoto(
 	}
 	_, e = h.S.DeletePhoto(ctx, uid, r.Msg.PocketId, r.Msg.PhotoId, r.Msg.RequestId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.DeletePocketPhotoResponse{}), nil
 }
@@ -628,11 +600,11 @@ func (h *Handler) StartRecognition(
 	}
 	id, e := h.S.StartRecognition(ctx, uid, r.Msg.PocketId, r.Msg.PhotoIds, r.Msg.RequestId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	j, e := h.S.GetJob(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.StartRecognitionResponse{Job: jobProto(j)}), nil
 }
@@ -647,7 +619,7 @@ func (h *Handler) GetJob(
 	}
 	j, e := h.S.GetJob(ctx, uid, r.Msg.JobId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.GetJobResponse{Job: jobProto(j)}), nil
 }
@@ -662,11 +634,11 @@ func (h *Handler) RetryJob(
 	}
 	id, e := h.S.Retry(ctx, uid, r.Msg.JobId, r.Msg.RequestId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	j, e := h.S.GetJob(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.RetryJobResponse{Job: jobProto(j)}), nil
 }
@@ -681,11 +653,11 @@ func (h *Handler) GetRecognitionResults(
 	}
 	m, e := h.S.Matches(ctx, uid, r.Msg.PocketId, r.Msg.JobId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	matches, e := h.matchesProto(ctx, m)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.GetRecognitionResultsResponse{Matches: matches}), nil
 }
@@ -709,22 +681,22 @@ func (h *Handler) ResolveFaceMatch(
 		r.Msg.RequestId,
 	)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	p, e := h.pocket(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	matches, e := h.S.Matches(ctx, uid, id, 0)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	out := &wp.ResolveFaceMatchResponse{Pocket: p}
 	for _, m := range matches {
 		if m.ID == r.Msg.FaceMatchId {
-			values, e := h.matchesProto(ctx, []Match{m})
+			values, e := h.matchesProto(ctx, []model.Match{m})
 			if e != nil {
-				return nil, rpcError(e)
+				return nil, support.RPCError(e)
 			}
 			out.Match = values[0]
 		}
@@ -742,7 +714,7 @@ func (h *Handler) SearchParticipants(
 	}
 	users, next, e := h.S.Search(ctx, uid, r.Msg.PocketId, r.Msg.Query, int(r.Msg.PageSize), r.Msg.PageToken)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	out := &wp.SearchParticipantsResponse{NextPageToken: next}
 	for _, u := range users {
@@ -759,25 +731,25 @@ func (h *Handler) ReplaceMembers(
 	if e != nil {
 		return nil, e
 	}
-	m := make([]Member, 0, len(r.Msg.Members))
+	m := make([]model.Member, 0, len(r.Msg.Members))
 	for _, v := range r.Msg.Members {
-		member := Member{UserID: v.UserId, SelectionSource: v.SelectionSource}
-		if v.FaceMatchId > 0 {
-			member.FaceMatchID = ptr(v.FaceMatchId)
+		member := model.Member{UserID: v.UserId, SelectionSource: v.SelectionSource}
+		if faceMatchID := v.FaceMatchId; faceMatchID > 0 {
+			member.FaceMatchID = &faceMatchID
 		}
 		m = append(m, member)
 	}
 	id, e := h.S.ReplaceMembers(ctx, uid, r.Msg.PocketId, r.Msg.ExpectedRevision, m, r.Msg.RequestId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	p, mem, e := h.S.Pocket(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	members, e := h.membersProto(ctx, p, mem)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.ReplaceMembersResponse{Pocket: pocketProto(p, uid), Members: members}), nil
 }
@@ -792,11 +764,11 @@ func (h *Handler) PreviewSplit(
 	}
 	p, m, e := h.S.Preview(ctx, uid, r.Msg.PocketId, r.Msg.ExpectedRevision)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	members, e := h.membersProto(ctx, p, m)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(
 		&wp.PreviewSplitResponse{
@@ -821,15 +793,15 @@ func (h *Handler) PublishPocket(
 	}
 	id, e := h.S.Publish(ctx, uid, r.Msg.PocketId, r.Msg.ExpectedRevision, r.Msg.RequestId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	p, e := h.pocket(ctx, uid, r.Msg.PocketId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	j, e := h.S.GetJob(ctx, uid, id)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.PublishPocketResponse{Pocket: p, Job: jobProto(j)}), nil
 }
@@ -844,13 +816,18 @@ func (h *Handler) GetMyPayment(
 	}
 	p, b, qr, e := h.S.Snapshot(ctx, uid, r.Msg.PocketId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	users, e := h.S.Directory.GetUsers(ctx, []int64{p.OwnerID})
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
-	out := &wp.GetMyPaymentResponse{Pocket: pocketProto(p, uid), QrContent: qr.Content, IsOwner: uid == p.OwnerID}
+	out := &wp.GetMyPaymentResponse{
+		Pocket:          pocketProto(p, uid),
+		QrContent:       qr.Content,
+		AlipayQrContent: qr.AlipayContent,
+		IsOwner:         uid == p.OwnerID,
+	}
 	if len(users) > 0 {
 		out.Payee = userProto(users[0])
 		out.Pocket.Owner = out.Payee
@@ -871,17 +848,17 @@ func (h *Handler) CancelPocket(
 	}
 	id, e := h.S.Cancel(ctx, uid, r.Msg.PocketId, r.Msg.ExpectedRevision, r.Msg.Reason, r.Msg.RequestId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	p, e := h.pocket(ctx, uid, r.Msg.PocketId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	out := &wp.CancelPocketResponse{Pocket: p}
 	if id > 0 {
 		j, e := h.S.GetJob(ctx, uid, id)
 		if e != nil {
-			return nil, rpcError(e)
+			return nil, support.RPCError(e)
 		}
 		out.Job = jobProto(j)
 	}
@@ -897,11 +874,11 @@ func (h *Handler) RemindMembers(
 		return nil, e
 	}
 	if e = h.S.Remind(ctx, uid, r.Msg.PocketId, r.Msg.MemberIds, r.Msg.RequestId); e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	n, e := h.S.Notifications(ctx, uid, r.Msg.PocketId)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.RemindMembersResponse{Notifications: notificationsProto(n)}), nil
 }
@@ -915,7 +892,7 @@ func (h *Handler) SetAlbumAccess(
 		return nil, e
 	}
 	if e = h.S.SetAlbum(ctx, uid, r.Msg.PocketId, r.Msg.Accepted, r.Msg.RequestId); e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.SetAlbumAccessResponse{}), nil
 }
@@ -928,33 +905,13 @@ func (h *Handler) ListAlbumPhotos(
 	if e != nil {
 		return nil, e
 	}
-	photos, e := h.S.Photos(ctx, uid, r.Msg.PocketId, true)
+	photos, next, e := h.S.ListAlbumPhotos(ctx, uid, r.Msg.PocketId, int(r.Msg.PageSize), r.Msg.PageToken)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
-	scope := "album:" + strconv.FormatInt(r.Msg.PocketId, 10)
-	after, e := h.S.parseCursor(r.Msg.PageToken, uid, scope)
+	values, e := h.photosProto(ctx, photos)
 	if e != nil {
-		return nil, e
-	}
-	filtered := []Photo{}
-	for _, ph := range photos {
-		if ph.ID > after {
-			filtered = append(filtered, ph)
-		}
-	}
-	size := int(r.Msg.PageSize)
-	if size <= 0 || size > 20 {
-		size = 20
-	}
-	next := ""
-	if len(filtered) > size {
-		filtered = filtered[:size]
-		next = h.S.cursor(uid, filtered[len(filtered)-1].ID, scope)
-	}
-	values, e := h.photosProto(ctx, filtered)
-	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(&wp.ListAlbumPhotosResponse{Photos: values, NextPageToken: next}), nil
 }

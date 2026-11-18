@@ -317,6 +317,7 @@ message GetMyPaymentResponse {
   sast.sastshopv2.user.v1.UserInfo payee = 3;
   string qr_content = 4;
   bool is_owner = 5;
+  string alipay_qr_content = 6;
 }
 message CancelPocketRequest {
   int64 pocket_id = 1;
@@ -358,12 +359,14 @@ message ListAlbumPhotosResponse {
 // This service is only reachable by authenticated internal payment callers.
 message GetCollectionStateRequest {
   int64 pocket_id = 1;
+  bool check_alipay = 2;
 }
 message GetCollectionStateResponse {
   string status = 1;
   int64 owner_id = 2;
   repeated PocketMember members = 3;
   int64 lifecycle_round = 4;
+  bool alipay_available = 5;
 }
 
 service FaceProfileService {

@@ -1,4 +1,4 @@
-package westpocket
+package service
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/feishu"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
 
@@ -59,7 +60,9 @@ func (d *RPCDirectory) GetUsers(ctx context.Context, ids []int64) ([]User, error
 func (d *RPCDirectory) Search(ctx context.Context, query string, size int, token string) ([]User, string, error) {
 	r, e := d.client.SearchUsers(
 		ctx,
-		connect.NewRequest(&userv1.SearchUsersRequest{Query: query, PageSize: boundedInt32(size), PageToken: token}),
+		connect.NewRequest(
+			&userv1.SearchUsersRequest{Query: query, PageSize: support.BoundedInt32(size), PageToken: token},
+		),
 	)
 	if e != nil {
 		return nil, "", e
@@ -87,7 +90,10 @@ func (p *RPCPayments) QR(ctx context.Context, owner int64) (QR, error) {
 	if e != nil {
 		return QR{}, e
 	}
-	return QR{ID: r.Msg.Id, Content: r.Msg.Content, UpdatedAt: r.Msg.UpdatedAt.AsTime()}, nil
+	return QR{
+		ID: r.Msg.Id, Content: r.Msg.Content, UpdatedAt: r.Msg.UpdatedAt.AsTime(),
+		AlipayContent: r.Msg.AlipayQrContent,
+	}, nil
 }
 
 func billFromProto(b *paymentv1.Bill) (Bill, error) {

@@ -1,4 +1,4 @@
-package westpocket
+package service
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/model"
 )
 
 func TestPostgresFaceSelectionRespectsResolutionAndRetention(t *testing.T) {
@@ -39,7 +40,7 @@ func TestPostgresFaceSelectionRespectsResolutionAndRetention(t *testing.T) {
 		"UPDATE westpocket.face_match SET suggested_user_id=20,confirmed_user_id=30,resolution='confirmed' WHERE id=?",
 		matchID)
 	requireReviewSuccess(t, err)
-	members := []Member{
+	members := []model.Member{
 		{UserID: 10, SelectionSource: "owner"},
 		{UserID: 20, SelectionSource: "face", FaceMatchID: &matchID},
 	}
@@ -123,7 +124,7 @@ func requireReviewSuccess(t *testing.T, err error) {
 func TestPostgresRenewedEnrollmentSurvivesPurge(t *testing.T) {
 	s := integrationService(t)
 	ctx := context.Background()
-	p := Profile{
+	p := model.Profile{
 		UserID:            40,
 		Status:            "revoked",
 		Revision:          3,
@@ -181,7 +182,7 @@ func TestPostgresReconcileVisitsBeyondFirstBatch(t *testing.T) {
 			payments.bills[fmt.Sprintf("%d:%d", id, 20)] = bill
 			last = id
 		}
-		member := Member{
+		member := model.Member{
 			PocketID:        id,
 			UserID:          20,
 			SelectionSource: "search",

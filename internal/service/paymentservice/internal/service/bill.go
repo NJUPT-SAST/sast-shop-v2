@@ -137,7 +137,11 @@ func PayBill(
 	if err := requireBillUser(ctx, bill.PayerID); err != nil {
 		return nil, err
 	}
-	if err := requireWestPocketCollecting(ctx, bill); err != nil {
+	ch, ok := model.ProtoChannelToModel(channel)
+	if !ok {
+		return nil, ErrInvalidChannel
+	}
+	if err := requireWestPocketCollection(ctx, bill, ch == model.PaymentChannelAlipay); err != nil {
 		return nil, err
 	}
 	if bill.Status != model.PaymentBillStatusUnpaid {
@@ -145,14 +149,6 @@ func PayBill(
 	}
 	if !sameUpdatedAtVersion(bill.UpdatedAt, expectedUpdatedAt) {
 		return nil, ErrConcurrencyConflict
-	}
-
-	ch, ok := model.ProtoChannelToModel(channel)
-	if !ok {
-		return nil, ErrInvalidChannel
-	}
-	if bill.SourceType != nil && *bill.SourceType == westPocketSource && ch != model.PaymentChannelWechat {
-		return nil, ErrInvalidChannel
 	}
 
 	submittedAt := time.Now()

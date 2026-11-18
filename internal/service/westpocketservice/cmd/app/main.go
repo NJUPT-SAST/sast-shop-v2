@@ -18,7 +18,8 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/feishu"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/logger"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/redis"
-	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/westpocket"
+	v1 "github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/handler/v1"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/service"
 	"github.com/labstack/echo/v5"
 )
 
@@ -32,17 +33,17 @@ func main() {
 		config.AppConfig.Feishu_AppSecret != constant.FeishuDefaultAppSecret {
 		feishu.Init()
 	}
-	service, err := westpocket.NewService(postgres.DB)
+	pockets, err := service.NewService(postgres.DB)
 	if err != nil {
 		log.Fatal(err)
 	}
 	e := echo.New()
-	if err = westpocket.Register(e, service); err != nil {
+	if err = v1.Register(e, pockets); err != nil {
 		log.Fatal(err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	service.Run(ctx)
+	pockets.Run(ctx)
 	port := 1328
 	if raw := os.Getenv("WEST_POCKET_SERVICE_PORT"); raw != "" {
 		port, err = strconv.Atoi(raw)

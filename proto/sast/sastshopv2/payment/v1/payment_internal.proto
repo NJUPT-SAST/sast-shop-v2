@@ -43,6 +43,7 @@ message GetPayeeQrCodeResponse {
   int64 id = 1;
   string content = 2;
   google.protobuf.Timestamp updated_at = 3;
+  string alipay_qr_content = 4;
 }
 message CancelWestPocketBillsIfUnpaidRequest {
   int64 pocket_id = 1;

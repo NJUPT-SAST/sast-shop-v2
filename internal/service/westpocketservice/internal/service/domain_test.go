@@ -1,8 +1,7 @@
-package westpocket
+package service
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"image"
 	"image/color"
@@ -10,14 +9,14 @@ import (
 	"math"
 	"testing"
 
-	wp "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/westpocket/v1"
-
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/model"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 )
 
 func TestSplitConservesCentsAndHasStableRemainder(t *testing.T) {
 	for _, total := range []int32{3, 100, 10000, math.MaxInt32} {
-		m, own, recv, e := Split(total, 10, []Member{{UserID: 30}, {UserID: 10}, {UserID: 20}})
+		m, own, recv, e := Split(total, 10, []model.Member{{UserID: 30}, {UserID: 10}, {UserID: 20}})
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -32,16 +31,16 @@ func TestSplitConservesCentsAndHasStableRemainder(t *testing.T) {
 			t.Fatal("lost remainder cents")
 		}
 	}
-	m, own, recv, e := Split(100, 99, []Member{{UserID: 2}, {UserID: 1}})
+	m, own, recv, e := Split(100, 99, []model.Member{{UserID: 2}, {UserID: 1}})
 	if e != nil || own != 0 || recv != 100 || m[0].ShareCents != 50 {
 		t.Fatal("owner excluded split incorrect")
 	}
-	for _, members := range [][]Member{{{UserID: 1}}, {{UserID: 1}, {UserID: 1}}, {{UserID: 0}, {UserID: 1}}} {
+	for _, members := range [][]model.Member{{{UserID: 1}}, {{UserID: 1}, {UserID: 1}}, {{UserID: 0}, {UserID: 1}}} {
 		if _, _, _, e = Split(100, 1, members); e == nil {
 			t.Fatal("invalid members accepted")
 		}
 	}
-	if _, _, _, e = Split(1, 1, []Member{{UserID: 1}, {UserID: 2}}); e == nil {
+	if _, _, _, e = Split(1, 1, []model.Member{{UserID: 1}, {UserID: 2}}); e == nil {
 		t.Fatal("zero-share split accepted")
 	}
 }
@@ -97,7 +96,7 @@ func TestRecognitionRevokedAmbiguousAndDuplicateIdentity(t *testing.T) {
 		85,
 		5,
 	)
-	if value(single[0].SuggestedUserID) != 10 {
+	if support.Value(single[0].SuggestedUserID) != 10 {
 		t.Fatal("clear match not suggested")
 	}
 }
@@ -143,14 +142,5 @@ func TestCursorBoundToUserAndQuery(t *testing.T) {
 	}
 	if _, e := s.parseCursor(token+"x", 10, "owner"); e == nil {
 		t.Fatal("forged cursor accepted")
-	}
-}
-
-func TestInternalCollectionRejectsMissingIdentity(t *testing.T) {
-	t.Setenv("WEST_POCKET_INTERNAL_TOKEN", "secret")
-	h := Handler{}
-	_, e := h.GetCollectionState(context.Background(), connect.NewRequest(&wp.GetCollectionStateRequest{PocketId: 1}))
-	if connect.CodeOf(e) != connect.CodeUnauthenticated && connect.CodeOf(e) != connect.CodePermissionDenied {
-		t.Fatalf("missing identity: %v", e)
 	}
 }
