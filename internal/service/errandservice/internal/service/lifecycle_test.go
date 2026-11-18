@@ -41,6 +41,77 @@ INSERT INTO errand.errand_task_assignment(id,task_id,task_item_id,demand_item_id
 	return ctx, db
 }
 
+func TestConfirmShoppingPrefillsPurchasedItemPrices(t *testing.T) {
+	ctx, db := setupErrandLifecycle(t)
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO catalog.catalog_store (id, name, address, created_by_user_id)
+		VALUES (50, '奥乐齐', '', 10);
+		INSERT INTO catalog.catalog_product_template (id, title, price_cents, store_id, created_by_user_id)
+		VALUES (60, '商品', 125, 50, 10), (61, '已有价格', 200, 50, 10),
+		       (62, '未采购', 220, 50, 10), (63, '零元商品', 0, 50, 10);
+		UPDATE errand.errand_task SET status = 'shopping' WHERE id = 100;
+		UPDATE errand.errand_task_item SET actual_unit_price_cents = NULL, purchased_quantity = 1 WHERE id = 400;
+		INSERT INTO errand.errand_task_item
+			(id, task_id, product_template_id, title_snapshot, required_quantity, purchased_quantity, actual_unit_price_cents, deadline)
+		VALUES (401, 100, 61, '已有价格', 2, 2, 180, now()),
+		       (402, 100, 62, '未采购', 2, 0, NULL, now()),
+		       (403, 100, 63, '零元商品', 2, 2, NULL, now()),
+		       (404, 100, 64, '缺少模板', 2, 2, NULL, now());
+	`); err != nil {
+		t.Fatal(err)
+	}
+	var task model.ErrandTask
+	if err := db.NewSelect().Model(&task).Where("id = 100").Scan(ctx); err != nil {
+		t.Fatal(err)
+	}
+	updatedAt, err := TransitionToPendingDistributing(ctx, 10, &ev.TransitionToPendingDistributingRequest{
+		ErrandTaskId:   task.ID,
+		UpdatedAt:      timestamppb.New(task.UpdatedAt),
+		LifecycleRound: task.LifecycleRound,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var items []model.ErrandTaskItem
+	if err := db.NewSelect().Model(&items).Where("task_id = 100").Order("id").Scan(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 5 {
+		t.Fatalf("got %d task items, want 5", len(items))
+	}
+	for i, want := range []int32{125, 180, -1, 0, -1} {
+		price := items[i].ActualUnitPriceCents
+		if want == -1 {
+			if price != nil {
+				t.Errorf("item %d acquired a price despite no purchase or missing template", items[i].ID)
+			}
+		} else if price == nil || *price != want {
+			t.Errorf("item %d price = %v, want %d cents", items[i].ID, price, want)
+		}
+	}
+	if !items[0].UpdatedAt.Equal(updatedAt.AsTime()) {
+		t.Fatalf("prefilled price did not advance item version to the transition timestamp")
+	}
+	if _, err := UpdateActualPrice(ctx, 10, &ev.UpdateActualPriceRequest{
+		ErrandTaskId:            task.ID,
+		ErrandTaskItemId:        items[0].ID,
+		ErrandTaskItemUpdatedAt: timestamppb.New(items[0].UpdatedAt),
+		ActualUnitPriceCents:    135,
+		LifecycleRound:          task.LifecycleRound,
+	}); err != nil {
+		t.Fatalf("editing prefilled price: %v", err)
+	}
+	var newPrice int32
+	if err := db.NewSelect().Model((*model.ErrandTaskItem)(nil)).
+		Column("actual_unit_price_cents").Where("id = 400").Scan(ctx, &newPrice); err != nil {
+		t.Fatal(err)
+	}
+	if newPrice != 135 {
+		t.Errorf("price after manual edit = %d cents, want 135", newPrice)
+	}
+}
+
 func TestErrandOldRoundCannotWriteItemsAssignmentsOrCreateBills(t *testing.T) {
 	ctx, db := setupErrandLifecycle(t)
 	var task model.ErrandTask

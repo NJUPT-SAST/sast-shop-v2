@@ -108,6 +108,7 @@ message Notification {
   string kind = 3;
   string status = 4;
   string error_code = 5;
+  optional bool is_read = 6;
 }
 
 message MemberSelection {

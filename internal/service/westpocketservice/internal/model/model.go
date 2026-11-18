@@ -167,6 +167,7 @@ type Notification struct {
 	NextAttemptAt   time.Time `bun:",default:current_timestamp"`
 	LeaseExpiresAt  *time.Time
 	ErrorCode       string
+	IsRead          *bool     `bun:"-"`
 	CreatedAt       time.Time `bun:",default:current_timestamp"`
 	UpdatedAt       time.Time `bun:",default:current_timestamp"`
 }

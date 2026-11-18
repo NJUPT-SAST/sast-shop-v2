@@ -934,6 +934,11 @@ func updatePendingDistributingStatus(
 			Msg("failed to update task to pending distributing")
 		return time.Time{}, newErrandInternalError("")
 	}
+	if err := repository.PrefillPurchasedTaskItemPrices(ctx, tx, taskID, now); err != nil {
+		log.Error().Err(err).Int64("errand_task_id", taskID).
+			Msg("failed to prefill purchased task item prices")
+		return time.Time{}, newErrandInternalError("")
+	}
 	if err := repository.UpdateTaskRelatedDemandsToPendingDistributing(ctx, tx, taskID, now); err != nil {
 		log.Error().
 			Err(err).
