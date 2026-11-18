@@ -1,10 +1,8 @@
-package westpocket
+package model
 
 import (
 	"encoding/json"
 	"time"
-
-	paymentv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/payment/v1"
 
 	"github.com/uptrace/bun"
 )
@@ -171,30 +169,4 @@ type Notification struct {
 	ErrorCode       string
 	CreatedAt       time.Time `bun:",default:current_timestamp"`
 	UpdatedAt       time.Time `bun:",default:current_timestamp"`
-}
-type User struct {
-	ID              int64
-	Name, AvatarURL string
-}
-type Bill struct {
-	LifecycleRound                         int64
-	ID, PayerID, PayeeID, SourceID         int64
-	AmountCents                            int32
-	SourceType, Status, BillNo, VerifyCode string
-	UpdatedAt                              time.Time
-	Proto                                  *paymentv1.Bill
-}
-type QR struct {
-	ID        int64     `json:"id"`
-	Content   string    `json:"content"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-type Face struct {
-	X, Y, Width, Height int
-	Status              string
-	Candidates          []ProviderCandidate
-}
-type ProviderCandidate struct {
-	PersonID string
-	Score    float64
 }

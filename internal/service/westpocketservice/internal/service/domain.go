@@ -1,4 +1,4 @@
-package westpocket
+package service
 
 import (
 	"crypto/aes"
@@ -12,21 +12,18 @@ import (
 	"unicode/utf8"
 
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/model"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 )
 
-// 错误构造与预定义错误
-func failure(code connect.Code, message string) error {
-	return connect.NewError(code, errors.New(message))
-}
-
 var (
-	ErrUnavailable = failure(
+	ErrUnavailable = support.Failure(
 		connect.CodeUnavailable,
 		"West Pocket dependency is not configured or temporarily unavailable",
 	)
-	ErrConflict = failure(connect.CodeAborted, "资源已更新，请刷新后重试")
-	ErrState    = failure(connect.CodeFailedPrecondition, "当前状态不允许此操作")
-	ErrDenied   = failure(connect.CodePermissionDenied, "无权访问此资源")
+	ErrConflict = support.Failure(connect.CodeAborted, "资源已更新，请刷新后重试")
+	ErrState    = support.Failure(connect.CodeFailedPrecondition, "当前状态不允许此操作")
+	ErrDenied   = support.Failure(connect.CodePermissionDenied, "无权访问此资源")
 )
 
 // uuid检查工具
@@ -64,26 +61,26 @@ func validateTitle(title string) (string, error) {
 		title = "聚餐 AA"
 	}
 	if utf8.RuneCountInString(title) > 100 {
-		return "", failure(connect.CodeInvalidArgument, "标题不能超过 100 字")
+		return "", support.Failure(connect.CodeInvalidArgument, "标题不能超过 100 字")
 	}
 	return title, nil
 }
 
 // aa分摊算法：总金额先平均分，算出余数rem,排序后，前rem个人各多分一分，保证每人份额相差最多1分，总和精确等于total
 // Split allocates remainder cents by ascending user ID, including the owner only when selected.
-func Split(total int32, owner int64, members []Member) ([]Member, int32, int32, error) {
+func Split(total int32, owner int64, members []model.Member) ([]model.Member, int32, int32, error) {
 	if total <= 0 || len(members) < 2 || len(members) > 50 || int64(total) < int64(len(members)) {
-		return nil, 0, 0, failure(connect.CodeInvalidArgument, "请选择 2–50 位成员，总金额须不少于人数（分）")
+		return nil, 0, 0, support.Failure(connect.CodeInvalidArgument, "请选择 2–50 位成员，总金额须不少于人数（分）")
 	}
 	// 复制成员列表
-	result := append([]Member(nil), members...)
+	result := append([]model.Member(nil), members...)
 	// 按userID升序排序
 	sort.Slice(result, func(i, j int) bool { return result[i].UserID < result[j].UserID })
-	base, rem := total/boundedInt32(len(result)), total%boundedInt32(len(result))
+	base, rem := total/support.BoundedInt32(len(result)), total%support.BoundedInt32(len(result))
 	var own int32
 	for i := range result {
 		if result[i].UserID <= 0 || (i > 0 && result[i].UserID == result[i-1].UserID) {
-			return nil, 0, 0, failure(connect.CodeInvalidArgument, "成员无效或重复")
+			return nil, 0, 0, support.Failure(connect.CodeInvalidArgument, "成员无效或重复")
 		}
 		result[i].ShareCents = base
 		if int32(i) < rem {

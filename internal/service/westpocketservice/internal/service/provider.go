@@ -1,11 +1,10 @@
-package westpocket
+package service
 
 import (
 	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"image"
 	"image/jpeg"
 	_ "image/png"
@@ -14,15 +13,15 @@ import (
 	"net/url"
 	"time"
 
-	_ "golang.org/x/image/webp"
-
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 	"github.com/disintegration/imaging"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common"
 	tcerr "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/errors"
 	tcprofile "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/profile"
 	iai "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/iai/v20180301"
 	cossdk "github.com/tencentyun/cos-go-sdk-v5"
+	_ "golang.org/x/image/webp"
 )
 
 const (
@@ -35,18 +34,18 @@ const (
 // 如果直接读取图片像素，不处理 EXIF，图片可能会是横着的、倒着的或旋转 90° 的。
 func NormalizeImage(data []byte) ([]byte, int, int, error) {
 	if len(data) > MaxUploadBytes {
-		return nil, 0, 0, failure(connect.CodeInvalidArgument, "图片不能超过 10 MB")
+		return nil, 0, 0, support.Failure(connect.CodeInvalidArgument, "图片不能超过 10 MB")
 	}
 	cfg, format, e := image.DecodeConfig(bytes.NewReader(data))
 	if e != nil || (format != "jpeg" && format != "png" && format != "webp") {
-		return nil, 0, 0, failure(connect.CodeInvalidArgument, "请上传 JPEG、PNG 或 WebP 图片，HEIC 请先转换")
+		return nil, 0, 0, support.Failure(connect.CodeInvalidArgument, "请上传 JPEG、PNG 或 WebP 图片，HEIC 请先转换")
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > MaxImagePixels {
-		return nil, 0, 0, failure(connect.CodeInvalidArgument, "图片像素过大")
+		return nil, 0, 0, support.Failure(connect.CodeInvalidArgument, "图片像素过大")
 	}
 	img, e := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
 	if e != nil {
-		return nil, 0, 0, failure(connect.CodeInvalidArgument, "无法解码图片")
+		return nil, 0, 0, support.Failure(connect.CodeInvalidArgument, "无法解码图片")
 	}
 	if img.Bounds().Dx() > 3000 || img.Bounds().Dy() > 3000 {
 		img = imaging.Fit(img, 3000, 3000, imaging.Lanczos)
@@ -61,7 +60,7 @@ func NormalizeImage(data []byte) ([]byte, int, int, error) {
 			return b.Bytes(), img.Bounds().Dx(), img.Bounds().Dy(), nil
 		}
 	}
-	return nil, 0, 0, failure(connect.CodeInvalidArgument, "图片压缩后仍超过人脸服务限制")
+	return nil, 0, 0, support.Failure(connect.CodeInvalidArgument, "图片压缩后仍超过人脸服务限制")
 }
 
 // 私有cos存储
@@ -105,7 +104,7 @@ func (c *PrivateCOS) Put(ctx context.Context, key string, data []byte) error {
 		},
 	)
 	if resp != nil && resp.Body != nil {
-		closeResource(resp.Body)
+		support.CloseResource(resp.Body)
 	}
 	return e
 }
@@ -116,7 +115,7 @@ func (c *PrivateCOS) Read(ctx context.Context, key string) ([]byte, error) {
 	if e != nil {
 		return nil, e
 	}
-	defer func() { closeResource(resp.Body) }()
+	defer func() { support.CloseResource(resp.Body) }()
 	data, e := io.ReadAll(io.LimitReader(resp.Body, 3*1024*1024+1))
 	if e == nil && len(data) > 3*1024*1024 {
 		return nil, errors.New("private image exceeds maximum size")
@@ -128,7 +127,7 @@ func (c *PrivateCOS) Read(ctx context.Context, key string) ([]byte, error) {
 func (c *PrivateCOS) Delete(ctx context.Context, key string) error {
 	resp, e := c.sdk.Object.Delete(ctx, key)
 	if resp != nil && resp.Body != nil {
-		closeResource(resp.Body)
+		support.CloseResource(resp.Body)
 	}
 	return e
 }
@@ -165,13 +164,6 @@ func NewTencentRecognizer(id, key, region, group string) (*TencentRecognizer, er
 	return &TencentRecognizer{client: client, group: group}, nil
 }
 
-func value[T any](p *T) T {
-	var zero T
-	if p == nil {
-		return zero
-	}
-	return *p
-}
 func ptr[T any](v T) *T { return &v }
 
 // 调用DetectFace检测图片中的人脸
@@ -206,7 +198,7 @@ func (t *TencentRecognizer) Enroll(ctx context.Context, person string, images []
 		if len(faces) != 1 {
 			return errors.New("ONE_FACE_REQUIRED")
 		}
-		if faces[0].FaceQualityInfo == nil || value(faces[0].FaceQualityInfo.Score) < 70 {
+		if faces[0].FaceQualityInfo == nil || support.Value(faces[0].FaceQualityInfo.Score) < 70 {
 			return errors.New("LOW_QUALITY")
 		}
 	}
@@ -278,10 +270,10 @@ func (t *TencentRecognizer) Recognize(ctx context.Context, data []byte) ([]Face,
 	// Crop each detected face with padding. SearchPersons always receives one face, including >10-person photos.
 	for _, d := range detected {
 		f := Face{
-			X:      int(value(d.X)),
-			Y:      int(value(d.Y)),
-			Width:  int(value(d.Width)),
-			Height: int(value(d.Height)),
+			X:      int(support.Value(d.X)),
+			Y:      int(support.Value(d.Y)),
+			Width:  int(support.Value(d.Width)),
+			Height: int(support.Value(d.Height)),
 			Status: "unknown",
 		}
 		if min(f.Width, f.Height) < 34 {
@@ -318,37 +310,17 @@ func (t *TencentRecognizer) Recognize(ctx context.Context, data []byte) ([]Face,
 		}
 		if len(resp.Response.Results) > 0 {
 			result := resp.Response.Results[0]
-			if value(result.RetCode) != 0 {
+			if support.Value(result.RetCode) != 0 {
 				f.Status = "low_quality"
 			}
 			for _, c := range result.Candidates {
 				f.Candidates = append(
 					f.Candidates,
-					ProviderCandidate{PersonID: value(c.PersonId), Score: value(c.Score)},
+					ProviderCandidate{PersonID: support.Value(c.PersonId), Score: support.Value(c.Score)},
 				)
 			}
 		}
 		out = append(out, f)
 	}
 	return out, nil
-}
-
-// 将错误转换为安全的错误码字符串。腾讯云 SDK 错误转为 PROVIDER_<Code>；已知业务错误原样返回；超时转为 PROVIDER_TIMEOUT；其他错误转为 DEPENDENCY_<connect.Code>，避免向外泄露底层细节。
-func safeError(err error) string {
-	if err == nil {
-		return ""
-	}
-	var api *tcerr.TencentCloudSDKError
-	if errors.As(err, &api) {
-		return "PROVIDER_" + api.Code
-	}
-	for _, code := range []string{"NO_FACE", "LOW_QUALITY", "ONE_FACE_REQUIRED", "FACE_LIMIT_REACHED", "SAMPLE_REJECTED"} {
-		if err.Error() == code {
-			return code
-		}
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "PROVIDER_TIMEOUT"
-	}
-	return fmt.Sprintf("DEPENDENCY_%s", connect.CodeOf(err).String())
 }

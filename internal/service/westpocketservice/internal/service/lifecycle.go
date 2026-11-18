@@ -1,10 +1,12 @@
-package westpocket
+package service
 
 import (
 	"context"
 
 	"connectrpc.com/connect"
-
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/model"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/repository"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 	"github.com/uptrace/bun"
 )
 
@@ -25,17 +27,18 @@ func requestedRound(ctx context.Context) int64 {
 	return normalRound(round)
 }
 
-func checkPocketWrite(ctx context.Context, p *Pocket) error {
+func checkPocketWrite(ctx context.Context, p *model.Pocket) error {
 	if p.AdminOperationID != "" {
-		return failure(connect.CodeFailedPrecondition, "活动正在纠错，请稍后刷新")
+		return support.Failure(connect.CodeFailedPrecondition, "活动正在纠错，请稍后刷新")
 	}
 	if p.LifecycleRound != requestedRound(ctx) {
-		return failure(connect.CodeAborted, "活动已恢复至新轮次，请刷新后重试")
+		return support.Failure(connect.CodeAborted, "活动已恢复至新轮次，请刷新后重试")
 	}
 	return nil
 }
 
-func (s *Service) lifecycleInterceptor() connect.UnaryInterceptorFunc {
+// LifecycleInterceptor checks the requested activity round before the RPC runs.
+func (s *Service) LifecycleInterceptor() connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, r connect.AnyRequest) (connect.AnyResponse, error) {
 			type roundMessage interface{ GetLifecycleRound() int64 }
@@ -52,9 +55,9 @@ func (s *Service) lifecycleInterceptor() connect.UnaryInterceptorFunc {
 				pocketID = p.GetPocketId()
 			}
 			if j, ok := r.Any().(interface{ GetJobId() int64 }); ok {
-				var job Job
-				if e := s.DB.NewSelect().Model(&job).Where("id=?", j.GetJobId()).Scan(ctx); e != nil {
-					return nil, rpcError(e)
+				job, e := repository.FindJob(ctx, s.DB, j.GetJobId())
+				if e != nil {
+					return nil, support.RPCError(e)
 				}
 				if job.PocketID == nil {
 					return next(ctx, r)
@@ -67,12 +70,12 @@ func (s *Service) lifecycleInterceptor() connect.UnaryInterceptorFunc {
 			if pocketID <= 0 {
 				return next(ctx, r)
 			}
-			var p Pocket
-			if e := s.DB.NewSelect().Model(&p).Where("id=?", pocketID).Scan(ctx); e != nil {
-				return nil, rpcError(e)
+			p, e := repository.FindPocket(ctx, s.DB, pocketID)
+			if e != nil {
+				return nil, support.RPCError(e)
 			}
 			ctx = context.WithValue(ctx, pocketRoundKey{}, normalRound(expected))
-			if e := checkPocketWrite(ctx, &p); e != nil {
+			if e := checkPocketWrite(ctx, p); e != nil {
 				return nil, e
 			}
 			return next(ctx, r)
@@ -81,9 +84,9 @@ func (s *Service) lifecycleInterceptor() connect.UnaryInterceptorFunc {
 }
 
 func lockAlbumPocket(ctx context.Context, tx bun.Tx, id int64) error {
-	var p Pocket
-	if e := tx.NewSelect().Model(&p).Where("id=?", id).For("SHARE").Scan(ctx); e != nil {
+	p, e := repository.LockPocketForShare(ctx, tx, id)
+	if e != nil {
 		return e
 	}
-	return checkPocketWrite(ctx, &p)
+	return checkPocketWrite(ctx, p)
 }

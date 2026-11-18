@@ -1,4 +1,4 @@
-package westpocket
+package service
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/admin"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/adminflow"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 	"github.com/uptrace/bun"
 )
 
@@ -27,7 +28,7 @@ func (s *Service) AdminEngine() *adminflow.Engine {
 //nolint:gocyclo // Freeze the full membership and payment graph before any correction is reserved.
 func (s *Service) adminBuildCorrection(ctx context.Context, r *av.PreviewCorrectionRequest) (*adminflow.Plan, error) {
 	if r.Resource != av.ResourceKind_RESOURCE_KIND_POCKET {
-		return nil, failure(connect.CodeInvalidArgument, "仅活动支持整单纠错")
+		return nil, support.Failure(connect.CodeInvalidArgument, "仅活动支持整单纠错")
 	}
 	id, e := admin.ParseID(r.Id)
 	if e != nil {
@@ -35,12 +36,12 @@ func (s *Service) adminBuildCorrection(ctx context.Context, r *av.PreviewCorrect
 	}
 	for key := range r.Values {
 		if key != "funds_handling" && key != "missing_bill_confirmed" && key != "submitted_unreceived_confirmed" {
-			return nil, failure(connect.CodeInvalidArgument, "存在不支持的活动恢复字段")
+			return nil, support.Failure(connect.CodeInvalidArgument, "存在不支持的活动恢复字段")
 		}
 	}
 	funds := r.Values["funds_handling"]
 	if funds != "no_payment_received" && funds != "refunded" && funds != "retain" && funds != "confirmation_error" {
-		return nil, failure(connect.CodeInvalidArgument, "请确认原付款的处理方式")
+		return nil, support.Failure(connect.CodeInvalidArgument, "请确认原付款的处理方式")
 	}
 	p, e := s.adminReadPocket(ctx, s.DB, id, false)
 	if e != nil {
@@ -71,13 +72,13 @@ func (s *Service) adminBuildCorrection(ctx context.Context, r *av.PreviewCorrect
 		snap.TargetStatus = "cancelled"
 	case "reverse_completion":
 		if p.ReceivableCents <= 0 {
-			return nil, failure(connect.CodeFailedPrecondition, "本活动无应收款，不适用撤销收款；撤销整单请使用取消")
+			return nil, support.Failure(connect.CodeFailedPrecondition, "本活动无应收款，不适用撤销收款；撤销整单请使用取消")
 		}
 		if p.Status != "settled" {
 			return nil, ErrState
 		}
 		if funds != "refunded" && funds != "confirmation_error" {
-			return nil, failure(connect.CodeInvalidArgument, "撤销活动结算必须选择已核验退款或原收款确认有误；保留全部收款无法撤销AA结算")
+			return nil, support.Failure(connect.CodeInvalidArgument, "撤销活动结算必须选择已核验退款或原收款确认有误；保留全部收款无法撤销AA结算")
 		}
 		snap.TargetStatus = "collecting"
 	case "reopen":
@@ -89,7 +90,7 @@ func (s *Service) adminBuildCorrection(ctx context.Context, r *av.PreviewCorrect
 			snap.TargetStatus = "draft"
 		}
 	default:
-		return nil, failure(connect.CodeInvalidArgument, "不支持的活动纠错动作")
+		return nil, support.Failure(connect.CodeInvalidArgument, "不支持的活动纠错动作")
 	}
 	if e = validatePocketCorrectionMembers(snap, r.Values["missing_bill_confirmed"] == "true"); e != nil {
 		return nil, e
@@ -162,7 +163,7 @@ func validatePocketCorrectionMembers(snap adminPocketSnapshot, allowMissing bool
 		return nil
 	}
 	if len(snap.Members) != int(snap.Pocket.ParticipantCount) || len(snap.Members) == 0 {
-		return failure(connect.CodeFailedPrecondition, "活动成员快照不完整，不能恢复收款")
+		return support.Failure(connect.CodeFailedPrecondition, "活动成员快照不完整，不能恢复收款")
 	}
 	byUser := map[int64]adminPocketMember{}
 	var total int64
@@ -179,7 +180,7 @@ func validatePocketCorrectionMembers(snap adminPocketSnapshot, allowMissing bool
 	owner, exists := byUser[snap.Pocket.OwnerID]
 	if !exists || total != int64(snap.Pocket.TotalCents) || owner.ShareCents != snap.Pocket.OwnerShareCents ||
 		total-int64(owner.ShareCents) != int64(snap.Pocket.ReceivableCents) {
-		return failure(connect.CodeFailedPrecondition, "原始分摊总额不一致，不能恢复")
+		return support.Failure(connect.CodeFailedPrecondition, "原始分摊总额不一致，不能恢复")
 	}
 	found := map[int64]bool{}
 	for _, bill := range snap.Bills {
@@ -191,13 +192,13 @@ func validatePocketCorrectionMembers(snap adminPocketSnapshot, allowMissing bool
 		if !ok || payer == snap.Pocket.OwnerID || bill.PayeeId != fmt.Sprint(snap.Pocket.OwnerID) ||
 			bill.AmountCents != int64(member.ShareCents) ||
 			found[payer] {
-			return failure(connect.CodeFailedPrecondition, "账单与冻结分摊不一致")
+			return support.Failure(connect.CodeFailedPrecondition, "账单与冻结分摊不一致")
 		}
 		found[payer] = true
 	}
 	for id, m := range byUser {
 		if id != snap.Pocket.OwnerID && m.ShareCents > 0 && !found[id] && !allowMissing {
-			return failure(connect.CodeFailedPrecondition, "存在缺失账单，请核验原份额后勾选补建缺失账单")
+			return support.Failure(connect.CodeFailedPrecondition, "存在缺失账单，请核验原份额后勾选补建缺失账单")
 		}
 	}
 	return nil
@@ -339,7 +340,7 @@ func (s *Service) adminApplyCorrection(ctx context.Context, x *adminflow.Executi
 					}
 				}
 				if snap.TargetStatus == "collecting" && m.ShareCents > 0 && billID == nil {
-					return nil, failure(connect.CodeFailedPrecondition, "恢复后的成员账单不完整")
+					return nil, support.Failure(connect.CodeFailedPrecondition, "恢复后的成员账单不完整")
 				}
 			}
 			if _, e = tx.ExecContext(

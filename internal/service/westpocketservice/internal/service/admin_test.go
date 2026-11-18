@@ -1,4 +1,4 @@
-package westpocket
+package service
 
 import (
 	"context"
@@ -18,6 +18,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/config"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/model"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -187,7 +188,7 @@ func TestAdminPocketCorrectionResumesAfterLocalFailureAndFencesOldRound(t *testi
 	if e != nil || count != 1 {
 		t.Fatalf("history=%d err=%v", count, e)
 	}
-	handler := s.lifecycleInterceptor()(func(context.Context, connect.AnyRequest) (connect.AnyResponse, error) {
+	handler := s.LifecycleInterceptor()(func(context.Context, connect.AnyRequest) (connect.AnyResponse, error) {
 		return connect.NewResponse(&emptypb.Empty{}), nil
 	})
 	if _, e = handler(
@@ -203,7 +204,7 @@ func TestAdminPocketCorrectionResumesAfterLocalFailureAndFencesOldRound(t *testi
 	}
 	if _, e = s.sendNotification(
 		ctx,
-		&Notification{PocketID: 100, RecipientUserID: 20, Kind: "payment", LifecycleRound: 1},
+		&model.Notification{PocketID: 100, RecipientUserID: 20, Kind: "payment", LifecycleRound: 1},
 	); !errors.Is(
 		e,
 		ErrState,

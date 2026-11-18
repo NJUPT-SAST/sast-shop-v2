@@ -1,4 +1,4 @@
-package westpocket
+package service
 
 import (
 	"context"
@@ -11,7 +11,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/model"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 	"github.com/uptrace/bun"
 )
 
@@ -21,7 +22,7 @@ func (s *Service) Upload(
 	actor, pocketID int64,
 	purpose, consent, requestID string,
 	data []byte,
-) (*Upload, string, error) {
+) (*model.Upload, string, error) {
 	if actor <= 0 {
 		return nil, "", ErrDenied
 	}
@@ -33,10 +34,10 @@ func (s *Service) Upload(
 		policy = s.FacePolicy
 	}
 	if !validUUID(requestID) || consent != policy || policy == "" {
-		return nil, "", failure(connect.CodeInvalidArgument, "请先阅读并同意当前版本的照片处理告知")
+		return nil, "", support.Failure(connect.CodeInvalidArgument, "请先阅读并同意当前版本的照片处理告知")
 	}
 	if purpose != "face_sample" && purpose != "group_photo" {
-		return nil, "", failure(connect.CodeInvalidArgument, "图片用途无效")
+		return nil, "", support.Failure(connect.CodeInvalidArgument, "图片用途无效")
 	}
 	if purpose == "face_sample" && s.Faces == nil {
 		return nil, "", ErrUnavailable
@@ -47,7 +48,7 @@ func (s *Service) Upload(
 	}
 	hash := sha256.Sum256(normalized)
 	digest := hex.EncodeToString(hash[:])
-	u := new(Upload)
+	u := new(model.Upload)
 	err = s.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if _, e := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(?)", -actor); e != nil {
 			return e
@@ -57,7 +58,7 @@ func (s *Service) Upload(
 			if u.SHA256 != digest || u.Purpose != purpose || u.ConsentVersion != consent ||
 				((u.PocketID == nil) != (pocketID == 0)) ||
 				(u.PocketID != nil && *u.PocketID != pocketID) {
-				return failure(connect.CodeAlreadyExists, "此上传编号已用于其他照片")
+				return support.Failure(connect.CodeAlreadyExists, "此上传编号已用于其他照片")
 			}
 			if u.DeletedAt != nil || u.Bound || time.Now().After(u.ExpiresAt) {
 				return ErrState
@@ -68,23 +69,23 @@ func (s *Service) Upload(
 			return e
 		}
 		count, e := tx.NewSelect().
-			Model((*Upload)(nil)).
+			Model((*model.Upload)(nil)).
 			Where("owner_id=? AND created_at>now()-interval '24 hours'", actor).
 			Count(ctx)
 		if e != nil {
 			return e
 		}
 		if count >= 100 {
-			return failure(connect.CodeResourceExhausted, "今日照片上传次数已达上限")
+			return support.Failure(connect.CodeResourceExhausted, "今日照片上传次数已达上限")
 		}
 		if purpose == "group_photo" {
 			if _, e = pocketTx(ctx, tx, actor, pocketID, 0, true); e != nil {
 				return e
 			}
 		} else if pocketID != 0 {
-			return failure(connect.CodeInvalidArgument, "本人照片不能关联活动")
+			return support.Failure(connect.CodeInvalidArgument, "本人照片不能关联活动")
 		}
-		*u = Upload{
+		*u = model.Upload{
 			OwnerID:        actor,
 			Purpose:        purpose,
 			ConsentVersion: consent,
@@ -130,11 +131,11 @@ func (s *Service) Upload(
 	return u, url, err
 }
 
-func uploadTx(ctx context.Context, tx bun.Tx, actor, id int64, purpose string, pocketID int64) (*Upload, error) {
-	u := new(Upload)
+func uploadTx(ctx context.Context, tx bun.Tx, actor, id int64, purpose string, pocketID int64) (*model.Upload, error) {
+	u := new(model.Upload)
 	e := tx.NewSelect().Model(u).Where("id=?", id).For("UPDATE").Scan(ctx)
 	if e != nil {
-		return nil, failure(connect.CodeInvalidArgument, "上传图片不存在")
+		return nil, support.Failure(connect.CodeInvalidArgument, "上传图片不存在")
 	}
 	if u.OwnerID != actor || u.Purpose != purpose || u.Bound || u.DeletedAt != nil || u.Status != "ready" ||
 		time.Now().After(u.ExpiresAt) {
@@ -150,11 +151,11 @@ func uploadTx(ctx context.Context, tx bun.Tx, actor, id int64, purpose string, p
 func distinctIDs(ids []int64, max int) error {
 	seen := map[int64]bool{}
 	if len(ids) == 0 || len(ids) > max {
-		return failure(connect.CodeInvalidArgument, "图片数量超出限制")
+		return support.Failure(connect.CodeInvalidArgument, "图片数量超出限制")
 	}
 	for _, id := range ids {
 		if id <= 0 || seen[id] {
-			return failure(connect.CodeInvalidArgument, "图片编号无效或重复")
+			return support.Failure(connect.CodeInvalidArgument, "图片编号无效或重复")
 		}
 		seen[id] = true
 	}
@@ -175,13 +176,13 @@ func (s *Service) AddPhotos(
 		return 0, ErrConflict
 	}
 	if consent != s.PhotoPolicy || s.PhotoPolicy == "" {
-		return 0, failure(connect.CodeInvalidArgument, "照片处理告知版本已更新")
+		return 0, support.Failure(connect.CodeInvalidArgument, "照片处理告知版本已更新")
 	}
 	if e := distinctIDs(uploads, 10); e != nil {
 		return 0, e
 	}
 	if retention != "temporary" && retention != "keepsake" {
-		return 0, failure(connect.CodeInvalidArgument, "保存方式无效")
+		return 0, support.Failure(connect.CodeInvalidArgument, "保存方式无效")
 	}
 	return s.mutate(
 		ctx,
@@ -194,12 +195,15 @@ func (s *Service) AddPhotos(
 			if e != nil {
 				return 0, e
 			}
-			count, e := tx.NewSelect().Model((*Photo)(nil)).Where("pocket_id=? AND deleted_at IS NULL", id).Count(ctx)
+			count, e := tx.NewSelect().
+				Model((*model.Photo)(nil)).
+				Where("pocket_id=? AND deleted_at IS NULL", id).
+				Count(ctx)
 			if e != nil {
 				return 0, e
 			}
 			if count+len(uploads) > 10 {
-				return 0, failure(connect.CodeResourceExhausted, "每次活动最多 10 张合照")
+				return 0, support.Failure(connect.CodeResourceExhausted, "每次活动最多 10 张合照")
 			}
 			for _, uploadID := range uploads {
 				u, e := uploadTx(ctx, tx, actor, uploadID, "group_photo", id)
@@ -210,7 +214,7 @@ func (s *Service) AddPhotos(
 				if retention == "keepsake" {
 					until = time.Now().Add(30 * 24 * time.Hour)
 				}
-				ph := Photo{
+				ph := model.Photo{
 					PocketID:             id,
 					UploadID:             u.ID,
 					UploaderID:           actor,
@@ -265,7 +269,7 @@ func (s *Service) DeletePhoto(ctx context.Context, actor, id, photoID int64, req
 		if _, e := pocketTx(ctx, tx, actor, id, 0, false); e != nil {
 			return 0, e
 		}
-		ph := new(Photo)
+		ph := new(model.Photo)
 		if e := tx.NewSelect().Model(ph).Where("id=? AND pocket_id=?", photoID, id).For("UPDATE").Scan(ctx); e != nil {
 			return 0, e
 		}
@@ -280,7 +284,7 @@ func (s *Service) DeletePhoto(ctx context.Context, actor, id, photoID int64, req
 		if e != nil {
 			return 0, e
 		}
-		if _, e = tx.NewDelete().Model((*Match)(nil)).Where("photo_id=?", photoID).Exec(ctx); e != nil {
+		if _, e = tx.NewDelete().Model((*model.Match)(nil)).Where("photo_id=?", photoID).Exec(ctx); e != nil {
 			return 0, e
 		}
 		payload, err := json.Marshal([]int64{photoID})
@@ -290,7 +294,7 @@ func (s *Service) DeletePhoto(ctx context.Context, actor, id, photoID int64, req
 		return queue(
 			ctx,
 			tx,
-			&Job{
+			&model.Job{
 				Kind:      "delete_photos",
 				OwnerID:   actor,
 				PocketID:  &id,
@@ -318,7 +322,7 @@ func (s *Service) StartRecognition(
 		if e != nil {
 			return 0, e
 		}
-		var found []Photo
+		var found []model.Photo
 		if e = tx.NewSelect().
 			Model(&found).
 			Where("pocket_id=? AND id IN (?) AND deleted_at IS NULL AND status NOT IN ('deleting','deleted') AND retention_until>now()", id, bun.List(photos)).
@@ -336,7 +340,7 @@ func (s *Service) StartRecognition(
 		jobID, e := queue(
 			ctx,
 			tx,
-			&Job{
+			&model.Job{
 				Kind:         "recognize",
 				OwnerID:      actor,
 				PocketID:     &id,
@@ -349,7 +353,7 @@ func (s *Service) StartRecognition(
 			return 0, e
 		}
 		_, e = tx.NewUpdate().
-			Model((*Photo)(nil)).
+			Model((*model.Photo)(nil)).
 			Set("latest_job_id=?,status='processing',error_code='',updated_at=now()", jobID).
 			Where("id IN (?)", bun.List(photos)).
 			Exec(ctx)
@@ -357,8 +361,8 @@ func (s *Service) StartRecognition(
 	})
 }
 
-func (s *Service) Profile(ctx context.Context, actor int64) (*Profile, int, error) {
-	p := new(Profile)
+func (s *Service) Profile(ctx context.Context, actor int64) (*model.Profile, int, error) {
+	p := new(model.Profile)
 	e := s.DB.NewSelect().Model(p).Where("user_id=?", actor).Scan(ctx)
 	if errors.Is(e, sql.ErrNoRows) {
 		return nil, 0, nil
@@ -366,7 +370,7 @@ func (s *Service) Profile(ctx context.Context, actor int64) (*Profile, int, erro
 	if e != nil {
 		return nil, 0, e
 	}
-	count, e := s.DB.NewSelect().Model((*Sample)(nil)).Where("profile_id=? AND status='active'", p.ID).Count(ctx)
+	count, e := s.DB.NewSelect().Model((*model.Sample)(nil)).Where("profile_id=? AND status='active'", p.ID).Count(ctx)
 	return p, count, e
 }
 
@@ -391,7 +395,7 @@ func (s *Service) Enroll(
 		return 0, e
 	}
 	if consent != s.FacePolicy || s.FacePolicy == "" {
-		return 0, failure(connect.CodeInvalidArgument, "请单独同意当前人脸处理告知")
+		return 0, support.Failure(connect.CodeInvalidArgument, "请单独同意当前人脸处理告知")
 	}
 	if replace && revision <= 0 {
 		return 0, ErrConflict
@@ -406,14 +410,14 @@ func (s *Service) Enroll(
 			if _, e := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(?)", -actor); e != nil {
 				return 0, e
 			}
-			p := new(Profile)
+			p := new(model.Profile)
 			e := tx.NewSelect().Model(p).Where("user_id=?", actor).For("UPDATE").Scan(ctx)
 			now := time.Now()
 			if errors.Is(e, sql.ErrNoRows) {
 				if replace {
 					return 0, ErrState
 				}
-				*p = Profile{
+				*p = model.Profile{
 					UserID:            actor,
 					Status:            "pending",
 					Revision:          1,
@@ -455,7 +459,7 @@ func (s *Service) Enroll(
 				if e != nil {
 					return 0, e
 				}
-				sample := Sample{
+				sample := model.Sample{
 					ProfileID:         p.ID,
 					UploadID:          u.ID,
 					EnrollmentVersion: p.EnrollmentVersion,
@@ -485,7 +489,7 @@ func (s *Service) Enroll(
 			return queue(
 				ctx,
 				tx,
-				&Job{
+				&model.Job{
 					Kind:         "enroll",
 					OwnerID:      actor,
 					ProfileID:    &p.ID,
@@ -503,7 +507,7 @@ func (s *Service) Revoke(ctx context.Context, actor, revision int64, requestID s
 		return 0, ErrConflict
 	}
 	return s.mutate(ctx, actor, "revoke", requestID, revision, func(tx bun.Tx) (int64, error) {
-		p := new(Profile)
+		p := new(model.Profile)
 		if e := tx.NewSelect().Model(p).Where("user_id=?", actor).For("UPDATE").Scan(ctx); e != nil {
 			return 0, e
 		}
@@ -533,7 +537,7 @@ func (s *Service) Revoke(ctx context.Context, actor, revision int64, requestID s
 		return queue(
 			ctx,
 			tx,
-			&Job{
+			&model.Job{
 				Kind:         "revoke",
 				OwnerID:      actor,
 				ProfileID:    &p.ID,
@@ -544,7 +548,7 @@ func (s *Service) Revoke(ctx context.Context, actor, revision int64, requestID s
 	})
 }
 
-func (s *Service) Matches(ctx context.Context, actor, id, jobID int64) ([]Match, error) {
+func (s *Service) Matches(ctx context.Context, actor, id, jobID int64) ([]model.Match, error) {
 	p, _, e := s.Pocket(ctx, actor, id)
 	if e != nil {
 		return nil, e
@@ -552,7 +556,7 @@ func (s *Service) Matches(ctx context.Context, actor, id, jobID int64) ([]Match,
 	if p.OwnerID != actor {
 		return nil, ErrDenied
 	}
-	var matches []Match
+	var matches []model.Match
 	q := s.DB.NewSelect().
 		Model(&matches).
 		Join("JOIN westpocket.pocket_photo ph ON ph.id=fm.photo_id").
@@ -563,7 +567,7 @@ func (s *Service) Matches(ctx context.Context, actor, id, jobID int64) ([]Match,
 	if e = q.OrderExpr("fm.photo_id,fm.face_index").Scan(ctx); e != nil {
 		return nil, e
 	}
-	var active []Profile
+	var active []model.Profile
 	if e = s.DB.NewSelect().Model(&active).Where("status='active' AND consent_expires_at>now()").Scan(ctx); e != nil {
 		return nil, e
 	}
@@ -573,7 +577,7 @@ func (s *Service) Matches(ctx context.Context, actor, id, jobID int64) ([]Match,
 	}
 	for i := range matches {
 		m := &matches[i]
-		filtered := make([]Candidate, 0, len(m.Candidates))
+		filtered := make([]model.Candidate, 0, len(m.Candidates))
 		for _, c := range m.Candidates {
 			if valid[c.UserID] {
 				filtered = append(filtered, c)
@@ -604,7 +608,7 @@ func (s *Service) Resolve(
 			return 0, e
 		}
 		if len(users) != 1 {
-			return 0, failure(connect.CodeInvalidArgument, "用户不存在")
+			return 0, support.Failure(connect.CodeInvalidArgument, "用户不存在")
 		}
 	}
 	return s.mutate(
@@ -618,7 +622,7 @@ func (s *Service) Resolve(
 			if e != nil {
 				return 0, e
 			}
-			m := new(Match)
+			m := new(model.Match)
 			if e = tx.NewSelect().
 				Model(m).
 				Join("JOIN westpocket.pocket_photo ph ON ph.id=fm.photo_id").

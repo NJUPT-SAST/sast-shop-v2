@@ -1,4 +1,4 @@
-package westpocket
+package service
 
 import (
 	"context"

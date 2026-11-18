@@ -1,4 +1,4 @@
-package westpocket
+package service
 
 import (
 	"context"
@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/model"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/repository"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 	"github.com/rs/zerolog/log"
 	"github.com/skip2/go-qrcode"
 	"github.com/uptrace/bun"
@@ -30,9 +33,9 @@ func (s *Service) Run(ctx context.Context) {
 				return
 			case <-timer.C:
 				if e := s.Purge(ctx); e != nil {
-					log.Warn().Str("code", safeError(e)).Msg("West Pocket purge failed")
+					log.Warn().Str("code", support.SafeError(e)).Msg("West Pocket purge failed")
 				}
-				observeError(s.reconcile(ctx))
+				support.ObserveError(s.reconcile(ctx))
 			}
 		}
 	}()
@@ -47,10 +50,10 @@ func (s *Service) work(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := s.runNextJob(ctx); err != nil && !errors.Is(err, sql.ErrNoRows) {
-				log.Warn().Str("code", safeError(err)).Msg("West Pocket job deferred")
+				log.Warn().Str("code", support.SafeError(err)).Msg("West Pocket job deferred")
 			}
 			if err := s.runNextNotification(ctx); err != nil && !errors.Is(err, sql.ErrNoRows) {
-				log.Warn().Str("code", safeError(err)).Msg("West Pocket notification deferred")
+				log.Warn().Str("code", support.SafeError(err)).Msg("West Pocket notification deferred")
 			}
 		}
 	}
@@ -58,7 +61,7 @@ func (s *Service) work(ctx context.Context) {
 
 //nolint:gocyclo // Keep the ordered recovery state machine and its fencing checks together for auditability.
 func (s *Service) runNextJob(ctx context.Context) error {
-	j := new(Job)
+	j := new(model.Job)
 	lease := randomUUID()
 	err := s.DB.NewRaw(`UPDATE westpocket.async_job SET status='running',lease_owner=?,lease_expires_at=now()+interval '2 minutes',attempt_count=attempt_count+1,updated_at=now() WHERE id=(SELECT j.id FROM westpocket.async_job j WHERE ((j.status='queued' AND j.next_attempt_at<=now()) OR (j.status='running' AND j.lease_expires_at<now())) AND (j.kind NOT IN ('publish','cancel','recognize') OR NOT EXISTS(SELECT 1 FROM westpocket.pocket p WHERE p.id=j.pocket_id AND p.admin_operation_id<>'')) ORDER BY j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1) RETURNING *`, lease).
 		Scan(ctx, j)
@@ -70,7 +73,7 @@ func (s *Service) runNextJob(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer func() { closeResource(conn) }()
+	defer func() { support.CloseResource(conn) }()
 	lockKey := fmt.Sprintf("wp-job:%s:%d", j.Kind, j.ID)
 	if j.PocketID != nil {
 		lockKey = fmt.Sprintf("wp-pocket:%d", *j.PocketID)
@@ -163,7 +166,7 @@ func (s *Service) runNextJob(ctx context.Context) error {
 	return err
 }
 
-func (s *Service) finishJob(ctx context.Context, j *Job, lease string, runErr error) error {
+func (s *Service) finishJob(ctx context.Context, j *model.Job, lease string, runErr error) error {
 	status := "succeeded"
 	if runErr != nil {
 		status = "queued"
@@ -179,7 +182,7 @@ func (s *Service) finishJob(ctx context.Context, j *Job, lease string, runErr er
 			ctx,
 			"UPDATE westpocket.async_job SET status=?,error_code=?,next_attempt_at=now()+ (? * interval '1 second'),lease_expires_at=NULL,updated_at=now() WHERE id=? AND lease_owner=?",
 			status,
-			safeError(runErr),
+			support.SafeError(runErr),
 			min(600, min(j.AttemptCount, 10)*min(j.AttemptCount, 10)*10),
 			j.ID,
 			lease,
@@ -198,7 +201,7 @@ func (s *Service) finishJob(ctx context.Context, j *Job, lease string, runErr er
 			if _, e = queue(
 				ctx,
 				tx,
-				&Job{
+				&model.Job{
 					Kind:         "cleanup_enrollment",
 					OwnerID:      j.OwnerID,
 					ProfileID:    j.ProfileID,
@@ -221,17 +224,17 @@ func (s *Service) finishJob(ctx context.Context, j *Job, lease string, runErr er
 	})
 }
 
-func (s *Service) internalPocket(ctx context.Context, id int64) (*Pocket, []Member, error) {
-	p := new(Pocket)
-	if e := s.DB.NewSelect().Model(p).Where("id=?", id).Scan(ctx); e != nil {
+func (s *Service) internalPocket(ctx context.Context, id int64) (*model.Pocket, []model.Member, error) {
+	p, e := repository.FindPocket(ctx, s.DB, id)
+	if e != nil {
 		return nil, nil, e
 	}
-	m, e := membersTx(ctx, s.DB, id)
+	m, e := repository.ListMembers(ctx, s.DB, id)
 	return p, m, e
 }
 
 //nolint:gocyclo // Keep the ordered recovery state machine and its fencing checks together for auditability.
-func (s *Service) publishJob(ctx context.Context, j *Job) error {
+func (s *Service) publishJob(ctx context.Context, j *model.Job) error {
 	p, m, e := s.internalPocket(ctx, *j.PocketID)
 	if e != nil {
 		return e
@@ -259,7 +262,7 @@ func (s *Service) publishJob(ctx context.Context, j *Job) error {
 			bill.SourceType != "west_pocket" ||
 			bill.SourceID != p.ID ||
 			bill.Status == "closed" {
-			return failure(connect.CodeFailedPrecondition, "账单与冻结分摊不一致")
+			return support.Failure(connect.CodeFailedPrecondition, "账单与冻结分摊不一致")
 		}
 		a.PaymentBillID = &bill.ID
 		a.BillStatus = bill.Status
@@ -295,7 +298,7 @@ func (s *Service) publishJob(ctx context.Context, j *Job) error {
 }
 
 func enqueueNotification(ctx context.Context, tx bun.Tx, pocket, recipient int64, kind string, sequence int) error {
-	n := Notification{
+	n := model.Notification{
 		PocketID:        pocket,
 		RecipientUserID: recipient,
 		Kind:            kind,
@@ -314,7 +317,7 @@ func enqueueNotification(ctx context.Context, tx bun.Tx, pocket, recipient int64
 	return e
 }
 
-func (s *Service) cancelJob(ctx context.Context, j *Job) error {
+func (s *Service) cancelJob(ctx context.Context, j *model.Job) error {
 	p, _, e := s.internalPocket(ctx, *j.PocketID)
 	if e != nil {
 		return e
@@ -367,7 +370,7 @@ func (s *Service) cancelJob(ctx context.Context, j *Job) error {
 }
 
 //nolint:gocyclo // Keep the ordered recovery state machine and its fencing checks together for auditability.
-func (s *Service) enrollJob(ctx context.Context, j *Job) error {
+func (s *Service) enrollJob(ctx context.Context, j *model.Job) error {
 	if s.Faces == nil || s.Storage == nil {
 		return ErrUnavailable
 	}
@@ -375,7 +378,7 @@ func (s *Service) enrollJob(ctx context.Context, j *Job) error {
 	if e := json.Unmarshal(j.Payload, &payload); e != nil {
 		return e
 	}
-	p := new(Profile)
+	p := new(model.Profile)
 	if e := s.DB.NewSelect().Model(p).Where("id=?", *j.ProfileID).Scan(ctx); e != nil {
 		return e
 	}
@@ -390,7 +393,7 @@ func (s *Service) enrollJob(ctx context.Context, j *Job) error {
 	}
 	images := make([][]byte, 0, len(payload.UploadIDs))
 	for _, id := range payload.UploadIDs {
-		u := new(Upload)
+		u := new(model.Upload)
 		if e := s.DB.NewSelect().Model(u).Where("id=? AND deleted_at IS NULL", id).Scan(ctx); e != nil {
 			return e
 		}
@@ -405,7 +408,7 @@ func (s *Service) enrollJob(ctx context.Context, j *Job) error {
 	}
 	activated := false
 	e := s.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		current := new(Profile)
+		current := new(model.Profile)
 		if e := tx.NewSelect().Model(current).Where("id=?", p.ID).For("UPDATE").Scan(ctx); e != nil {
 			return e
 		}
@@ -444,8 +447,8 @@ func (s *Service) enrollJob(ctx context.Context, j *Job) error {
 	return s.finishEnrollmentCleanup(ctx, j, payload)
 }
 
-func (s *Service) finishEnrollmentCleanup(ctx context.Context, j *Job, payload enrollPayload) error {
-	var old []Sample
+func (s *Service) finishEnrollmentCleanup(ctx context.Context, j *model.Job, payload enrollPayload) error {
+	var old []model.Sample
 	if e := s.DB.NewSelect().
 		Model(&old).
 		Where("profile_id=? AND person_id<>? AND enrollment_version<? AND status<>'deleted'", *j.ProfileID, payload.PersonID, j.InputVersion).
@@ -478,18 +481,18 @@ func (s *Service) finishEnrollmentCleanup(ctx context.Context, j *Job, payload e
 	return nil
 }
 
-func (s *Service) revokeJob(ctx context.Context, j *Job) error {
+func (s *Service) revokeJob(ctx context.Context, j *model.Job) error {
 	if s.Faces == nil || s.Storage == nil {
 		return ErrUnavailable
 	}
-	profile := new(Profile)
+	profile := new(model.Profile)
 	if e := s.DB.NewSelect().Model(profile).Where("id=?", *j.ProfileID).Scan(ctx); e != nil {
 		return e
 	}
 	if profile.Status != "revoking" || profile.EnrollmentVersion != j.InputVersion {
 		return nil
 	}
-	var samples []Sample
+	var samples []model.Sample
 	if e := s.DB.NewSelect().
 		Model(&samples).
 		Where("profile_id=? AND enrollment_version<=?", *j.ProfileID, j.InputVersion).
@@ -535,7 +538,7 @@ func (s *Service) revokeJob(ctx context.Context, j *Job) error {
 }
 
 //nolint:gocyclo // Keep the ordered recovery state machine and its fencing checks together for auditability.
-func (s *Service) recognizeJob(ctx context.Context, j *Job) error {
+func (s *Service) recognizeJob(ctx context.Context, j *model.Job) error {
 	if s.Faces == nil || s.Storage == nil {
 		return ErrUnavailable
 	}
@@ -546,7 +549,7 @@ func (s *Service) recognizeJob(ctx context.Context, j *Job) error {
 	completed, failed := 0, 0
 	var last error
 	for _, id := range ids {
-		ph := new(Photo)
+		ph := new(model.Photo)
 		if e := s.DB.NewSelect().Model(ph).Where("id=?", id).Scan(ctx); e != nil {
 			return e
 		}
@@ -577,14 +580,14 @@ func (s *Service) recognizeJob(ctx context.Context, j *Job) error {
 				s.DB.ExecContext(
 					ctx,
 					"UPDATE westpocket.pocket_photo SET status='failed',error_code=?,updated_at=now() WHERE id=? AND latest_job_id=? AND deleted_at IS NULL AND status<>'deleting'",
-					safeError(e),
+					support.SafeError(e),
 					id,
 					j.ID,
 				),
 			)
 			continue
 		}
-		var profiles []Profile
+		var profiles []model.Profile
 		if e = s.DB.NewSelect().
 			Model(&profiles).
 			Where("status='active' AND consent_expires_at>now()").
@@ -597,7 +600,7 @@ func (s *Service) recognizeJob(ctx context.Context, j *Job) error {
 		}
 		matches := MatchFaces(faces, mapping, s.Threshold, s.Margin)
 		e = s.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-			current := new(Photo)
+			current := new(model.Photo)
 			if e := tx.NewSelect().Model(current).Where("id=?", id).For("UPDATE").Scan(ctx); e != nil {
 				return e
 			}
@@ -607,7 +610,7 @@ func (s *Service) recognizeJob(ctx context.Context, j *Job) error {
 				return nil
 			}
 			if _, e := tx.NewDelete().
-				Model((*Match)(nil)).
+				Model((*model.Match)(nil)).
 				Where("photo_id=? AND job_id=?", id, j.ID).
 				Exec(ctx); e != nil {
 				return e
@@ -652,25 +655,25 @@ func (s *Service) recognizeJob(ctx context.Context, j *Job) error {
 }
 
 // MatchFaces keeps uncertain candidates for manual resolution and flags duplicate identities in one photo.
-func MatchFaces(faces []Face, mapping map[string]int64, threshold, margin float64) []Match {
-	out := make([]Match, len(faces))
+func MatchFaces(faces []Face, mapping map[string]int64, threshold, margin float64) []model.Match {
+	out := make([]model.Match, len(faces))
 	counts := map[int64]int{}
 	for i, f := range faces {
-		m := Match{
+		m := model.Match{
 			BboxX:       f.X,
 			BboxY:       f.Y,
 			BboxWidth:   f.Width,
 			BboxHeight:  f.Height,
 			MatchStatus: f.Status,
 			Resolution:  "pending",
-			Candidates:  []Candidate{},
+			Candidates:  []model.Candidate{},
 		}
 		if m.MatchStatus == "" {
 			m.MatchStatus = "unknown"
 		}
 		for _, c := range f.Candidates {
 			if user := mapping[c.PersonID]; user > 0 {
-				m.Candidates = append(m.Candidates, Candidate{UserID: user, Score: c.Score})
+				m.Candidates = append(m.Candidates, model.Candidate{UserID: user, Score: c.Score})
 			}
 		}
 		sort.Slice(m.Candidates, func(i, j int) bool { return m.Candidates[i].Score > m.Candidates[j].Score })
@@ -700,7 +703,7 @@ func (s *Service) withUploadLock(ctx context.Context, id int64, fn func(bun.Conn
 	if e != nil {
 		return e
 	}
-	defer func() { closeResource(conn) }()
+	defer func() { support.CloseResource(conn) }()
 	key := fmt.Sprintf("wp-upload:%d", id)
 	if _, e = conn.ExecContext(ctx, "SELECT pg_advisory_lock(hashtextextended(?,2))", key); e != nil {
 		return e
@@ -713,7 +716,7 @@ func (s *Service) withUploadLock(ctx context.Context, id int64, fn func(bun.Conn
 
 func (s *Service) deleteUpload(ctx context.Context, id int64) error {
 	return s.withUploadLock(ctx, id, func(conn bun.Conn) error {
-		u := new(Upload)
+		u := new(model.Upload)
 		if e := conn.NewSelect().Model(u).Where("id=?", id).Scan(ctx); e != nil {
 			return e
 		}
@@ -731,13 +734,13 @@ func (s *Service) deleteUpload(ctx context.Context, id int64) error {
 	})
 }
 
-func (s *Service) deletePhotosJob(ctx context.Context, j *Job) error {
+func (s *Service) deletePhotosJob(ctx context.Context, j *model.Job) error {
 	var ids []int64
 	if e := json.Unmarshal(j.Payload, &ids); e != nil {
 		return e
 	}
 	for _, id := range ids {
-		ph := new(Photo)
+		ph := new(model.Photo)
 		if e := s.DB.NewSelect().Model(ph).Where("id=?", id).Scan(ctx); e != nil {
 			return e
 		}
@@ -756,7 +759,7 @@ func (s *Service) deletePhotosJob(ctx context.Context, j *Job) error {
 }
 
 func (s *Service) Purge(ctx context.Context) error {
-	var expired []Profile
+	var expired []model.Profile
 	if e := s.DB.NewSelect().
 		Model(&expired).
 		Where("status IN ('active','pending','failed') AND consent_expires_at<=now()").
@@ -775,7 +778,7 @@ func (s *Service) Purge(ctx context.Context) error {
 			return e
 		}
 	}
-	var photos []Photo
+	var photos []model.Photo
 	if e := s.DB.NewSelect().
 		Model(&photos).
 		Where("retention_until<=now() AND deleted_at IS NULL AND status<>'deleting'").
@@ -788,10 +791,10 @@ func (s *Service) Purge(ctx context.Context) error {
 			return e
 		}
 	}
-	if _, e := s.DB.NewDelete().Model((*Match)(nil)).Where("expires_at<=now()").Exec(ctx); e != nil {
+	if _, e := s.DB.NewDelete().Model((*model.Match)(nil)).Where("expires_at<=now()").Exec(ctx); e != nil {
 		return e
 	}
-	var uploads []Upload
+	var uploads []model.Upload
 	if e := s.DB.NewSelect().
 		Model(&uploads).
 		Where("expires_at<=now() AND deleted_at IS NULL AND (bound=false OR purpose='face_sample')").
@@ -864,7 +867,7 @@ func (s *Service) reconcile(ctx context.Context) error {
 	var after int64
 	var failures []error
 	for {
-		var pockets []Pocket
+		var pockets []model.Pocket
 		if e := s.DB.NewSelect().
 			Model(&pockets).
 			Where("status='collecting' AND id>?", after).
@@ -886,7 +889,7 @@ func (s *Service) reconcile(ctx context.Context) error {
 }
 
 func (s *Service) runNextNotification(ctx context.Context) error {
-	n := new(Notification)
+	n := new(model.Notification)
 	e := s.DB.NewRaw(`UPDATE westpocket.notification_outbox SET status='sending',lease_expires_at=now()+interval '2 minutes',attempt_count=attempt_count+1,updated_at=now() WHERE id=(SELECT n.id FROM westpocket.notification_outbox n WHERE ((n.status IN ('pending','retrying','unknown') AND n.next_attempt_at<=now()) OR (n.status='sending' AND n.lease_expires_at<now())) AND NOT EXISTS(SELECT 1 FROM westpocket.pocket p WHERE p.id=n.pocket_id AND p.admin_operation_id<>'') ORDER BY n.id FOR UPDATE OF n SKIP LOCKED LIMIT 1) RETURNING *`).
 		Scan(ctx, n)
 	if e != nil {
@@ -908,7 +911,7 @@ func (s *Service) runNextNotification(ctx context.Context) error {
 		"UPDATE westpocket.notification_outbox SET status=?,feishu_message_id=?,error_code=?,next_attempt_at=now()+(? * interval '1 second'),lease_expires_at=NULL,updated_at=now() WHERE id=? AND attempt_count=?",
 		status,
 		msgID,
-		safeError(e),
+		support.SafeError(e),
 		min(600, n.AttemptCount*n.AttemptCount*10),
 		n.ID,
 		n.AttemptCount,
@@ -919,7 +922,7 @@ func (s *Service) runNextNotification(ctx context.Context) error {
 	return e
 }
 
-func (s *Service) sendNotification(ctx context.Context, n *Notification) (string, error) {
+func (s *Service) sendNotification(ctx context.Context, n *model.Notification) (string, error) {
 	if s.Messenger == nil {
 		return "", ErrUnavailable
 	}
@@ -927,7 +930,7 @@ func (s *Service) sendNotification(ctx context.Context, n *Notification) (string
 	if e != nil {
 		return "", e
 	}
-	defer closeResource(conn)
+	defer support.CloseResource(conn)
 	lockKey := fmt.Sprintf("wp-pocket:%d", n.PocketID)
 	if _, e = conn.ExecContext(ctx, "SELECT pg_advisory_lock(hashtextextended(?,1))", lockKey); e != nil {
 		return "", e
@@ -966,7 +969,7 @@ func (s *Service) sendNotification(ctx context.Context, n *Notification) (string
 	return s.Messenger.Send(ctx, openID, n.MessageUUID, text, link, qr)
 }
 
-func (s *Service) summaryText(ctx context.Context, p *Pocket, m []Member) (string, error) {
+func (s *Service) summaryText(ctx context.Context, p *model.Pocket, m []model.Member) (string, error) {
 	text := fmt.Sprintf(
 		"West Pocket · %s\n总金额：¥%.2f\n参与人数：%d\n自身份额：¥%.2f\n应收合计：¥%.2f",
 		p.Title,
@@ -993,8 +996,13 @@ func (s *Service) summaryText(ctx context.Context, p *Pocket, m []Member) (strin
 	return text, nil
 }
 
-func (s *Service) paymentText(ctx context.Context, p *Pocket, n *Notification, m []Member) (string, []byte, error) {
-	var member *Member
+func (s *Service) paymentText(
+	ctx context.Context,
+	p *model.Pocket,
+	n *model.Notification,
+	m []model.Member,
+) (string, []byte, error) {
+	var member *model.Member
 	for i := range m {
 		if m[i].UserID == n.RecipientUserID {
 			member = &m[i]
@@ -1020,7 +1028,7 @@ func (s *Service) paymentText(ctx context.Context, p *Pocket, n *Notification, m
 		return "", nil, e
 	}
 	text := fmt.Sprintf(
-		"West Pocket · %s\n发起人：%s\n待付金额：¥%.2f\n账单：%s\n核验码：%s\n请核对收款人，使用微信扫码付款后在账单中标记已付款，等待垫付人确认。",
+		"West Pocket · %s\n发起人：%s\n待付金额：¥%.2f\n账单：%s\n核验码：%s\n请打开账单选择付款方式，核对收款人并转账，再标记已付款，等待发起人确认。",
 		p.Title,
 		organizer,
 		float64(member.ShareCents)/100,
@@ -1029,6 +1037,7 @@ func (s *Service) paymentText(ctx context.Context, p *Pocket, n *Notification, m
 	)
 	var qr []byte
 	if n.Kind == "payment_qr" {
+		text += "\n附图为微信收款码。"
 		qr, e = s.qrPNG(p)
 	}
 	return text, qr, e
@@ -1045,20 +1054,16 @@ func (s *Service) displayName(ctx context.Context, id int64) (string, error) {
 	return users[0].Name, nil
 }
 
-func (s *Service) qrPNG(p *Pocket) ([]byte, error) {
-	plain, e := s.Vault.Decrypt(p.QrCiphertext, p.ID)
+func (s *Service) qrPNG(p *model.Pocket) ([]byte, error) {
+	snap, e := s.readQRSnapshot(p)
 	if e != nil {
-		return nil, e
-	}
-	var snap QR
-	if e = json.Unmarshal(plain, &snap); e != nil {
 		return nil, e
 	}
 	return qrcode.Encode(snap.Content, qrcode.Medium, 512)
 }
 func collectionReadable(status string) bool { return status == "collecting" || status == "settled" }
 
-func (s *Service) cleanupEnrollment(ctx context.Context, j *Job) error {
+func (s *Service) cleanupEnrollment(ctx context.Context, j *model.Job) error {
 	if s.Faces == nil {
 		return ErrUnavailable
 	}
@@ -1066,7 +1071,7 @@ func (s *Service) cleanupEnrollment(ctx context.Context, j *Job) error {
 	if e := json.Unmarshal(j.Payload, &payload); e != nil {
 		return e
 	}
-	p := new(Profile)
+	p := new(model.Profile)
 	if e := s.DB.NewSelect().Model(p).Where("id=?", *j.ProfileID).Scan(ctx); e != nil {
 		return e
 	}
@@ -1087,7 +1092,7 @@ func (s *Service) cleanupEnrollment(ctx context.Context, j *Job) error {
 	return nil
 }
 
-func billSourceMatches(b Bill, p *Pocket) bool {
+func billSourceMatches(b Bill, p *model.Pocket) bool {
 	return b.SourceType == "west_pocket" && b.SourceID == p.ID && b.PayeeID == p.OwnerID &&
 		normalRound(b.LifecycleRound) == normalRound(p.LifecycleRound)
 }

@@ -1,15 +1,16 @@
-package westpocket
+package v1
 
 import (
 	"context"
 
 	av "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/admin/v1"
 	"connectrpc.com/connect"
-
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/admin"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/service"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 )
 
-type AdminHandler struct{ S *Service }
+type AdminHandler struct{ S *service.Service }
 
 func (h *AdminHandler) ListRecords(
 	ctx context.Context,
@@ -17,7 +18,7 @@ func (h *AdminHandler) ListRecords(
 ) (*connect.Response[av.ListRecordsResponse], error) {
 	out, e := h.S.AdminList(ctx, r.Msg)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -28,7 +29,7 @@ func (h *AdminHandler) GetRecord(
 ) (*connect.Response[av.GetRecordResponse], error) {
 	out, e := h.S.AdminGet(ctx, r.Msg)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -39,7 +40,7 @@ func (h *AdminHandler) MutateRecord(
 ) (*connect.Response[av.MutateRecordResponse], error) {
 	out, e := h.S.AdminMutate(ctx, r.Msg)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -50,7 +51,7 @@ func (h *AdminHandler) PreviewCorrection(
 ) (*connect.Response[av.PreviewCorrectionResponse], error) {
 	out, e := h.S.AdminEngine().Preview(ctx, r.Msg)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -61,7 +62,7 @@ func (h *AdminHandler) ExecuteCorrection(
 ) (*connect.Response[av.ExecuteCorrectionResponse], error) {
 	out, e := h.S.AdminEngine().Execute(ctx, r.Msg)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -72,7 +73,7 @@ func (h *AdminHandler) GetCorrection(
 ) (*connect.Response[av.GetCorrectionResponse], error) {
 	out, e := h.S.AdminEngine().Get(ctx, r.Msg)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -83,7 +84,7 @@ func (h *AdminHandler) ListCorrections(
 ) (*connect.Response[av.ListCorrectionsResponse], error) {
 	out, e := h.S.AdminEngine().List(ctx, r.Msg)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -94,7 +95,7 @@ func (h *AdminHandler) ListAudit(
 ) (*connect.Response[av.ListAuditResponse], error) {
 	out, e := admin.ListAudit(ctx, h.S.DB, "westpocket", r.Msg)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -105,7 +106,7 @@ func (h *AdminHandler) GetStats(
 ) (*connect.Response[av.GetStatsResponse], error) {
 	out, e := h.S.AdminStats(ctx)
 	if e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return connect.NewResponse(out), nil
 }

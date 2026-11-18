@@ -1,4 +1,4 @@
-package westpocket
+package service
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	av "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/admin/v1"
 	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/admin"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -93,7 +94,7 @@ func (s *Service) adminReadPocket(ctx context.Context, db bun.IDB, id int64, loc
 		q = q.For("UPDATE")
 	}
 	if e := q.Scan(ctx, p); e != nil {
-		return nil, rpcError(e)
+		return nil, support.RPCError(e)
 	}
 	return p, nil
 }
@@ -112,14 +113,14 @@ func (s *Service) AdminList(ctx context.Context, r *av.ListRecordsRequest) (*av.
 	}
 	if !utf8.ValidString(r.Keyword) || strings.ContainsRune(r.Keyword, '\x00') ||
 		utf8.RuneCountInString(r.Keyword) > 100 {
-		return nil, failure(connect.CodeInvalidArgument, "搜索关键词无效")
+		return nil, support.Failure(connect.CodeInvalidArgument, "搜索关键词无效")
 	}
 	out := &av.ListRecordsResponse{Page: page, PageSize: size}
 	if r.Resource == av.ResourceKind_RESOURCE_KIND_JOB {
 		return s.adminListJobs(ctx, r, out)
 	}
 	if r.Resource != av.ResourceKind_RESOURCE_KIND_POCKET {
-		return nil, failure(connect.CodeInvalidArgument, "仅支持活动与运营任务")
+		return nil, support.Failure(connect.CodeInvalidArgument, "仅支持活动与运营任务")
 	}
 	var rows []adminPocket
 	q := s.DB.NewSelect().TableExpr("westpocket.pocket").ColumnExpr(adminPocketColumns)
@@ -253,12 +254,12 @@ func (s *Service) AdminGet(ctx context.Context, r *av.GetRecordRequest) (*av.Get
 			Where("j.id=? AND j.kind IN ('publish','cancel') AND j.pocket_id IS NOT NULL", id).
 			Scan(ctx, &j)
 		if e != nil {
-			return nil, rpcError(e)
+			return nil, support.RPCError(e)
 		}
 		return &av.GetRecordResponse{Record: jobAdminRecord(&j)}, nil
 	}
 	if r.Resource != av.ResourceKind_RESOURCE_KIND_POCKET {
-		return nil, failure(connect.CodeInvalidArgument, "仅支持活动与运营任务")
+		return nil, support.Failure(connect.CodeInvalidArgument, "仅支持活动与运营任务")
 	}
 	p, e := s.adminReadPocket(ctx, s.DB, id, false)
 	if e != nil {
@@ -298,14 +299,14 @@ func (s *Service) AdminMutate(ctx context.Context, r *av.MutateRecordRequest) (*
 		return nil, e
 	}
 	if len(r.Values) > 0 || r.ExpectedRound < 1 || r.ExpectedUpdatedAt == nil || !r.ExpectedUpdatedAt.IsValid() {
-		return nil, failure(connect.CodeInvalidArgument, "请刷新记录后重试")
+		return nil, support.Failure(connect.CodeInvalidArgument, "请刷新记录后重试")
 	}
 	if e = admin.ValidateReason(r.Reason, r.Evidence); e != nil {
 		return nil, e
 	}
 	if (r.Resource != av.ResourceKind_RESOURCE_KIND_JOB || r.Action != "retry") &&
 		(r.Resource != av.ResourceKind_RESOURCE_KIND_POCKET || r.Action != "retry_notifications") {
-		return nil, failure(connect.CodeInvalidArgument, "此操作必须通过整单纠错预览执行")
+		return nil, support.Failure(connect.CodeInvalidArgument, "此操作必须通过整单纠错预览执行")
 	}
 	var record *av.AdminRecord
 	mutation := admin.Mutation{
@@ -333,7 +334,7 @@ func (s *Service) AdminMutate(ctx context.Context, r *av.MutateRecordRequest) (*
 				ColumnExpr(adminJobColumns).
 				Where("j.id=? AND j.kind IN ('publish','cancel') AND j.pocket_id IS NOT NULL", id).
 				Scan(ctx, &j); e != nil {
-				return rpcError(e)
+				return support.RPCError(e)
 			}
 			p, e := s.adminReadPocket(ctx, tx, j.PocketID, true)
 			if e != nil {
@@ -345,7 +346,7 @@ func (s *Service) AdminMutate(ctx context.Context, r *av.MutateRecordRequest) (*
 				Where("j.id=?", id).
 				For("UPDATE").
 				Scan(ctx, &j); e != nil {
-				return rpcError(e)
+				return support.RPCError(e)
 			}
 			if p.AdminOperationID != "" || j.LifecycleRound != p.LifecycleRound ||
 				j.LifecycleRound != r.ExpectedRound ||
@@ -416,7 +417,7 @@ func (s *Service) AdminMutate(ctx context.Context, r *av.MutateRecordRequest) (*
 				return e
 			}
 			if count == 0 {
-				return failure(connect.CodeFailedPrecondition, "没有可重试的通知")
+				return support.Failure(connect.CodeFailedPrecondition, "没有可重试的通知")
 			}
 			if e = admin.WriteAudit(
 				ctx,

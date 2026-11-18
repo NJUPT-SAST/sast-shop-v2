@@ -1,4 +1,4 @@
-package westpocket
+package service
 
 import (
 	"context"
@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/model"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/repository"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice/internal/support"
 	"github.com/uptrace/bun"
 )
 
@@ -29,28 +31,28 @@ func (s *Service) parseCursor(token string, actor int64, scope string) (int64, e
 	}
 	parts := strings.Split(token, ".")
 	if len(parts) != 2 {
-		return 0, failure(connect.CodeInvalidArgument, "分页标记无效")
+		return 0, support.Failure(connect.CodeInvalidArgument, "分页标记无效")
 	}
 	data, e := base64.RawURLEncoding.DecodeString(parts[0])
 	if e != nil {
-		return 0, failure(connect.CodeInvalidArgument, "分页标记无效")
+		return 0, support.Failure(connect.CodeInvalidArgument, "分页标记无效")
 	}
 	signature, e := base64.RawURLEncoding.DecodeString(parts[1])
 	if e != nil {
-		return 0, failure(connect.CodeInvalidArgument, "分页标记无效")
+		return 0, support.Failure(connect.CodeInvalidArgument, "分页标记无效")
 	}
 	mac := hmac.New(sha256.New, s.CursorKey)
 	_, _ = mac.Write(data)
 	if !hmac.Equal(signature, mac.Sum(nil)) {
-		return 0, failure(connect.CodeInvalidArgument, "分页标记无效")
+		return 0, support.Failure(connect.CodeInvalidArgument, "分页标记无效")
 	}
 	values := strings.SplitN(string(data), ":", 3)
 	if len(values) != 3 || values[0] != strconv.FormatInt(actor, 10) || values[2] != scope {
-		return 0, failure(connect.CodeInvalidArgument, "分页标记不匹配")
+		return 0, support.Failure(connect.CodeInvalidArgument, "分页标记不匹配")
 	}
 	id, e := strconv.ParseInt(values[1], 10, 64)
 	if e != nil || id <= 0 {
-		return 0, failure(connect.CodeInvalidArgument, "分页标记无效")
+		return 0, support.Failure(connect.CodeInvalidArgument, "分页标记无效")
 	}
 	return id, nil
 }
@@ -61,12 +63,12 @@ func (s *Service) List(
 	perspective, status string,
 	size int,
 	token string,
-) ([]Pocket, string, error) {
+) ([]model.Pocket, string, error) {
 	if perspective == "" {
 		perspective = "owner"
 	}
 	if perspective != "owner" && perspective != "member" {
-		return nil, "", failure(connect.CodeInvalidArgument, "活动视角无效")
+		return nil, "", support.Failure(connect.CodeInvalidArgument, "活动视角无效")
 	}
 	if size <= 0 || size > 20 {
 		size = 20
@@ -76,23 +78,7 @@ func (s *Service) List(
 	if e != nil {
 		return nil, "", e
 	}
-	var pockets []Pocket
-	q := s.DB.NewSelect().Model(&pockets)
-	if perspective == "owner" {
-		q = q.Where("p.owner_id=?", actor)
-	} else {
-		q = q.Where(
-			"p.status<>'draft' AND EXISTS(SELECT 1 FROM westpocket.pocket_member m WHERE m.pocket_id=p.id AND m.user_id=?)",
-			actor,
-		)
-	}
-	if status != "" {
-		q = q.Where("p.status=?", status)
-	}
-	if after > 0 {
-		q = q.Where("p.id<?", after)
-	}
-	e = q.OrderExpr("p.id DESC").Limit(size + 1).Scan(ctx)
+	pockets, e := repository.ListPockets(ctx, s.DB, actor, perspective == "owner", status, after, size+1)
 	if e != nil {
 		return nil, "", e
 	}
@@ -104,7 +90,7 @@ func (s *Service) List(
 	return pockets, next, nil
 }
 
-func (s *Service) Photos(ctx context.Context, actor, id int64, album bool) ([]Photo, error) {
+func (s *Service) Photos(ctx context.Context, actor, id int64, album bool) ([]model.Photo, error) {
 	p, m, e := s.Pocket(ctx, actor, id)
 	if e != nil {
 		return nil, e
@@ -120,26 +106,15 @@ func (s *Service) Photos(ctx context.Context, actor, id int64, album bool) ([]Ph
 		if !accepted {
 			return nil, ErrDenied
 		}
-		var declined int
-		if declined, e = s.DB.NewSelect().
-			Model((*Member)(nil)).
-			Where("pocket_id=? AND album_access<>'accepted'", id).
-			Count(ctx); e != nil {
+		declined, e := repository.CountPendingAlbumMembers(ctx, s.DB, id)
+		if e != nil {
 			return nil, e
 		}
 		if declined > 0 {
-			return nil, failure(connect.CodeFailedPrecondition, "成员尚未全部同意相册分享")
+			return nil, support.Failure(connect.CodeFailedPrecondition, "成员尚未全部同意相册分享")
 		}
 	}
-	var photos []Photo
-	q := s.DB.NewSelect().
-		Model(&photos).
-		Where("pocket_id=? AND deleted_at IS NULL AND status NOT IN ('deleted','deleting') AND retention_until>now()", id)
-	if album {
-		q = q.Where("retention_mode='keepsake'")
-	}
-	e = q.OrderExpr("id ASC").Scan(ctx)
-	return photos, e
+	return repository.ListPhotos(ctx, s.DB, id, album)
 }
 
 func (s *Service) SetAlbum(ctx context.Context, actor, id int64, accepted bool, requestID string) error {
@@ -147,7 +122,7 @@ func (s *Service) SetAlbum(ctx context.Context, actor, id int64, accepted bool, 
 		if e := lockAlbumPocket(ctx, tx, id); e != nil {
 			return 0, e
 		}
-		m := new(Member)
+		m := new(model.Member)
 		if e := tx.NewSelect().
 			Model(m).
 			Where("pocket_id=? AND user_id=?", id, actor).
@@ -199,7 +174,7 @@ func (s *Service) Remind(ctx context.Context, actor, id int64, memberIDs []int64
 		if p.Status != "collecting" {
 			return 0, ErrState
 		}
-		m, e := membersTx(ctx, tx, id)
+		m, e := repository.ListMembers(ctx, tx, id)
 		if e != nil {
 			return 0, e
 		}
@@ -220,7 +195,7 @@ func (s *Service) Remind(ctx context.Context, actor, id int64, memberIDs []int64
 
 		}
 		if matched == 0 {
-			return 0, failure(connect.CodeFailedPrecondition, "没有可提醒的待付款成员")
+			return 0, support.Failure(connect.CodeFailedPrecondition, "没有可提醒的待付款成员")
 		}
 		if _, e = tx.ExecContext(
 			ctx,
@@ -236,9 +211,9 @@ func (s *Service) Remind(ctx context.Context, actor, id int64, memberIDs []int64
 	return e
 }
 
-func (s *Service) remindMember(ctx context.Context, tx bun.Tx, id int64, a *Member) error {
+func (s *Service) remindMember(ctx context.Context, tx bun.Tx, id int64, a *model.Member) error {
 	if a.LastRemindedAt != nil && time.Since(*a.LastRemindedAt) < 30*time.Minute {
-		return failure(connect.CodeResourceExhausted, "同一成员每 30 分钟可提醒一次")
+		return support.Failure(connect.CodeResourceExhausted, "同一成员每 30 分钟可提醒一次")
 	}
 	result, e := tx.ExecContext(
 		ctx,
@@ -268,32 +243,100 @@ func (s *Service) remindMember(ctx context.Context, tx bun.Tx, id int64, a *Memb
 	return e
 }
 
-func (s *Service) Notifications(ctx context.Context, actor, id int64) ([]Notification, error) {
+func (s *Service) Notifications(ctx context.Context, actor, id int64) ([]model.Notification, error) {
 	p, _, e := s.Pocket(ctx, actor, id)
 	if e != nil {
 		return nil, e
 	}
-	var n []Notification
-	q := s.DB.NewSelect().Model(&n).Where("pocket_id=? AND lifecycle_round=?", id, p.LifecycleRound)
-	if p.OwnerID != actor {
-		q = q.Where("recipient_user_id=?", actor)
-	}
-	e = q.OrderExpr("id ASC").Scan(ctx)
-	return n, e
+	return repository.ListNotifications(ctx, s.DB, id, p.LifecycleRound, actor, p.OwnerID == actor)
 }
 
-func (s *Service) Snapshot(ctx context.Context, actor, id int64) (*Pocket, *Bill, QR, error) {
+func (s *Service) Ready(ctx context.Context) (bool, error) {
+	return repository.Ready(ctx, s.DB)
+}
+
+func (s *Service) CollectionState(
+	ctx context.Context,
+	id int64,
+	checkAlipay bool,
+) (*model.Pocket, []model.Member, bool, error) {
+	p, members, err := s.internalPocket(ctx, id)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if p.AdminOperationID != "" {
+		return nil, nil, false, support.Failure(connect.CodeFailedPrecondition, "活动正在纠错")
+	}
+	alipayAvailable := false
+	if checkAlipay && p.Status == "collecting" {
+		qr, err := s.readQRSnapshot(p)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		alipayAvailable = qr.AlipayContent != ""
+	}
+	return p, members, alipayAvailable, nil
+}
+
+func (s *Service) ProfileWithLatestJob(ctx context.Context, actor int64) (*model.Profile, int, int64, error) {
+	profile, count, err := s.Profile(ctx, actor)
+	if err != nil || profile == nil {
+		return profile, count, 0, err
+	}
+	job, err := repository.LatestProfileJob(ctx, s.DB, profile.ID)
+	if err != nil {
+		return profile, count, 0, nil
+	}
+	return profile, count, job.ID, nil
+}
+
+func (s *Service) RecentPocketJobs(ctx context.Context, actor int64, pocket *model.Pocket) ([]model.Job, error) {
+	if pocket.OwnerID != actor {
+		return nil, nil
+	}
+	return repository.ListPocketJobs(ctx, s.DB, pocket.ID, 20)
+}
+
+func (s *Service) ListAlbumPhotos(
+	ctx context.Context,
+	actor, id int64,
+	size int,
+	token string,
+) ([]model.Photo, string, error) {
+	photos, err := s.Photos(ctx, actor, id, true)
+	if err != nil {
+		return nil, "", err
+	}
+	scope := "album:" + strconv.FormatInt(id, 10)
+	after, err := s.parseCursor(token, actor, scope)
+	if err != nil {
+		return nil, "", err
+	}
+	filtered := []model.Photo{}
+	for _, photo := range photos {
+		if photo.ID > after {
+			filtered = append(filtered, photo)
+		}
+	}
+	if size <= 0 || size > 20 {
+		size = 20
+	}
+	next := ""
+	if len(filtered) > size {
+		filtered = filtered[:size]
+		next = s.cursor(actor, filtered[len(filtered)-1].ID, scope)
+	}
+	return filtered, next, nil
+}
+
+func (s *Service) Snapshot(ctx context.Context, actor, id int64) (*model.Pocket, *Bill, QR, error) {
 	p, m, e := s.Pocket(ctx, actor, id)
 	if e != nil {
 		return nil, nil, QR{}, e
 	}
 	var qr QR
 	if collectionReadable(p.Status) {
-		data, e := s.Vault.Decrypt(p.QrCiphertext, p.ID)
-		if e != nil {
-			return nil, nil, QR{}, e
-		}
-		if e = json.Unmarshal(data, &qr); e != nil {
+		if qr, e = s.readQRSnapshot(p); e != nil {
 			return nil, nil, QR{}, e
 		}
 	}
@@ -315,11 +358,26 @@ func (s *Service) Snapshot(ctx context.Context, actor, id int64) (*Pocket, *Bill
 	return p, nil, qr, nil
 }
 
-func reminderEligible(m Member, owner int64, requested map[int64]bool) bool {
+func (s *Service) readQRSnapshot(p *model.Pocket) (QR, error) {
+	if s.Vault == nil {
+		return QR{}, ErrUnavailable
+	}
+	data, err := s.Vault.Decrypt(p.QrCiphertext, p.ID)
+	if err != nil {
+		return QR{}, err
+	}
+	var qr QR
+	if err := json.Unmarshal(data, &qr); err != nil {
+		return QR{}, err
+	}
+	return qr, nil
+}
+
+func reminderEligible(m model.Member, owner int64, requested map[int64]bool) bool {
 	return m.UserID != owner && m.BillStatus == "unpaid" && (len(requested) == 0 || requested[m.ID])
 }
 
-func matchesBill(b Bill, p *Pocket, m Member) bool {
+func matchesBill(b Bill, p *model.Pocket, m model.Member) bool {
 	return b.PayerID == m.UserID && b.PayeeID == p.OwnerID && b.AmountCents == m.ShareCents && b.SourceID == p.ID &&
 		b.SourceType == "west_pocket" && normalRound(b.LifecycleRound) == normalRound(p.LifecycleRound)
 }
