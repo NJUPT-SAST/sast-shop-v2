@@ -57,6 +57,20 @@ func TestCatalogWritesRequireActiveMember(t *testing.T) {
 			_, err := (&CatalogServiceServer{}).UpdateStore(ctx, connect.NewRequest(&catalogv1.UpdateStoreRequest{}))
 			return err
 		}},
+		{"create_category", func(ctx context.Context) error {
+			_, err := (&ProductTemplateServiceServer{}).CreateProductCategory(
+				ctx,
+				connect.NewRequest(&catalogv1.CreateProductCategoryRequest{}),
+			)
+			return err
+		}},
+		{"delete_category", func(ctx context.Context) error {
+			_, err := (&ProductTemplateServiceServer{}).DeleteProductCategory(
+				ctx,
+				connect.NewRequest(&catalogv1.DeleteProductCategoryRequest{}),
+			)
+			return err
+		}},
 		{"create_template", func(ctx context.Context) error {
 			_, err := (&ProductTemplateServiceServer{}).CreateProductTemplate(
 				ctx,
@@ -97,7 +111,7 @@ func TestCatalogWritesRequireActiveMember(t *testing.T) {
 }
 
 func TestCatalogWritesAllowMemberRoles(t *testing.T) {
-	db := testutil.NewPostgres(t, "006_admin_catalog_spot.sql")
+	db := testutil.NewPostgres(t, "006_admin_catalog_spot.sql", "010_store_product_categories.sql")
 	previous := postgres.DB
 	postgres.DB = db
 	t.Cleanup(func() { postgres.DB = previous })
@@ -141,16 +155,30 @@ func checkTemplateWrites(t *testing.T, ctx context.Context, db bun.IDB, storeID 
 	member, _ := interceptor.UserFromContext(ctx)
 	role := member.Role
 	templates := &ProductTemplateServiceServer{}
+	createdCategory, err := templates.CreateProductCategory(
+		ctx,
+		connect.NewRequest(&catalogv1.CreateProductCategoryRequest{StoreId: storeID, Name: "Dairy"}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	categoryID := createdCategory.Msg.GetCategory().GetId()
+	if categoryID <= 0 {
+		t.Fatalf("created category = %v, want a positive ID", createdCategory.Msg.GetCategory())
+	}
 	product, err := templates.CreateProductTemplate(
 		ctx,
 		connect.NewRequest(&catalogv1.CreateProductTemplateRequest{
-			StoreId: storeID, Title: "Milk", PriceCents: 250, Barcode: "690001",
+			StoreId: storeID, Title: "Milk", PriceCents: 250, Barcode: "690001", CategoryId: categoryID,
 		}),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	pt := product.Msg.ProductTemplate
+	if pt.GetCategoryId() != categoryID {
+		t.Fatalf("new template category = %d, want %d", pt.GetCategoryId(), categoryID)
+	}
 	changed, err := templates.UpdateProductTemplate(
 		ctx,
 		connect.NewRequest(&catalogv1.UpdateProductTemplateRequest{
@@ -161,7 +189,8 @@ func checkTemplateWrites(t *testing.T, ctx context.Context, db bun.IDB, storeID 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if changed.Msg.ProductTemplate.MainImageUrl != logo || changed.Msg.ProductTemplate.Title != "Milk" {
+	if changed.Msg.ProductTemplate.MainImageUrl != logo || changed.Msg.ProductTemplate.Title != "Milk" ||
+		changed.Msg.ProductTemplate.GetCategoryId() != categoryID {
 		t.Fatalf("incorrect template image update: %v", changed.Msg.ProductTemplate)
 	}
 	other := interceptor.SetUserToContext(context.Background(), &interceptor.AuthUser{
@@ -188,5 +217,11 @@ func checkTemplateWrites(t *testing.T, ctx context.Context, db bun.IDB, storeID 
 	if err := db.NewSelect().TableExpr("catalog.catalog_product_template").Column("status").
 		Where("id = ?", pt.Id).Scan(ctx, &status); err != nil || status != "removed" {
 		t.Fatalf("deleted template status = %q, error = %v", status, err)
+	}
+	if _, err := templates.DeleteProductCategory(
+		ctx,
+		connect.NewRequest(&catalogv1.DeleteProductCategoryRequest{StoreId: storeID, CategoryId: categoryID}),
+	); err != nil {
+		t.Fatal(err)
 	}
 }

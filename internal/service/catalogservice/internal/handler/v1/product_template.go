@@ -45,6 +45,8 @@ func (s *ProductTemplateServiceServer) GetProductTemplateList(
 		r.Msg.PageSize,
 		keyword,
 		titleFullText,
+		r.Msg.CategoryFilterMode,
+		r.Msg.CategoryId,
 	)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -54,6 +56,49 @@ func (s *ProductTemplateServiceServer) GetProductTemplateList(
 		CurrentPage:      r.Msg.Page,
 		TotalCount:       total,
 	}), nil
+}
+
+func (s *ProductTemplateServiceServer) ListProductCategories(
+	ctx context.Context,
+	r *connect.Request[catalogv1.ListProductCategoriesRequest],
+) (*connect.Response[catalogv1.ListProductCategoriesResponse], error) {
+	if _, err := requireCatalogMember(ctx); err != nil {
+		return nil, err
+	}
+	categories, hasUncategorized, err := service.ListProductCategories(ctx, r.Msg.StoreId)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&catalogv1.ListProductCategoriesResponse{
+		Categories: categories, HasUncategorizedProducts: hasUncategorized,
+	}), nil
+}
+
+func (s *ProductTemplateServiceServer) CreateProductCategory(
+	ctx context.Context,
+	r *connect.Request[catalogv1.CreateProductCategoryRequest],
+) (*connect.Response[catalogv1.CreateProductCategoryResponse], error) {
+	if _, err := requireCatalogMember(ctx); err != nil {
+		return nil, err
+	}
+	category, err := service.CreateProductCategory(ctx, r.Msg.StoreId, r.Msg.ParentId, r.Msg.Name)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&catalogv1.CreateProductCategoryResponse{Category: category}), nil
+}
+
+func (s *ProductTemplateServiceServer) DeleteProductCategory(
+	ctx context.Context,
+	r *connect.Request[catalogv1.DeleteProductCategoryRequest],
+) (*connect.Response[catalogv1.DeleteProductCategoryResponse], error) {
+	if _, err := requireCatalogMember(ctx); err != nil {
+		return nil, err
+	}
+	if err := service.DeleteProductCategory(ctx, r.Msg.StoreId, r.Msg.CategoryId); err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&catalogv1.DeleteProductCategoryResponse{}), nil
 }
 
 func (s *ProductTemplateServiceServer) CreateProductTemplate(
@@ -73,6 +118,7 @@ func (s *ProductTemplateServiceServer) CreateProductTemplate(
 		r.Msg.MainImageUrl,
 		r.Msg.Barcode,
 		authUser.UserID,
+		r.Msg.CategoryId,
 	)
 	if err != nil {
 		return nil, mapServiceError(err)

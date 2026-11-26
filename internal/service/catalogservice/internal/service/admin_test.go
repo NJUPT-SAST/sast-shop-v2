@@ -16,7 +16,12 @@ import (
 
 func setupAdminCatalog(t *testing.T) (context.Context, *bun.DB) {
 	t.Helper()
-	db := testutil.NewPostgres(t, "005_admin_identity.sql", "006_admin_catalog_spot.sql")
+	db := testutil.NewPostgres(
+		t,
+		"005_admin_identity.sql",
+		"006_admin_catalog_spot.sql",
+		"010_store_product_categories.sql",
+	)
 	previous := postgres.DB
 	postgres.DB = db
 	t.Cleanup(func() { postgres.DB = previous })
@@ -25,7 +30,8 @@ func setupAdminCatalog(t *testing.T) (context.Context, *bun.DB) {
 		ctx,
 		`INSERT INTO "user".user_account (id,feishu_open_id,role,display_name) VALUES (42,'admin-42','admin','Operator');
     INSERT INTO catalog.catalog_store (id,name,address,created_by_user_id) VALUES (100,'Shared shop','Campus',7);
-    INSERT INTO catalog.catalog_product_template (id,title,description,price_cents,store_id,created_by_user_id) VALUES (200,'Milk','Original',250,100,7);
+    INSERT INTO catalog.catalog_product_category (id,store_id,name) VALUES (1,100,'Food');
+    INSERT INTO catalog.catalog_product_template (id,title,description,price_cents,store_id,created_by_user_id,category_id) VALUES (200,'Milk','Original',250,100,7,1);
     INSERT INTO catalog.catalog_product_barcode (product_template_id,barcode) VALUES (200,'690001')`,
 	); err != nil {
 		t.Fatal(err)
@@ -119,7 +125,8 @@ func TestCatalogModerationPreservesSharedEditsAndBlocksForbiddenProducts(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	products, total, err := GetProductTemplateList(ctx, 100, 1, 20, "", false)
+	products, total, err := GetProductTemplateList(ctx, 100, 1, 20, "", false,
+		catalogv1.ProductTemplateCategoryFilterMode_PRODUCT_TEMPLATE_CATEGORY_FILTER_MODE_UNSPECIFIED, 0)
 	if err != nil || total != 0 || len(products) != 0 {
 		t.Fatalf("blocked product remains visible: %v %d %v", products, total, err)
 	}
@@ -251,11 +258,12 @@ func assertCatalogStoreModeration(t *testing.T, ctx context.Context) {
 	if err != nil || len(stores) != 0 {
 		t.Fatalf("blocked store visible: %v %v", stores, err)
 	}
-	_, err = CreateProductTemplate(ctx, 100, "New", "", 100, "", "123", 7)
+	_, err = CreateProductTemplate(ctx, 100, "New", "", 100, "", "123", 7, 1)
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("new template in blocked store: %v", err)
 	}
-	_, total, err := GetProductTemplateList(ctx, 100, 1, 20, "", false)
+	_, total, err := GetProductTemplateList(ctx, 100, 1, 20, "", false,
+		catalogv1.ProductTemplateCategoryFilterMode_PRODUCT_TEMPLATE_CATEGORY_FILTER_MODE_UNSPECIFIED, 0)
 	if err != nil || total != 0 {
 		t.Fatalf("blocked store templates visible: %d %v", total, err)
 	}

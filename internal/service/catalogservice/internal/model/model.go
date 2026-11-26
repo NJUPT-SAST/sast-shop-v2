@@ -32,6 +32,7 @@ type CatalogProductTemplate struct {
 	Description      string        `bun:"description,notnull,default:''"`
 	PriceCents       int32         `bun:"price_cents,notnull"`
 	StoreID          int64         `bun:"store_id,notnull"`
+	CategoryID       *int64        `bun:"category_id"`
 	Status           CatalogStatus `bun:"status,notnull,default:'active'"`
 	ModerationStatus string        `bun:"moderation_status,notnull,default:'allowed'"`
 	ModerationReason string        `bun:"moderation_reason,notnull,default:''"`
@@ -41,6 +42,18 @@ type CatalogProductTemplate struct {
 	PublishedAt      *time.Time    `bun:"published_at"`
 	CreatedAt        time.Time     `bun:"created_at,notnull,default:current_timestamp"`
 	UpdatedAt        time.Time     `bun:"updated_at,notnull,default:current_timestamp"`
+}
+
+type CatalogProductCategory struct {
+	bun.BaseModel `bun:"table:catalog.catalog_product_category,alias:cpc"`
+
+	ID        int64     `bun:"id,pk,autoincrement"`
+	StoreID   int64     `bun:"store_id,notnull"`
+	ParentID  *int64    `bun:"parent_id"`
+	Name      string    `bun:"name,notnull"`
+	SortOrder int32     `bun:"sort_order,notnull"`
+	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp"`
+	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp"`
 }
 
 type CatalogProductBarcode struct {
