@@ -3,8 +3,8 @@ syntax = "proto3";
 package sast.sastshopv2.catalog.v1;
 
 import "google/protobuf/field_mask.proto";
-import "sast/sastshopv2/catalog/v1/product_template.proto";
 import "sast/sastshopv2/catalog/v1/product_category.proto";
+import "sast/sastshopv2/catalog/v1/product_template.proto";
 import "sast/sastshopv2/catalog/v1/store.proto";
 
 enum ProductTemplateSearchMode {
@@ -111,7 +111,9 @@ service ProductTemplateService {
   rpc DeleteProductTemplate(DeleteProductTemplateRequest) returns (DeleteProductTemplateResponse);
 }
 
-message ListProductCategoriesRequest { int64 store_id = 1; }
+message ListProductCategoriesRequest {
+  int64 store_id = 1;
+}
 message ListProductCategoriesResponse {
   repeated ProductCategory categories = 1;
   bool has_uncategorized_products = 2;
@@ -121,7 +123,9 @@ message CreateProductCategoryRequest {
   optional int64 parent_id = 2;
   string name = 3;
 }
-message CreateProductCategoryResponse { ProductCategory category = 1; }
+message CreateProductCategoryResponse {
+  ProductCategory category = 1;
+}
 message DeleteProductCategoryRequest {
   int64 store_id = 1;
   int64 category_id = 2;
