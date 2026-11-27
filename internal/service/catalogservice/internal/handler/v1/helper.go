@@ -74,6 +74,8 @@ func mapServiceError(err error) *connect.Error {
 		return barcodeNotFoundError()
 	case errors.Is(err, service.ErrProductTemplateForbidden):
 		return productTemplateForbiddenError()
+	case errors.Is(err, service.ErrProductCategoryNotFound):
+		return connect.NewError(connect.CodeNotFound, errors.New("商品分类不存在"))
 	default:
 		return catalogError()
 	}

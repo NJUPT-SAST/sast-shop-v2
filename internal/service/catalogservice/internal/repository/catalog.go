@@ -78,9 +78,17 @@ func UpdateStore(ctx context.Context, db bun.IDB, id int64, updates map[string]a
 // ListProductTemplates 分页查询指定店铺的商品模板。
 func ListProductTemplates(
 	ctx context.Context, storeID int64, offset, limit int, keyword string, titleFullText bool,
+	categoryFilterMode int32, categoryID int64,
 ) ([]*model.CatalogProductTemplate, error) {
 	var pts []*model.CatalogProductTemplate
-	query := filterProductTemplates(postgres.DB.NewSelect().Model(&pts), storeID, keyword, titleFullText)
+	query := filterProductTemplates(
+		postgres.DB.NewSelect().Model(&pts),
+		storeID,
+		keyword,
+		titleFullText,
+		categoryFilterMode,
+		categoryID,
+	)
 	if titleFullText && keyword != "" {
 		query = query.OrderExpr(
 			"ts_rank(to_tsvector('catalog.product_zh', cpt.title), "+productTitleQuerySQL+") DESC",
@@ -94,9 +102,17 @@ func ListProductTemplates(
 }
 
 // CountProductTemplates 统计指定店铺的商品模板总数。
-func CountProductTemplates(ctx context.Context, storeID int64, keyword string, titleFullText bool) (int, error) {
+func CountProductTemplates(
+	ctx context.Context,
+	storeID int64,
+	keyword string,
+	titleFullText bool,
+	categoryFilterMode int32,
+	categoryID int64,
+) (int, error) {
 	return filterProductTemplates(
 		postgres.DB.NewSelect().Model((*model.CatalogProductTemplate)(nil)), storeID, keyword, titleFullText,
+		categoryFilterMode, categoryID,
 	).Count(ctx)
 }
 
@@ -118,6 +134,8 @@ func filterProductTemplates(
 	storeID int64,
 	keyword string,
 	titleFullText bool,
+	categoryFilterMode int32,
+	categoryID int64,
 ) *bun.SelectQuery {
 	query = query.Where("cpt.status != ?", model.CatalogStatusRemoved).
 		Where("cpt.moderation_status = ?", "allowed").
@@ -125,6 +143,15 @@ func filterProductTemplates(
 
 	if storeID != 0 {
 		query = query.Where("cpt.store_id = ?", storeID)
+	}
+	switch categoryFilterMode {
+	case 2:
+		query = query.Where(`(cpt.category_id = ? OR cpt.category_id IN (
+			SELECT child.id FROM catalog.catalog_product_category AS child
+			WHERE child.store_id = cpt.store_id AND child.parent_id = ?
+		))`, categoryID, categoryID)
+	case 3:
+		query = query.Where("cpt.category_id IS NULL")
 	}
 	if keyword != "" {
 		if titleFullText {

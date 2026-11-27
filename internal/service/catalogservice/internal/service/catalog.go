@@ -52,7 +52,7 @@ func storeToProto(s *model.CatalogStore) *catalogv1.Store {
 func productTemplateToProto(
 	pt *model.CatalogProductTemplate, barcode string, imageURL string,
 ) *catalogv1.ProductTemplate {
-	return &catalogv1.ProductTemplate{
+	result := &catalogv1.ProductTemplate{
 		Id:           pt.ID,
 		Title:        pt.Title,
 		Description:  pt.Description,
@@ -62,6 +62,10 @@ func productTemplateToProto(
 		Barcode:      barcode,
 		UpdatedAt:    timestamppb.New(pt.UpdatedAt),
 	}
+	if pt.CategoryID != nil {
+		result.CategoryId = pt.CategoryID
+	}
+	return result
 }
 
 // GetProductTemplate 按 ID 获取商品模板。
@@ -241,11 +245,23 @@ func GetProductTemplateList(
 	page, pageSize int32,
 	keyword string,
 	titleFullText bool,
+	categoryFilterMode catalogv1.ProductTemplateCategoryFilterMode,
+	categoryID int64,
 ) ([]*catalogv1.ProductTemplate, int32, error) {
 	if storeID < 0 || page <= 0 || pageSize <= 0 || pageSize > 100 {
 		return nil, 0, connect.NewError(errmsg.InvalidArgument.Code, errmsg.InvalidArgument)
 	}
-	total, err := repository.CountProductTemplates(ctx, storeID, keyword, titleFullText)
+	if err := validateTemplateCategoryFilter(ctx, storeID, categoryFilterMode, categoryID); err != nil {
+		return nil, 0, err
+	}
+	total, err := repository.CountProductTemplates(
+		ctx,
+		storeID,
+		keyword,
+		titleFullText,
+		int32(categoryFilterMode),
+		categoryID,
+	)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to count product templates for store: %d", storeID)
 		return nil, 0, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
@@ -256,7 +272,16 @@ func GetProductTemplateList(
 	}
 
 	offset := (int(page) - 1) * int(pageSize)
-	pts, err := repository.ListProductTemplates(ctx, storeID, offset, int(pageSize), keyword, titleFullText)
+	pts, err := repository.ListProductTemplates(
+		ctx,
+		storeID,
+		offset,
+		int(pageSize),
+		keyword,
+		titleFullText,
+		int32(categoryFilterMode),
+		categoryID,
+	)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to list product templates for store: %d", storeID)
 		return nil, 0, rpcerror.NewInternalError(&commonv1.BusinessError_CatalogError{
@@ -275,6 +300,38 @@ func GetProductTemplateList(
 	return result, int32(total), nil
 }
 
+func validateTemplateCategoryFilter(
+	ctx context.Context,
+	storeID int64,
+	categoryFilterMode catalogv1.ProductTemplateCategoryFilterMode,
+	categoryID int64,
+) error {
+	switch categoryFilterMode {
+	case catalogv1.ProductTemplateCategoryFilterMode_PRODUCT_TEMPLATE_CATEGORY_FILTER_MODE_UNSPECIFIED,
+		catalogv1.ProductTemplateCategoryFilterMode_PRODUCT_TEMPLATE_CATEGORY_FILTER_MODE_UNFILTERED:
+		if categoryID != 0 {
+			return connect.NewError(errmsg.InvalidArgument.Code, errmsg.InvalidArgument)
+		}
+	case catalogv1.ProductTemplateCategoryFilterMode_PRODUCT_TEMPLATE_CATEGORY_FILTER_MODE_CATEGORY:
+		if storeID <= 0 || categoryID <= 0 {
+			return connect.NewError(errmsg.InvalidArgument.Code, errmsg.InvalidArgument)
+		}
+		if _, err := repository.GetProductCategory(ctx, postgres.DB, storeID, categoryID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return connect.NewError(connect.CodeInvalidArgument, errors.New("商品分类不属于当前店铺"))
+			}
+			return catalogInternalError()
+		}
+	case catalogv1.ProductTemplateCategoryFilterMode_PRODUCT_TEMPLATE_CATEGORY_FILTER_MODE_UNCATEGORIZED:
+		if storeID <= 0 || categoryID != 0 {
+			return connect.NewError(errmsg.InvalidArgument.Code, errmsg.InvalidArgument)
+		}
+	default:
+		return connect.NewError(errmsg.InvalidArgument.Code, errmsg.InvalidArgument)
+	}
+	return nil
+}
+
 // CreateProductTemplate 创建商品模板（含条码和图片）。
 func CreateProductTemplate(
 	ctx context.Context,
@@ -283,9 +340,10 @@ func CreateProductTemplate(
 	priceCents int32,
 	mainImageURL, barcode string,
 	createdByUserID int64,
+	categoryID int64,
 ) (*catalogv1.ProductTemplate, error) {
 	if storeID <= 0 || createdByUserID <= 0 || strings.TrimSpace(title) == "" || priceCents <= 0 ||
-		strings.TrimSpace(barcode) == "" {
+		strings.TrimSpace(barcode) == "" || categoryID <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
 	}
 	_, err := repository.GetStoreByID(ctx, storeID)
@@ -308,6 +366,7 @@ func CreateProductTemplate(
 		StoreID:         storeID,
 		Status:          model.CatalogStatusActive,
 		CreatedByUserID: createdByUserID,
+		CategoryID:      &categoryID,
 	}
 	err = postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		return createTemplateRecords(ctx, tx, pt, barcode, mainImageURL)
@@ -349,7 +408,14 @@ func UpdateProductTemplate(
 		return productTemplateToProto(existing, barcode, imageURL), nil
 	}
 
-	if err := applyProductTemplateUpdatesTx(ctx, pt, updates, updateBarcode, updateImage); err != nil {
+	if err := applyProductTemplateUpdatesTx(
+		ctx,
+		pt,
+		existing.StoreID,
+		updates,
+		updateBarcode,
+		updateImage,
+	); err != nil {
 		return nil, err
 	}
 
@@ -387,6 +453,10 @@ func validateProductTemplateUpdate(ctx context.Context, pt *catalogv1.ProductTem
 				return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
 			}
 		case "description", "main_image_url":
+		case "category_id":
+			if pt.GetCategoryId() <= 0 {
+				return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
+			}
 		default:
 			return connect.NewError(connect.CodeInvalidArgument, errmsg.InvalidArgument)
 		}
@@ -421,6 +491,7 @@ func splitProductTemplateMask(updateMask []string) (updateBarcode, updateImage b
 func applyProductTemplateUpdatesTx(
 	ctx context.Context,
 	pt *catalogv1.ProductTemplate,
+	currentStoreID int64,
 	updates map[string]any,
 	updateBarcode, updateImage bool,
 ) error {
@@ -434,6 +505,16 @@ func applyProductTemplateUpdatesTx(
 			log.Debug().Err(err).Msg("rollback after commit, expected")
 		}
 	}()
+	targetStoreID, movingStore := updates["store_id"].(int64)
+	if !movingStore {
+		targetStoreID = currentStoreID
+	}
+	_, changingCategory := updates["category_id"]
+	if changingCategory || movingStore {
+		if err := lockProductCategoryStores(ctx, tx, currentStoreID, targetStoreID); err != nil {
+			return catalogInternalError()
+		}
+	}
 
 	var current model.CatalogProductTemplate
 	if err := tx.NewSelect().Model(&current).Where("id = ?", pt.Id).For("UPDATE").Scan(ctx); err != nil {
@@ -442,9 +523,68 @@ func applyProductTemplateUpdatesTx(
 		}
 		return catalogInternalError()
 	}
-	if err := validateCurrentTemplate(ctx, tx, &current, pt); err != nil {
+	if err := validateTemplateUpdateInTx(ctx, tx, &current, pt, currentStoreID, updates); err != nil {
 		return err
 	}
+	if changingCategory || movingStore {
+		if err := applyTemplateCategoryUpdate(ctx, tx, &current, updates, targetStoreID); err != nil {
+			return err
+		}
+	}
+	if err := writeTemplateUpdates(ctx, tx, pt, updates, updateBarcode, updateImage); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Error().Err(err).Msgf("Failed to commit transaction for product template update: %d", pt.Id)
+		return catalogInternalError()
+	}
+	return nil
+}
+
+func validateTemplateUpdateInTx(
+	ctx context.Context, tx bun.Tx, current *model.CatalogProductTemplate, pt *catalogv1.ProductTemplate,
+	expectedStoreID int64, updates map[string]any,
+) error {
+	if err := validateTemplateStoreMatchesLockedStore(expectedStoreID, current.StoreID); err != nil {
+		return err
+	}
+	if err := validateCurrentTemplate(ctx, tx, current, pt); err != nil {
+		return err
+	}
+	if err := validateTemplateHasCategory(current, updates); err != nil {
+		return err
+	}
+	return nil
+}
+
+func applyTemplateCategoryUpdate(
+	ctx context.Context, tx bun.Tx, current *model.CatalogProductTemplate, updates map[string]any, targetStoreID int64,
+) error {
+	categoryID, hasCategoryID := updates["category_id"].(int64)
+	if !hasCategoryID && current.CategoryID != nil {
+		categoryID = *current.CategoryID
+	}
+	if categoryID <= 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("商品必须选择有效分类"))
+	}
+	if err := repository.ValidateProductTemplateCategory(ctx, tx, targetStoreID, categoryID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("商品分类不属于当前店铺"))
+		}
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	updates["category_id"] = categoryID
+	return nil
+}
+
+func writeTemplateUpdates(
+	ctx context.Context,
+	tx bun.Tx,
+	pt *catalogv1.ProductTemplate,
+	updates map[string]any,
+	updateBarcode, updateImage bool,
+) error {
 	// Barcode-only and image-only edits must advance the template version too.
 	updates["updated_at"] = time.Now()
 	if err := repository.UpdateProductTemplate(ctx, tx, pt.Id, updates); err != nil {
@@ -463,10 +603,6 @@ func applyProductTemplateUpdatesTx(
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		log.Error().Err(err).Msgf("Failed to commit transaction for product template update: %d", pt.Id)
-		return catalogInternalError()
-	}
 	return nil
 }
 
@@ -491,7 +627,17 @@ func applyProductTemplateImageTx(
 
 // DeleteProductTemplate 软删除商品模板，仅创建者本人可删除。
 func DeleteProductTemplate(ctx context.Context, id int64, callerUserID int64) error {
+	existing, err := repository.GetProductTemplateByID(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrProductNotFound
+	}
+	if err != nil {
+		return catalogInternalError()
+	}
 	return postgres.DB.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := lockProductCategoryStore(ctx, tx, existing.StoreID); err != nil {
+			return catalogInternalError()
+		}
 		var pt model.CatalogProductTemplate
 		if err := tx.NewSelect().Model(&pt).Where("id = ?", id).For("UPDATE").Scan(ctx); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -504,6 +650,9 @@ func DeleteProductTemplate(ctx context.Context, id int64, callerUserID int64) er
 		}
 		if pt.ModerationStatus == "blocked" {
 			return connect.NewError(connect.CodeFailedPrecondition, errors.New("商品模板已被管理员停用"))
+		}
+		if pt.StoreID != existing.StoreID {
+			return connect.NewError(connect.CodeAborted, errors.New("商品模板店铺已变更，请重试"))
 		}
 		if err := requireStoreAvailable(ctx, tx, pt.StoreID); err != nil {
 			return err
@@ -629,6 +778,10 @@ func buildProductTemplateUpdates(pt *catalogv1.ProductTemplate, maskPaths []stri
 			updates["description"] = pt.Description
 		case "price_cents":
 			updates["price_cents"] = pt.PriceCents
+		case "category_id":
+			if pt.CategoryId != nil {
+				updates["category_id"] = *pt.CategoryId
+			}
 		}
 	}
 	return updates
@@ -663,8 +816,20 @@ func createTemplateRecords(
 	pt *model.CatalogProductTemplate,
 	barcode, mainImageURL string,
 ) error {
+	if err := lockProductCategoryStore(ctx, tx, pt.StoreID); err != nil {
+		return err
+	}
 	if err := requireStoreAvailable(ctx, tx, pt.StoreID); err != nil {
 		return err
+	}
+	if pt.CategoryID == nil || *pt.CategoryID <= 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("商品必须选择分类"))
+	}
+	if err := repository.ValidateProductTemplateCategory(ctx, tx, pt.StoreID, *pt.CategoryID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("商品分类不属于当前店铺"))
+		}
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	}
 	if err := repository.CreateProductTemplate(ctx, tx, pt); err != nil {
 		return err

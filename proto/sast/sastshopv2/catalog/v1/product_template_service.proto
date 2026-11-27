@@ -3,6 +3,7 @@ syntax = "proto3";
 package sast.sastshopv2.catalog.v1;
 
 import "google/protobuf/field_mask.proto";
+import "sast/sastshopv2/catalog/v1/product_category.proto";
 import "sast/sastshopv2/catalog/v1/product_template.proto";
 import "sast/sastshopv2/catalog/v1/store.proto";
 
@@ -13,6 +14,13 @@ enum ProductTemplateSearchMode {
   PRODUCT_TEMPLATE_SEARCH_MODE_TITLE_FULL_TEXT = 1;
 }
 
+enum ProductTemplateCategoryFilterMode {
+  PRODUCT_TEMPLATE_CATEGORY_FILTER_MODE_UNSPECIFIED = 0;
+  PRODUCT_TEMPLATE_CATEGORY_FILTER_MODE_UNFILTERED = 1;
+  PRODUCT_TEMPLATE_CATEGORY_FILTER_MODE_CATEGORY = 2;
+  PRODUCT_TEMPLATE_CATEGORY_FILTER_MODE_UNCATEGORIZED = 3;
+}
+
 message GetProductTemplateListRequest {
   // 为 0 时查询所有店铺。
   int64 store_id = 1;
@@ -21,6 +29,8 @@ message GetProductTemplateListRequest {
   // 普通文本关键词；去除首尾空白后最多 200 个字符，搜索语义由 search_mode 决定。
   string keyword = 4;
   ProductTemplateSearchMode search_mode = 5;
+  ProductTemplateCategoryFilterMode category_filter_mode = 6;
+  int64 category_id = 7;
 }
 
 message GetProductTemplateListResponse {
@@ -44,6 +54,7 @@ message CreateProductTemplateRequest {
   int32 price_cents = 4;
   string main_image_url = 5;
   string barcode = 6;
+  int64 category_id = 7;
 }
 
 message CreateProductTemplateResponse {
@@ -78,6 +89,9 @@ message DeleteProductTemplateRequest {
 message DeleteProductTemplateResponse {}
 
 service ProductTemplateService {
+  rpc ListProductCategories(ListProductCategoriesRequest) returns (ListProductCategoriesResponse);
+  rpc CreateProductCategory(CreateProductCategoryRequest) returns (CreateProductCategoryResponse);
+  rpc DeleteProductCategory(DeleteProductCategoryRequest) returns (DeleteProductCategoryResponse);
   // 店铺详情-跑腿-获取商品模板列表
   rpc GetProductTemplateList(GetProductTemplateListRequest) returns (GetProductTemplateListResponse);
 
@@ -96,3 +110,24 @@ service ProductTemplateService {
   // 删除商品模板
   rpc DeleteProductTemplate(DeleteProductTemplateRequest) returns (DeleteProductTemplateResponse);
 }
+
+message ListProductCategoriesRequest {
+  int64 store_id = 1;
+}
+message ListProductCategoriesResponse {
+  repeated ProductCategory categories = 1;
+  bool has_uncategorized_products = 2;
+}
+message CreateProductCategoryRequest {
+  int64 store_id = 1;
+  optional int64 parent_id = 2;
+  string name = 3;
+}
+message CreateProductCategoryResponse {
+  ProductCategory category = 1;
+}
+message DeleteProductCategoryRequest {
+  int64 store_id = 1;
+  int64 category_id = 2;
+}
+message DeleteProductCategoryResponse {}

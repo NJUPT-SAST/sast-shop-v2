@@ -21,3 +21,25 @@ func TestModelToBriefUsesListingStock(t *testing.T) {
 		}
 	}
 }
+
+func TestListingTemplateCategoryFollowsItsStore(t *testing.T) {
+	t.Parallel()
+
+	categoryID := int64(21)
+	template := &catalogv1.ProductTemplate{Id: 3, StoreId: 7, CategoryId: &categoryID}
+	originalListing := &model.SpotGoods{StoreID: 2}
+	for _, embedded := range []*catalogv1.ProductTemplate{
+		modelToBrief(originalListing, template).GetProductTemplate(),
+		modelToDetail(originalListing, template, nil).GetProductTemplate(),
+	} {
+		if embedded.GetId() != 3 || embedded.GetStoreId() != 2 || embedded.CategoryId != nil {
+			t.Errorf("embedded template = %v, want template 3 at store 2 without a category", embedded)
+		}
+	}
+
+	currentListing := &model.SpotGoods{StoreID: 7}
+	embedded := modelToBrief(currentListing, template).GetProductTemplate()
+	if embedded.GetStoreId() != 7 || embedded.GetCategoryId() != 21 {
+		t.Errorf("embedded template = %v, want store 7 with category 21", embedded)
+	}
+}

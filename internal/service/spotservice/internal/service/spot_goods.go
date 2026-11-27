@@ -486,5 +486,6 @@ func templateForListing(template *catalogv1.ProductTemplate, storeID int64) *cat
 	// Existing listings retain their original store after a template is moved.
 	snapshot := proto.CloneOf(template)
 	snapshot.StoreId = storeID
+	snapshot.CategoryId = nil
 	return snapshot
 }

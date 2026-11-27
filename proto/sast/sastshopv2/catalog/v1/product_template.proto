@@ -13,4 +13,5 @@ message ProductTemplate {
   string main_image_url = 6;
   string barcode = 7;
   google.protobuf.Timestamp updated_at = 8;
+  optional int64 category_id = 9;
 }

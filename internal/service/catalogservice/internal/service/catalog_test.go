@@ -62,7 +62,10 @@ func (c *catalogTestConn) QueryContext(_ context.Context, query string, _ []driv
 			return nil, errors.New("injected relation write failure")
 		}
 	}
-	return &catalogTestRows{}, nil
+	if strings.Contains(query, "EXISTS") {
+		return &catalogTestRows{columns: []string{"exists"}, values: []driver.Value{false}}, nil
+	}
+	return &catalogTestRows{columns: []string{"id"}, values: []driver.Value{int64(1)}}, nil
 }
 
 func (c *catalogTestConn) ExecContext(
@@ -74,16 +77,20 @@ func (c *catalogTestConn) ExecContext(
 	return driver.RowsAffected(1), err
 }
 
-type catalogTestRows struct{ read bool }
+type catalogTestRows struct {
+	read    bool
+	columns []string
+	values  []driver.Value
+}
 
-func (*catalogTestRows) Columns() []string { return []string{"id"} }
-func (*catalogTestRows) Close() error      { return nil }
+func (r *catalogTestRows) Columns() []string { return r.columns }
+func (*catalogTestRows) Close() error        { return nil }
 func (r *catalogTestRows) Next(values []driver.Value) error {
 	if r.read {
 		return io.EOF
 	}
 	r.read = true
-	values[0] = int64(1)
+	copy(values, r.values)
 	return nil
 }
 
@@ -109,6 +116,7 @@ func TestCreateProductTemplateIsAtomic(t *testing.T) {
 				"https://example.com/image.png",
 				"12345",
 				1,
+				int64(1),
 			)
 			if state.outsideTx {
 				t.Error("product data was written outside the transaction")
