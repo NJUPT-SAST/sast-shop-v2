@@ -1,6 +1,6 @@
 module github.com/NJUPT-SAST/sast-shop-v2/internal/pkg
 
-go 1.26.3
+go 1.26.11
 
 require (
 	buf.build/go/protovalidate v1.4.1

@@ -1,6 +1,6 @@
 module github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice
 
-go 1.26.3
+go 1.26.11
 
 require (
 	buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.20.0-20260803135432-3e26db0084c4.1

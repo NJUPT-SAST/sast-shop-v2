@@ -1,6 +1,6 @@
 module github.com/NJUPT-SAST/sast-shop-v2/internal/services/userservice
 
-go 1.26.3
+go 1.26.11
 
 require (
 	buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.20.0-20260729122644-8226c83aee9b.1
