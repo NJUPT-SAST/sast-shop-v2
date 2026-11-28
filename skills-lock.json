@@ -1,0 +1,54 @@
+{
+  "version": 2,
+  "skills": {
+    "connectrpc": {
+      "source": "owezzy/connectrpc-skill",
+      "commit": "0222a79921a89457ce598f60eb593e0eb062afb5",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "b9d303033e9c178267e60873ad2861d040b46b5e0ef32ce821fa31965a66b05f"
+    },
+    "golang-code-style": {
+      "source": "samber/cc-skills-golang",
+      "commit": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-code-style/SKILL.md",
+      "computedHash": "8013e3aeeb53e66e8dd52a1dd2d2f622ed59cde7426fad7f42c77de7fca424f8"
+    },
+    "golang-concurrency": {
+      "source": "samber/cc-skills-golang",
+      "commit": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-concurrency/SKILL.md",
+      "computedHash": "c6c1829be72bba6eb7b2346561bb895605c65eacf35a2535bfca9828006a69e0"
+    },
+    "golang-error-handling": {
+      "source": "samber/cc-skills-golang",
+      "commit": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-error-handling/SKILL.md",
+      "computedHash": "81f5c3fcd0324c4ed9b8ee50d3375b0f3074b0308ee9b5c0778d6cbf32bedf9c"
+    },
+    "golang-security": {
+      "source": "samber/cc-skills-golang",
+      "commit": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-security/SKILL.md",
+      "computedHash": "050d04076da4c392e80620b26688de64aab74da46f486f1fc784fa8a2f3b0444"
+    },
+    "golang-testing": {
+      "source": "samber/cc-skills-golang",
+      "commit": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-testing/SKILL.md",
+      "computedHash": "adfaf95d45383e8e579de1770ea0f25d0729b3e94e0b003ea08d1646646f7247"
+    },
+    "supabase-postgres-best-practices": {
+      "source": "supabase/agent-skills",
+      "commit": "c9be0e931b7930f7d02126d04774d904c381e7d7",
+      "sourceType": "github",
+      "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
+      "computedHash": "3eb972c2d7c818e544e35cc33ea8d7147d4d78ae08142ef40037b0fbac7a2505"
+    }
+  }
+}

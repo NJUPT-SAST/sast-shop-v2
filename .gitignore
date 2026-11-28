@@ -38,8 +38,20 @@ gen
 # Go debug programs
 __debug_bin*
 
+# OS
+.DS_Store
+
 # Caddy gateway
 Caddyfile
 
-# Claude Code
-CLAUDE.md
+# AI & Agent local files (track AGENTS.md, CLAUDE.md, and skills-lock.json)
+.agents/
+.claude/
+.codex/
+.cursor/
+.gemini/
+.superpowers/
+.worktrees/
+AGENTS.local.md
+CLAUDE.local.md
+GEMINI.local.md

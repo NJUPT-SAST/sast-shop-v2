@@ -1,6 +1,6 @@
 # SAST Shop v2
 
-[中文版](./README_zh.md)
+[中文版](./README_zh.md) · [Documentation](./docs/README.md)
 
 Campus commerce backend for NJUPT (Nanjing University of Posts and Telecommunications), built with Go microservices.
 
@@ -12,103 +12,121 @@ Campus commerce backend for NJUPT (Nanjing University of Posts and Telecommunica
 | Connect-RPC | API framework (HTTP/gRPC) |
 | Echo v5 | HTTP router |
 | PostgreSQL + bun | Primary database |
-| Redis + go-redis | Session & cache |
+| Redis + go-redis | Session, cache, upload quota |
 | Buf + protovalidate | Proto management & validation |
 | zerolog | Structured logging |
-| Feishu (Lark) | SSO authentication |
+| Feishu (Lark) | SSO authentication & IM notifications |
+| Tencent Cloud COS / IAI | Product images, West Pocket private storage & face recognition |
 
 ## Architecture
 
 ```
-Client → Echo v5 → protovalidate interceptor → auth interceptor → Handler
-                                                                    ↓
-                                                              Service layer
-                                                                    ↓
-                                                         Repository (bun ORM)
-                                                                    ↓
-                                                               PostgreSQL
+Client → Echo v5 → protovalidate + logging interceptors → auth / internal-token interceptor → Handler
+                                                                                                ↓
+                                                                                          Service layer
+                                                                                                ↓
+                                                                                     Repository (bun ORM)
+                                                                                                ↓
+                                                                                           PostgreSQL
 ```
 
-The workspace contains one shared library and five independently deployable microservices, each running on its own port. Services communicate via Connect-RPC — there are no direct Go imports between services.
+The workspace contains one shared library (`internal/pkg`) and **six** independently runnable microservices, each listening on its own port. Services communicate exclusively via Connect-RPC (`*InternalService` definitions) — there are no direct Go imports between services.
 
 ### Services
 
 | Service | Directory | Port | Description |
 |---|---|---|---|
-| `internal/pkg` | `internal/pkg/` | — | Shared library (config, logger, DB, Redis, interceptors) |
+| `internal/pkg` | `internal/pkg/` | — | Shared library (config, logger, DB, Redis, interceptors, Feishu, COS, search, testutil) |
 | User | `internal/service/userservice/` | 1323 | Feishu SSO login, user profiles, shipping addresses |
-| Catalog | `internal/service/catalogservice/` | 1324 | Stores, product templates, barcodes |
-| Payment | `internal/service/paymentservice/` | 1325 | Bills, QR codes, payment confirmation |
-| Spot | `internal/service/spotservice/` | 1326 | Instant-buy goods, inventory, orders |
+| Catalog | `internal/service/catalogservice/` | 1324 | Stores, product templates, barcodes, product image uploads |
+| Payment | `internal/service/paymentservice/` | 1325 | Bills, QR codes, payment confirmation, West Pocket bill coordination |
+| Spot | `internal/service/spotservice/` | 1326 | Instant-buy spot goods, stock ledger, orders |
 | Errand | `internal/service/errandservice/` | 1327 | Group-buy errands: demands → tasks → distribution → payment |
+| West Pocket | `internal/service/westpocketservice/` | 1328 | Consented mobile AA collection, face matching, durable Feishu outbox |
 
 ### Project Structure
 
 ```
 sast-shop-v2/
-├── proto/sast/sastshopv2/    # Protobuf API definitions (5 domains)
+├── proto/sast/sastshopv2/    # Protobuf API definitions (6 business domains + common)
 │   ├── common/v1/            # Shared error types (BusinessError oneof)
-│   ├── user/v1/              # Auth, User, Address services
-│   ├── catalog/v1/           # Store, ProductTemplate services
-│   ├── payment/v1/           # Bill, QrCode services
+│   ├── user/v1/              # Auth, User, Address, UserInternal services
+│   ├── catalog/v1/           # Catalog (Store), ProductTemplate, CatalogInternal services
+│   ├── payment/v1/           # Bill, QrCode, PaymentInternal services
 │   ├── spot/v1/              # SpotGoods, SpotOrder services
-│   └── errand/v1/            # Errand demand/task/distribution/order services
+│   ├── errand/v1/            # ErrandDemand, ErrandTask, BuyerErrandOrder, GroupTradeInternal services
+│   └── westpocket/v1/        # FaceProfile, WestPocket, WestPocketInternal services
 ├── gen/                      # Generated .pb.go + .connect.go (gitignored)
-├── buf.yaml                  # Buf module config
-├── buf.gen.yaml              # Code generation plugins
-├── go.work                   # Go workspace (6 modules)
+├── migrations/               # SQL schema & additive migrations (001, 002, 003)
+├── deploy/                   # Local gateway config (Caddyfile.local)
+├── docs/                     # Operational & integration guides (see docs/README.md)
+├── buf.yaml / buf.gen.yaml   # Buf module & codegen config
+├── go.work                   # Go workspace (gitignored, generated via make proto; 9 modules)
 ├── .env.example              # Environment template
 ├── .golangci.yml             # Linter configuration
 └── internal/
     ├── pkg/                  # Shared library
-    │   ├── config/           # Env-var config (caarlos0/env + godotenv)
-    │   ├── logger/           # zerolog setup (console in dev, JSON in prod)
     │   ├── bun/postgres/     # PostgreSQL connection (bun + pgdriver)
-    │   ├── redis/            # Redis client + session store
-    │   ├── connect/interceptor/  # Auth + validation interceptors
+    │   ├── config/           # Env-var config (caarlos0/env/v11 + godotenv)
+    │   ├── connect/interceptor/ # Validation, logging, auth & West Pocket internal token
     │   ├── constant/         # Service names, session TTL, header names
-    │   └── rpcerror/         # Business error helper
+    │   ├── cos/              # Tencent Cloud COS product-image client
+    │   ├── errmsg/           # Domain error message helpers
+    │   ├── feishu/           # Feishu OAuth, JSAPI ticket/signature, IM notifications
+    │   ├── idgen/            # Snowflake ID generator
+    │   ├── logger/           # zerolog setup (console in dev, JSON in prod)
+    │   ├── redis/            # Redis client, session store, upload limiter & quota
+    │   ├── rpcerror/         # BusinessError helper
+    │   ├── search/           # Keyword normalization (NormalizeKeyword)
+    │   ├── testutil/         # Isolated PostgreSQL test harness
+    │   └── timeutil/         # Optimistic concurrency (updated_at) helpers
     └── service/
         ├── userservice/      # cmd/app/main.go + internal/{handler,model,repository,service}
         ├── catalogservice/
         ├── paymentservice/
         ├── spotservice/
-        └── errandservice/
+        ├── errandservice/
+        └── westpocketservice/
 ```
 
 ## API Overview
 
-The API exposes **46 RPC methods** across 14 service definitions. Key workflows:
+The API defines **98 RPC methods across 19 services** (including internal service-to-service contracts):
 
-- **Auth**: Login via Feishu code → session token → stored in Redis (30min TTL)
-- **Spot trade**: Seller publishes goods → Buyer creates order → Payment bill created → Pay → Confirm → Complete
+- **Auth**: Feishu OAuth code login → Bearer session token stored in Redis (30-minute TTL)
+- **Spot trade**: Seller lists goods → Buyer places order → Payment bill created → Pay → Confirm → Complete
 - **Errand (group trade)**: Buyer posts demand → Captain creates task → Shopping → Distribute → Collect payment → Complete
-- **Cross-service**: Internal endpoints (suffixed `*Internal`) handle service-to-service calls (e.g., Payment calls Errand's `OnPaymentConfirmed` when bills clear)
+- **West Pocket**: Mobile AA split → Optional consented face matching or name search → Frozen QR & bills → Feishu notifications & manual settlement confirmation (see [docs/west-pocket.md](./docs/west-pocket.md))
+- **Cross-service**: `*InternalService` endpoints handle service-to-service RPCs and must never be exposed on public gateways
 
 ## Database
 
-19 tables across 5 PostgreSQL schemas:
+**31 tables across 6 PostgreSQL schemas** (all models use `uptrace/bun` with schema-qualified table names):
 
 | Schema | Tables |
 |---|---|
-| `user` | `user_account`, `auth_session`, `member_address` |
-| `catalog` | `catalog_store`, `catalog_product_template`, `catalog_product_barcode`, `catalog_product_image` |
-| `payment` | `payment_qr_code`, `payment_bill`, `payment_confirmation_log` |
-| `spot` | `spot_goods`, `spot_stock_ledger`, `spot_order` |
-| `errand` | `errand_demand`, `errand_demand_item`, `errand_task`, `errand_task_item`, `errand_task_assignment`, `errand_price_change_log`, `errand_action_log` |
+| `user` (3) | `user_account`, `auth_session`, `member_address` |
+| `catalog` (4) | `catalog_store`, `catalog_product_template`, `catalog_product_barcode`, `catalog_product_image` |
+| `payment` (3) | `payment_qr_code`, `payment_bill`, `payment_confirmation_log` |
+| `spot` (3) | `spot_goods`, `spot_stock_ledger`, `spot_order` |
+| `errand` (7) | `errand_demand`, `errand_demand_item`, `errand_task`, `errand_task_item`, `errand_task_assignment`, `errand_price_change_log`, `errand_action_log` |
+| `westpocket` (11) | `pocket`, `pocket_member`, `upload`, `pocket_photo`, `face_profile`, `face_sample`, `async_job`, `face_match`, `notification_outbox`, `consent_event`, `request_dedup` |
 
-All models use `uptrace/bun` ORM with schema-qualified table names.
+Migrations live in `migrations/`:
+
+- **Fresh database**: run `make migrate` (`001_init.sql`, which already includes `stock_total >= -1`) and `make migrate-west-pocket` (`002_west_pocket.sql`).
+- **Existing database**: apply additive migrations (`002_west_pocket.sql`, `003_spot_goods_delisting.sql`) via `psql`; never rerun `001_init.sql`.
 
 ## Getting Started
 
 ### Prerequisites
 
 - Go 1.26+
-- PostgreSQL
-- Redis
+- PostgreSQL & Redis
 - [Buf CLI](https://buf.build/docs/cli/)
 - [golangci-lint](https://golangci-lint.run/welcome/install/)
 - [pre-commit](https://pre-commit.com/#install)
+- [Caddy](https://caddyserver.com/) (optional, required for `make run-all`)
 
 ### Setup
 
@@ -116,18 +134,23 @@ All models use `uptrace/bun` ORM with schema-qualified table names.
 # Clone and enter the repo
 git clone git@github.com:NJUPT-SAST/sast-shop-v2.git && cd sast-shop-v2
 
-# Copy environment template and fill in your values
+# Copy environment template and fill in local credentials
 cp .env.example .env
+
+# Generate protobuf/Connect code and initialize go.work
+make proto
 
 # Install git hooks
 make setup
 
-# Apply database migrations
+# Apply database migrations (fresh DB)
 export DATABASE_URL=postgres://postgres:postgres@localhost:5432/sast_shop_v2?sslmode=disable
 make migrate
+make migrate-west-pocket
 
-# Start a service
+# Start one service, or all 6 services + local Caddy gateway (:6660)
 make run-userservice
+# make run-all
 ```
 
 Each service loads `.env` by searching upward from its working directory.
@@ -136,97 +159,61 @@ Each service loads `.env` by searching upward from its working directory.
 
 | Command | Description |
 |---|---|
-| `make run-<service>` | Start a service (`userservice`, `catalogservice`, `paymentservice`, `spotservice`, `errandservice`) |
-| `make build` | Compile all services to `bin/` |
-| `make proto` | Regenerate Go code from proto and push to BSR |
-| `make proto-lint` | Lint proto files |
-| `make proto-format` | Format proto files in place |
-| `make migrate` | Apply `migrations/001_init.sql` (requires `DATABASE_URL`) |
-| `make lint` | Run golangci-lint across all modules |
-| `make lint-fix` | Run golangci-lint with auto-fix |
-| `make tidy` | Run `go mod tidy` across all modules |
+| `make run-<service>` | Start a service (`userservice`, `catalogservice`, `paymentservice`, `spotservice`, `errandservice`, `westpocketservice`) |
+| `make run-all` | Start local Caddy gateway (`127.0.0.1:6660` via `deploy/Caddyfile.local`) and all 6 services |
+| `make build` | Compile all 6 services to `bin/` |
+| `make proto` | Regenerate Go code into `gen/` and initialize/update `go.work` (BSR publishing runs in `.github/workflows/buf.yml` on `main`) |
+| `make proto-lint` | Lint proto files (`buf lint`) |
+| `make proto-format` | Format proto files in place (`buf format --write`) |
+| `make migrate` | Apply `migrations/001_init.sql` (fresh DB only; requires `DATABASE_URL`) |
+| `make migrate-west-pocket` | Apply additive `migrations/002_west_pocket.sql` with `ON_ERROR_STOP=1` |
+| `make lint` | Run `golangci-lint` across all workspace modules |
+| `make lint-fix` | Run `golangci-lint` with `--fix` across all workspace modules |
+| `make tidy` | Run `go mod tidy` across `internal/pkg` and all 6 services |
 | `make setup` | Install pre-commit hooks (run once after cloning) |
 
 ### Dev Auth Bypass
 
-In development mode (`APP_ENV=development`), you can bypass authentication by setting the `X-Dev-User-ID` header with a valid user ID.
+In development mode (`APP_ENV=development`), authentication can be bypassed by setting the `X-Dev-User-ID` header to an active user ID. This bypass is strictly disabled when `APP_ENV=production`.
 
-### Keyword Search and Integration Tests
+## Keyword Search & Testing
 
-`SpotGoodsService/ListSpotGoods` and `ProductTemplateService/GetProductTemplateList` accept an optional `keyword`.
-Search trims surrounding whitespace and accepts up to 200 Unicode characters. Matching is case-insensitive and uses
-literal substrings, so `%`, `_`, backslashes, and quotes are not search operators. Spot goods match template titles,
-descriptions, barcodes, or store names; product templates match titles, descriptions, or barcodes. Filtering happens
-before pagination, and `total_count` counts matching rows. For product templates, `store_id=0` lists all stores and
-`page_size` must be between 1 and 100; spot goods retain their maximum page size of 30.
+`SpotGoodsService/ListSpotGoods` and `ProductTemplateService/GetProductTemplateList` accept an optional `keyword`:
 
-Spot search reads the catalog schema in the shared PostgreSQL database, without importing another service's Go code.
-The spot database role needs read access to catalog tables. Product detail hydration still uses the catalog RPC.
+- Surrounding whitespace is trimmed; up to 200 Unicode characters are accepted.
+- Matching is case-insensitive on literal substrings (`%`, `_`, backslashes, and quotes are not wildcards).
+- Spot goods match template titles, descriptions, barcodes, or store names; product templates match titles, descriptions, or barcodes.
+- Both endpoints accept `store_id=0` (all stores) and `page_size` in `1..100`; filtering runs before pagination and `total_count` reflects matching rows.
+- Spot search reads the `catalog` schema directly in PostgreSQL (no cross-service Go import; the spot DB role requires read access to `catalog` tables), while product detail hydration still calls Catalog RPCs.
 
-Search integration tests create a randomly named database, apply `migrations/001_init.sql`, and drop that database
-after the tests. Set `SAST_SHOP_TEST_POSTGRES_URL` to a PostgreSQL connection URL for a role allowed to create and drop
-databases; the database named in that URL is used only for administrative connections. Without this variable, database
-integration tests are skipped, while validation tests still run.
+Run unit and handler tests across the workspace:
 
 ```bash
-go test -race -count=1 -v ./internal/pkg/search ./internal/service/catalogservice/internal/handler/v1 ./internal/service/spotservice/internal/handler/v1
+go test -race -count=1 ./internal/pkg/...
+go test -race -count=1 ./internal/service/userservice/... ./internal/service/catalogservice/... ./internal/service/paymentservice/... ./internal/service/spotservice/... ./internal/service/errandservice/... ./internal/service/westpocketservice/...
 ```
 
-## Current Status
+Database-backed integration tests create and drop isolated temporary databases when configured (never point them at production):
 
-The workspace contains five services communicating through generated ConnectRPC clients. Current RPC contracts are
-defined under `proto/sast/sastshopv2/`, with implementations and tests under `internal/`.
+- `SAST_SHOP_TEST_POSTGRES_URL` — catalog/spot integration tests (applies `migrations/001_init.sql`)
+- `WEST_POCKET_TEST_DSN` — West Pocket integration tests (applies `001_init.sql` + `002_west_pocket.sql` using fake cloud/Feishu adapters)
 
-## Deployment
+Without these variables, DB integration tests skip cleanly while unit and validation tests still run.
 
-Production deployment is container-based: every push to `main` builds Docker images and pushes them to Tencent Cloud Container Registry (TCR), then upgrades the changed services on the server over SSH.
+## Deployment & Docs
 
-### Flow
+Production runs on `https://api.sast.fun` via GitHub Actions (`.github/workflows/ci.yml`, `buf.yml`, `deploy.yml`):
 
-```
-push to main
-  → detect changed services (changes to internal/pkg, proto/, Dockerfile → all services)
-  → build & push ccr.ccs.tencentyun.com/<namespace>/sast-shop-<service>:<short-sha> to TCR
-  → SSH: pull image, rotate sast/<service>:current → backup, tag new image as current
-  → docker compose up -d --no-deps <service>
-```
+- Pushes to `main` detect changed services, push immutable images (`ccr.ccs.tencentyun.com/<TCR_NAMESPACE>/<IMAGE_PREFIX>-<service>:sha-<40-char-sha>`) to Tencent Cloud TCR, and deploy serially (`max-parallel: 1`) in the `production` Environment via `/usr/local/lib/sast-shop/deploy-image` with ED25519 host fingerprint verification (`SERVER_SSH_FINGERPRINT`).
+- Auto-deploy currently covers the 5 core services; `westpocketservice` is deployed explicitly via Actions → `Deploy` (`workflow_dispatch`) after completing migration and private provider setup.
+- Production requires `APP_ENV=production` and real `DB_*`, `REDIS_*`, `FEISHU_*`, and `COS_*` credentials (missing Feishu or `catalogservice` COS credentials panic on startup in `production`). Keep ports `1323–1328` restricted to loopback behind the public gateway.
 
-Manual deploy: Actions → Deploy → Run workflow (optionally pick a single service).
+For full operational details, see:
 
-### GitHub configuration
-
-| Kind | Name | Description |
-|---|---|---|
-| Secret | `TCR_USERNAME` / `TCR_PASSWORD` | TCR credentials for pushing images (long-term token recommended) |
-| Secret | `SERVER_HOST` / `SERVER_USER` / `SSH_PRIVATE_KEY` | Deployment server SSH access |
-| Variable | `TCR_NAMESPACE` | TCR namespace, e.g. `sast` |
-| Variable | `IMAGE_PREFIX` | TCR repository name prefix (default `sast-shop`) |
-| Variable | `COMPOSE_DIR` | Server directory holding `docker-compose.yml` (default `/data/sast-shop-v2`) |
-
-### One-time server setup
-
-1. Copy the compose template: `mkdir -p /data/sast-shop-v2 && cp deploy/docker-compose.yml /data/sast-shop-v2/`
-2. Create `/data/sast-shop-v2/.env` from `.env.example` with production values. Required:
-   - real `REDIS_HOST`/`REDIS_PORT` — services ping Redis at startup and panic on failure
-   - `DB_*` database credentials
-   - `APP_ENV=production` plus real Feishu credentials (`FEISHU_APP_ID`, `FEISHU_APP_SECRET`) — with `APP_ENV=development` the `X-Dev-User-ID` auth bypass is enabled, which must not happen in production
-   - COS variables are optional — catalogservice degrades gracefully without them
-3. Apply migrations once against the production database:
-   `psql "$DATABASE_URL" -f migrations/001_init.sql`
-4. Restrict ports 1323–1327 to loopback on the firewall — services bind `0.0.0.0`; host Caddy reaches them at `127.0.0.1`.
-5. Ensure the server has Docker with the Compose v2 plugin.
-
-### Manual rollback
-
-Each deploy rotates the previous image to `sast/<service>:backup`. To roll back:
-
-```bash
-cd /data/sast-shop-v2
-docker tag sast/userservice:backup sast/userservice:current
-docker compose up -d --no-deps userservice
-```
-
-> If the TCR repositories are private, log the server in once with `docker login ccr.ccs.tencentyun.com`.
+- [docs/README.md](./docs/README.md) — Documentation index
+- [docs/deployment-ci.md](./docs/deployment-ci.md) — CI workflows, TCR deployment, secrets/variables, and rollout checklist
+- [docs/west-pocket.md](./docs/west-pocket.md) — West Pocket setup, privacy/retention policies, durable outbox, and acceptance checks
+- [AGENTS.md](./AGENTS.md) — Guidance for AI coding agents
 
 ## License
 
