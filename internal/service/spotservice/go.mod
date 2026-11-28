@@ -3,8 +3,8 @@ module github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice
 go 1.26.11
 
 require (
-	buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.20.0-20260729122644-8226c83aee9b.1
-	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.12-20260803135432-3e26db0084c4.2
+	buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.21.1-20261127132916-2060b312e15d.1
+	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.12-20261127132916-2060b312e15d.2
 	connectrpc.com/connect v1.21.1
 	github.com/NJUPT-SAST/sast-shop-v2/internal/pkg v0.0.0
 	github.com/labstack/echo/v5 v5.4.7
@@ -28,7 +28,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
-	github.com/larksuite/oapi-sdk-go/v3 v3.9.4 // indirect
+	github.com/larksuite/oapi-sdk-go/v3 v3.14.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
