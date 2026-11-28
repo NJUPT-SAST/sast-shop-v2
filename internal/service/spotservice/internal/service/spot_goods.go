@@ -45,6 +45,7 @@ func ListSpotGoods(
 	if err != nil {
 		return nil, err
 	}
+	storeNames := loadSpotGoodsStoreNames(ctx, spotGoodsList)
 
 	briefs := make([]*spotv1.SpotGoodsBrief, 0, len(spotGoodsList))
 	for _, g := range spotGoodsList {
@@ -56,7 +57,7 @@ func ListSpotGoods(
 				Msg("catalog service returned no product template for spot goods")
 			return nil, spotInternalError()
 		}
-		briefs = append(briefs, modelToBrief(g, template))
+		briefs = append(briefs, modelToBrief(g, template, storeNames[g.StoreID]))
 	}
 	return briefs, nil
 }
@@ -106,12 +107,13 @@ func ListSellerSpotGoods(
 	if err != nil {
 		return nil, 0, err
 	}
+	storeNames := loadSpotGoodsStoreNames(ctx, goodsList)
 	for _, goods := range goodsList {
 		template := templates[goods.ProductTemplateID]
 		if template == nil {
 			return nil, 0, spotInternalError()
 		}
-		details = append(details, modelToDetail(goods, template, seller))
+		details = append(details, modelToDetail(goods, template, seller, storeNames[goods.StoreID]))
 	}
 	return details, int32(count), nil
 }
@@ -140,7 +142,8 @@ func GetSpotGoods(ctx context.Context, goodsID int64) (*spotv1.SpotGoodsDetail, 
 	if err != nil {
 		return nil, err
 	}
-	return modelToDetail(goods, template, seller), nil
+	storeNames := loadSpotGoodsStoreNames(ctx, []*model.SpotGoods{goods})
+	return modelToDetail(goods, template, seller, storeNames[goods.StoreID]), nil
 }
 
 func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGoods, error) {
@@ -242,7 +245,8 @@ func CreateSpotGoods(
 	if err != nil {
 		return nil, err
 	}
-	return modelToDetail(goods, template, seller), nil
+	storeNames := loadSpotGoodsStoreNames(ctx, []*model.SpotGoods{goods})
+	return modelToDetail(goods, template, seller, storeNames[goods.StoreID]), nil
 }
 
 func editableSpotGoods(
@@ -449,9 +453,34 @@ func getProductTemplates(
 	return templates, nil
 }
 
+func loadSpotGoodsStoreNames(ctx context.Context, goodsList []*model.SpotGoods) map[int64]string {
+	if len(goodsList) == 0 {
+		return nil
+	}
+	storeIDs := make([]int64, 0, len(goodsList))
+	seen := make(map[int64]struct{}, len(goodsList))
+	for _, goods := range goodsList {
+		if goods.StoreID <= 0 {
+			continue
+		}
+		if _, ok := seen[goods.StoreID]; ok {
+			continue
+		}
+		seen[goods.StoreID] = struct{}{}
+		storeIDs = append(storeIDs, goods.StoreID)
+	}
+	names, err := repository.GetStoreNamesByIDs(ctx, storeIDs)
+	if err != nil {
+		log.Warn().Err(err).Interface("store_ids", storeIDs).Msg("failed to load store names for spot goods")
+		return nil
+	}
+	return names
+}
+
 func modelToBrief(
 	goods *model.SpotGoods,
 	template *catalogv1.ProductTemplate,
+	storeName string,
 ) *spotv1.SpotGoodsBrief {
 	return &spotv1.SpotGoodsBrief{
 		Id:              goods.ID,
@@ -460,6 +489,7 @@ func modelToBrief(
 		CreatedAt:       timestamppb.New(goods.CreatedAt),
 		UpdatedAt:       timestamppb.New(goods.UpdatedAt),
 		Stock:           goods.StockTotal,
+		StoreName:       storeName,
 	}
 }
 
@@ -467,6 +497,7 @@ func modelToDetail(
 	goods *model.SpotGoods,
 	template *catalogv1.ProductTemplate,
 	seller *userv1.UserInfo,
+	storeName string,
 ) *spotv1.SpotGoodsDetail {
 	return &spotv1.SpotGoodsDetail{
 		Id:              goods.ID,
@@ -476,6 +507,7 @@ func modelToDetail(
 		UpdatedAt:       timestamppb.New(goods.UpdatedAt),
 		Stock:           goods.StockTotal,
 		Seller:          seller,
+		StoreName:       storeName,
 	}
 }
 

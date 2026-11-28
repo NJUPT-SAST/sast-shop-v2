@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/errmsg"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/search"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/service"
@@ -53,15 +54,24 @@ func (s *BuyerErrandOrderServiceServer) GetBuyerErrandOrderBrief(
 		status = &s
 	}
 
+	keyword, err := search.NormalizeKeyword(msg.Keyword)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
 	results, totalCount, err := service.GetBuyerOrderBriefList(
 		ctx,
 		requesterID,
 		storeID,
 		status,
+		keyword,
 		msg.Page,
 		msg.PageSize,
 	)
 	if err != nil {
+		if connect.CodeOf(err) == connect.CodeInvalidArgument {
+			return nil, err
+		}
 		log.Error().Err(err).Msg("GetBuyerOrderBriefList failed")
 		return nil, errandError()
 	}

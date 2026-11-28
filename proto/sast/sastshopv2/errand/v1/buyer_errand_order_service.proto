@@ -13,6 +13,8 @@ message GetBuyerErrandOrderBriefRequest {
   optional int64 store_id_filter = 3;
   // 可选买家视角状态过滤
   optional sast.sastshopv2.errand.v1.ErrandDemandStatus status_filter = 4;
+  // 可选关键词：大小写无关字面子串，匹配店铺名、需求 ID 或商品标题/规格；去除首尾空白后最多 200 个字符
+  string keyword = 5;
 }
 
 message GetBuyerErrandOrderBriefResponse {

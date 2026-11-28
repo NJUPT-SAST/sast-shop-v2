@@ -1,10 +1,15 @@
 package service
 
 import (
+	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
+	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/repository"
 )
@@ -104,5 +109,75 @@ func TestCeilDivideDoesNotOverflow(t *testing.T) {
 	t.Parallel()
 	if got := ceilDivide(maxInt32Value, 2); got != 1073741824 {
 		t.Fatalf("ceilDivide(maxInt32Value, 2) = %d, want 1073741824", got)
+	}
+}
+
+func TestBuildErrandTaskStatusFilters(t *testing.T) {
+	t.Parallel()
+
+	shopping := errandv1.ErrandTaskStatus_ERRAND_TASK_STATUS_SHOPPING
+	distributing := errandv1.ErrandTaskStatus_ERRAND_TASK_STATUS_DISTRIBUTING
+	unspecified := errandv1.ErrandTaskStatus_ERRAND_TASK_STATUS_UNSPECIFIED
+
+	got, err := buildErrandTaskStatusFilters(&unspecified, nil)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("unspecified single status = %v, %v; want empty", got, err)
+	}
+
+	got, err = buildErrandTaskStatusFilters(&shopping, []errandv1.ErrandTaskStatus{
+		shopping,
+		distributing,
+		distributing,
+	})
+	want := []model.ErrandTaskStatus{model.ErrandTaskStatusShopping, model.ErrandTaskStatusDistributing}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("deduplicated union = %v, %v; want %v", got, err, want)
+	}
+
+	_, err = buildErrandTaskStatusFilters(nil, []errandv1.ErrandTaskStatus{unspecified})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("unspecified in filter_statuses returned %v, want invalid_argument", err)
+	}
+	_, err = buildErrandTaskStatusFilters(nil, []errandv1.ErrandTaskStatus{errandv1.ErrandTaskStatus(999)})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("unknown status in filter_statuses returned %v, want invalid_argument", err)
+	}
+}
+
+func TestApplyErrandTaskParticipants(t *testing.T) {
+	t.Parallel()
+
+	tasks := []*errandv1.ErrandTask{{TaskId: 10}, {TaskId: 20}}
+	rows := []repository.ErrandTaskParticipantRow{
+		{TaskID: 10, PurchaserID: 1, AvatarURL: "/a.png"},
+		{TaskID: 10, PurchaserID: 2, AvatarURL: ""},
+		{TaskID: 10, PurchaserID: 3, AvatarURL: "/c.png"},
+		{TaskID: 10, PurchaserID: 4, AvatarURL: "/d.png"},
+		{TaskID: 99, PurchaserID: 5, AvatarURL: "/ignored.png"},
+	}
+	if err := applyErrandTaskParticipants(tasks, rows); err != nil {
+		t.Fatal(err)
+	}
+	if tasks[0].ParticipantCount != 4 || !slices.Equal(tasks[0].ParticipantAvatars, []string{"/a.png", "", "/c.png"}) {
+		t.Fatalf("task 10 participants = %d %v", tasks[0].ParticipantCount, tasks[0].ParticipantAvatars)
+	}
+	if tasks[1].ParticipantCount != 0 || len(tasks[1].ParticipantAvatars) != 0 {
+		t.Fatalf("task 20 participants = %d %v, want empty", tasks[1].ParticipantCount, tasks[1].ParticipantAvatars)
+	}
+}
+
+func TestErrandOrderSearchRejectsOverlongKeyword(t *testing.T) {
+	t.Parallel()
+
+	tooLong := strings.Repeat("订", 201)
+	_, err := GetErrandTaskList(context.Background(), 1, &errandv1.GetErrandTaskListRequest{
+		Keyword: tooLong,
+	})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("GetErrandTaskList overlong keyword = %v, want invalid_argument", err)
+	}
+	_, _, err = GetBuyerOrderBriefList(context.Background(), 1, nil, nil, tooLong, 1, 20)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("GetBuyerOrderBriefList overlong keyword = %v, want invalid_argument", err)
 	}
 }

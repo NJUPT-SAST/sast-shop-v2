@@ -11,6 +11,14 @@ message GetStoreListResponse {
   repeated Store stores = 1;
 }
 
+message CatalogServiceGetStoreRequest {
+  int64 store_id = 1;
+}
+
+message CatalogServiceGetStoreResponse {
+  Store store = 1;
+}
+
 message CreateStoreRequest {
   string name = 1;
   string address = 2;
@@ -34,6 +42,9 @@ message UpdateStoreResponse {
 service CatalogService {
   // 获取店铺列表
   rpc GetStoreList(GetStoreListRequest) returns (GetStoreListResponse);
+
+  // 按 ID 获取店铺信息
+  rpc GetStore(CatalogServiceGetStoreRequest) returns (CatalogServiceGetStoreResponse);
 
   // 创建店铺
   rpc CreateStore(CreateStoreRequest) returns (CreateStoreResponse);

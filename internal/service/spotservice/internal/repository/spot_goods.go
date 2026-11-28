@@ -87,6 +87,29 @@ func GetSpotGoodsByIDs(ctx context.Context, goodsIDs []int64) ([]*model.SpotGood
 	return goodsList, err
 }
 
+func GetStoreNamesByIDs(ctx context.Context, storeIDs []int64) (map[int64]string, error) {
+	names := make(map[int64]string, len(storeIDs))
+	if len(storeIDs) == 0 {
+		return names, nil
+	}
+	var rows []struct {
+		ID   int64  `bun:"id"`
+		Name string `bun:"name"`
+	}
+	err := postgres.DB.NewSelect().
+		TableExpr("catalog.catalog_store").
+		Column("id", "name").
+		Where("id IN (?)", bun.List(storeIDs)).
+		Scan(ctx, &rows)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		names[row.ID] = row.Name
+	}
+	return names, nil
+}
+
 func CreateSpotGoodsTx(ctx context.Context, tx bun.IDB, goods *model.SpotGoods) error {
 	_, err := tx.NewInsert().Model(goods).Returning("*").Exec(ctx)
 	return err

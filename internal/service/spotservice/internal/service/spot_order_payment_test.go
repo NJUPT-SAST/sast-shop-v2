@@ -208,6 +208,53 @@ func TestListSpotOrderRejectsNegativeStoreID(t *testing.T) {
 	}
 }
 
+func TestListSpotOrderRejectsOverlongKeyword(t *testing.T) {
+	_, err := ListSpotOrder(context.Background(), 10, &spotv1.ListSpotOrderRequest{
+		StoreId:     0,
+		Perspective: spotv1.SpotGoodsPerspective_SPOT_GOODS_PERSPECTIVE_PURCHASER,
+		Page:        1,
+		PageSize:    20,
+		Keyword:     strings.Repeat("茶", 201),
+	})
+	if code := connect.CodeOf(err); code != connect.CodeInvalidArgument {
+		t.Fatalf("code = %v, want %v; err = %v", code, connect.CodeInvalidArgument, err)
+	}
+}
+
+func TestListSpotOrderAppliesTrimmedKeywordFilter(t *testing.T) {
+	state := newSpotPaymentTestState(t, 2)
+	_, err := ListSpotOrder(context.Background(), 10, &spotv1.ListSpotOrderRequest{
+		StoreId:     0,
+		Perspective: spotv1.SpotGoodsPerspective_SPOT_GOODS_PERSPECTIVE_PURCHASER,
+		Page:        1,
+		PageSize:    20,
+		Keyword:     "  SO-Milk  ",
+	})
+	if err != nil {
+		t.Fatalf("ListSpotOrder with keyword error = %v", err)
+	}
+	if !slicesContainSubstring(state.queries, "strpos(lower(so.order_no), lower('SO-Milk')) > 0") ||
+		!slicesContainSubstring(state.queries, "strpos(lower(so.title_snapshot), lower('SO-Milk')) > 0") ||
+		!slicesContainSubstring(state.queries, "strpos(lower(cs.name), lower('SO-Milk')) > 0") {
+		t.Fatalf("expected trimmed keyword filter in spot order queries: %v", state.queries)
+	}
+
+	blankState := newSpotPaymentTestState(t, 1)
+	_, err = ListSpotOrder(context.Background(), 10, &spotv1.ListSpotOrderRequest{
+		StoreId:     0,
+		Perspective: spotv1.SpotGoodsPerspective_SPOT_GOODS_PERSPECTIVE_PURCHASER,
+		Page:        1,
+		PageSize:    20,
+		Keyword:     "   \t  ",
+	})
+	if err != nil {
+		t.Fatalf("ListSpotOrder with blank keyword error = %v", err)
+	}
+	if slicesContainSubstring(blankState.queries, "strpos(") {
+		t.Fatalf("unexpected keyword filter for whitespace-only keyword: %v", blankState.queries)
+	}
+}
+
 type spotPaymentTestState struct {
 	status              map[int64]string
 	paid                map[int64]bool

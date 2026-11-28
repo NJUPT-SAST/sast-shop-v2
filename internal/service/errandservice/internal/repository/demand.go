@@ -221,18 +221,37 @@ func GetDemandsByRequester(
 	requesterID int64,
 	storeID *int64,
 	status *model.ErrandDemandStatus,
+	keyword string,
 	page, pageSize int32,
 ) ([]*model.ErrandDemand, int, error) {
 	query := postgres.DB.NewSelect().
 		Model((*model.ErrandDemand)(nil)).
-		Where("requester_id = ?", requesterID).
-		Order("created_at DESC")
+		Where("ed.requester_id = ?", requesterID).
+		Order("ed.created_at DESC", "ed.id DESC")
 
 	if storeID != nil {
-		query.Where("store_id = ?", *storeID)
+		query.Where("ed.store_id = ?", *storeID)
 	}
 	if status != nil {
-		query.Where("status = ?", *status)
+		query.Where("ed.status = ?", *status)
+	}
+	if trimmed := strings.TrimSpace(keyword); trimmed != "" {
+		query.Where(`(
+			strpos(CAST(ed.id AS TEXT), ?) > 0
+			OR EXISTS (
+				SELECT 1 FROM catalog.catalog_store AS cs
+				WHERE cs.id = ed.store_id AND strpos(lower(cs.name), lower(?)) > 0
+			)
+			OR EXISTS (
+				SELECT 1
+				FROM errand.errand_demand_item AS edi
+				JOIN catalog.catalog_product_template AS cpt ON cpt.id = edi.product_template_id
+				WHERE edi.errand_demand_id = ed.id AND (
+					strpos(lower(cpt.title), lower(?)) > 0
+					OR strpos(lower(cpt.description), lower(?)) > 0
+				)
+			)
+		)`, trimmed, trimmed, trimmed, trimmed)
 	}
 
 	totalCount, err := query.Count(ctx)

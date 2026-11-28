@@ -6,7 +6,9 @@ import (
 
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	userv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/user/v1"
+	"connectrpc.com/connect"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/search"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/repository"
@@ -68,6 +70,7 @@ func GetBuyerOrderBriefList(
 	requesterID int64,
 	storeID *int64,
 	status *model.ErrandDemandStatus,
+	keyword string,
 	page, pageSize int32,
 ) ([]*BuyerOrderBrief, int, error) {
 	if page <= 0 {
@@ -79,14 +82,26 @@ func GetBuyerOrderBriefList(
 	if pageSize > 100 {
 		pageSize = 100
 	}
+	normalizedKeyword, err := search.NormalizeKeyword(keyword)
+	if err != nil {
+		return nil, 0, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 
-	demands, totalCount, err := repository.GetDemandsByRequester(ctx, requesterID, storeID, status, page, pageSize)
+	demands, totalCount, err := repository.GetDemandsByRequester(
+		ctx,
+		requesterID,
+		storeID,
+		status,
+		normalizedKeyword,
+		page,
+		pageSize,
+	)
 	if err != nil {
 		log.Error().Err(err).Msg("get demands by requester failed")
 		return nil, 0, ErrInternal
 	}
 	if len(demands) == 0 {
-		return nil, 0, nil
+		return []*BuyerOrderBrief{}, totalCount, nil
 	}
 
 	demandIDs := make([]int64, 0, len(demands))

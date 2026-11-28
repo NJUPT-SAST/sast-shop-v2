@@ -534,14 +534,15 @@ func CountErrandTasks(
 	ctx context.Context,
 	db bun.IDB,
 	captainID int64,
-	status *model.ErrandTaskStatus,
+	statuses []model.ErrandTaskStatus,
+	keyword string,
 ) (int32, error) {
-	q := db.NewSelect().
-		TableExpr("errand.errand_task AS et").
-		Where("et.captain_id = ?", captainID)
-	if status != nil {
-		q = q.Where("et.status = ?", *status)
-	}
+	q := applyErrandTaskListFilters(
+		db.NewSelect().TableExpr("errand.errand_task AS et"),
+		captainID,
+		statuses,
+		keyword,
+	)
 
 	total, err := q.Count(ctx)
 	if err != nil {
@@ -554,30 +555,64 @@ func ListErrandTasks(
 	ctx context.Context,
 	db bun.IDB,
 	captainID int64,
-	status *model.ErrandTaskStatus,
+	statuses []model.ErrandTaskStatus,
+	keyword string,
 	limit int,
 	offset int,
 ) ([]ErrandTaskListRow, error) {
 	rows := make([]ErrandTaskListRow, 0)
-	q := db.NewSelect().
-		TableExpr("errand.errand_task AS et").
-		Join("LEFT JOIN catalog.catalog_store AS cs ON cs.id = et.store_id").
-		ColumnExpr("et.lifecycle_round AS lifecycle_round").
-		ColumnExpr("et.id AS task_id").
-		ColumnExpr("et.store_id AS store_id").
-		ColumnExpr("COALESCE(cs.name, '') AS store_name").
-		ColumnExpr("et.status AS status").
-		ColumnExpr("et.created_at AS created_at").
-		Where("et.captain_id = ?", captainID).
+	q := applyErrandTaskListFilters(
+		db.NewSelect().
+			TableExpr("errand.errand_task AS et").
+			Join("LEFT JOIN catalog.catalog_store AS cs ON cs.id = et.store_id").
+			ColumnExpr("et.lifecycle_round AS lifecycle_round").
+			ColumnExpr("et.id AS task_id").
+			ColumnExpr("et.store_id AS store_id").
+			ColumnExpr("COALESCE(cs.name, '') AS store_name").
+			ColumnExpr("et.status AS status").
+			ColumnExpr("et.created_at AS created_at"),
+		captainID,
+		statuses,
+		keyword,
+	).
 		OrderExpr("et.created_at DESC, et.id DESC").
 		Limit(limit).
 		Offset(offset)
-	if status != nil {
-		q = q.Where("et.status = ?", *status)
-	}
 
 	err := q.Scan(ctx, &rows)
 	return rows, err
+}
+
+func applyErrandTaskListFilters(
+	q *bun.SelectQuery,
+	captainID int64,
+	statuses []model.ErrandTaskStatus,
+	keyword string,
+) *bun.SelectQuery {
+	q = q.Where("et.captain_id = ?", captainID)
+	if len(statuses) == 1 {
+		q = q.Where("et.status = ?", statuses[0])
+	} else if len(statuses) > 1 {
+		q = q.Where("et.status IN (?)", bun.List(statuses))
+	}
+	if keyword != "" {
+		q = q.Where(`(
+			strpos(lower(et.task_no), lower(?)) > 0
+			OR strpos(CAST(et.id AS TEXT), ?) > 0
+			OR EXISTS (
+				SELECT 1 FROM catalog.catalog_store AS cs
+				WHERE cs.id = et.store_id AND strpos(lower(cs.name), lower(?)) > 0
+			)
+			OR EXISTS (
+				SELECT 1 FROM errand.errand_task_item AS eti
+				WHERE eti.task_id = et.id AND (
+					strpos(lower(eti.title_snapshot), lower(?)) > 0
+					OR strpos(lower(eti.description_snapshot), lower(?)) > 0
+				)
+			)
+		)`, keyword, keyword, keyword, keyword, keyword)
+	}
+	return q
 }
 
 type ErrandTaskListItemRow struct {
@@ -629,6 +664,17 @@ type ErrandTaskParticipantRow struct {
 }
 
 func ListErrandTaskParticipants(ctx context.Context, db bun.IDB, taskID int64) ([]ErrandTaskParticipantRow, error) {
+	return ListErrandTaskParticipantsByTaskIDs(ctx, db, []int64{taskID})
+}
+
+func ListErrandTaskParticipantsByTaskIDs(
+	ctx context.Context,
+	db bun.IDB,
+	taskIDs []int64,
+) ([]ErrandTaskParticipantRow, error) {
+	if len(taskIDs) == 0 {
+		return []ErrandTaskParticipantRow{}, nil
+	}
 	rows := make([]ErrandTaskParticipantRow, 0)
 	err := db.NewSelect().
 		TableExpr("errand.errand_task_assignment AS eta").
@@ -637,7 +683,7 @@ func ListErrandTaskParticipants(ctx context.Context, db bun.IDB, taskID int64) (
 		ColumnExpr("eta.purchaser_id AS purchaser_id").
 		ColumnExpr("COALESCE(ua.avatar_url, '') AS avatar_url").
 		Distinct().
-		Where("eta.task_id = ?", taskID).
+		Where("eta.task_id IN (?)", bun.List(taskIDs)).
 		OrderExpr("eta.task_id ASC, eta.purchaser_id ASC").
 		Scan(ctx, &rows)
 	return rows, err

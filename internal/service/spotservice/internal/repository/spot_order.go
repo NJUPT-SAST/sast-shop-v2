@@ -66,6 +66,7 @@ func ListSpotOrders(
 	storeID int64,
 	perspective string,
 	status *model.SpotOrderStatus,
+	keyword string,
 	limit int,
 	offset int,
 ) ([]SpotOrderRecord, int, error) {
@@ -96,6 +97,9 @@ func ListSpotOrders(
 		listQuery = listQuery.Where("so.status = ?", *status)
 	}
 
+	countQuery = applySpotOrderKeywordFilter(countQuery, keyword)
+	listQuery = applySpotOrderKeywordFilter(listQuery, keyword)
+
 	total, err := countQuery.Count(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count spot orders: %w", err)
@@ -110,6 +114,21 @@ func ListSpotOrders(
 		return nil, 0, fmt.Errorf("list spot orders: %w", err)
 	}
 	return orders, total, nil
+}
+
+func applySpotOrderKeywordFilter(query *bun.SelectQuery, keyword string) *bun.SelectQuery {
+	if keyword == "" {
+		return query
+	}
+	return query.Where(`(
+		strpos(lower(so.order_no), lower(?)) > 0
+		OR strpos(lower(so.title_snapshot), lower(?)) > 0
+		OR strpos(lower(so.description_snapshot), lower(?)) > 0
+		OR EXISTS (
+			SELECT 1 FROM catalog.catalog_store AS cs
+			WHERE cs.id = sg.store_id AND strpos(lower(cs.name), lower(?)) > 0
+		)
+	)`, keyword, keyword, keyword, keyword)
 }
 
 func GetSpotOrderRecord(ctx context.Context, orderID int64) (*SpotOrderRecord, error) {

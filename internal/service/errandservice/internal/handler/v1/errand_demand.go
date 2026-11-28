@@ -9,6 +9,7 @@ import (
 	errandv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/errand/v1"
 	"connectrpc.com/connect"
 	rpcinterceptor "github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
@@ -178,8 +179,8 @@ func (s *ErrandDemandServiceServer) GetDemandDetail(
 				Id:           result.ProductTemplateID,
 				Title:        result.ProductTitle,
 				Description:  result.ProductDescription,
+				StoreId:      msg.StoreId,
 				MainImageUrl: result.ProductImageURL,
-				// 其他字段根据需要填充
 			},
 			EstimatedUnitPriceCents: result.EstimatedUnitPriceCents,
 			Quantity:                result.TotalQuantity,
@@ -187,8 +188,19 @@ func (s *ErrandDemandServiceServer) GetDemandDetail(
 		})
 	}
 
+	var store *catalogv1.Store
+	if client.CatalogInternalClient != nil {
+		loadedStore, storeErr := client.GetStore(ctx, msg.StoreId)
+		if storeErr != nil {
+			log.Warn().Err(storeErr).Int64("store_id", msg.StoreId).Msg("GetDemandDetail: get store failed")
+		} else {
+			store = loadedStore
+		}
+	}
+
 	return connect.NewResponse(&errandv1.GetDemandDetailResponse{
 		Details: details,
+		Store:   store,
 	}), nil
 }
 

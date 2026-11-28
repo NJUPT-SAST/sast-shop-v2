@@ -109,7 +109,7 @@ func GetProductTemplates(ctx context.Context, ids []int64) ([]*catalogv1.Product
 	return result, nil
 }
 
-// GetStore 按 ID 获取店铺。
+// GetStore 按 ID 获取店铺（内部服务使用，不额外过滤已停用/删除店铺，以保证历史订单可读）。
 func GetStore(ctx context.Context, id int64) (*catalogv1.Store, error) {
 	store, err := repository.GetStoreByID(ctx, id)
 	if err != nil {
@@ -119,6 +119,25 @@ func GetStore(ctx context.Context, id int64) (*catalogv1.Store, error) {
 				Code: catalogv1.CatalogErrorCode_CATALOG_ERROR_CODE_INTERNAL_ERROR,
 			},
 		}, "")
+	}
+	return storeToProto(store), nil
+}
+
+// GetPublicStore 按 ID 获取对外可见店铺（过滤已删除或被管控停用的店铺）。
+func GetPublicStore(ctx context.Context, id int64) (*catalogv1.Store, error) {
+	if id <= 0 {
+		return nil, connect.NewError(errmsg.InvalidArgument.Code, errmsg.InvalidArgument)
+	}
+	store, err := repository.GetStoreByID(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrStoreNotFound
+	}
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to get public store for id: %d", id)
+		return nil, catalogInternalError()
+	}
+	if store.Status == model.CatalogStatusRemoved || store.ModerationStatus != "allowed" {
+		return nil, ErrStoreNotFound
 	}
 	return storeToProto(store), nil
 }

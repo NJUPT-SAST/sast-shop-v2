@@ -149,7 +149,12 @@ message TransitionToCompletedResponse {
 message GetErrandTaskListRequest {
   int32 page = 1;
   int32 page_size = 2;
+  // 兼容旧版单状态过滤；若同时传入 filter_statuses，则取两者并集
   optional sast.sastshopv2.errand.v1.ErrandTaskStatus filter_status = 3;
+  // 多状态过滤；为空且未传 filter_status 时不过滤状态
+  repeated sast.sastshopv2.errand.v1.ErrandTaskStatus filter_statuses = 4;
+  // 可选关键词：大小写无关字面子串，匹配任务号、任务 ID、店铺名或商品标题/规格快照；去除首尾空白后最多 200 个字符
+  string keyword = 5;
 }
 
 message GetErrandTaskListResponse {

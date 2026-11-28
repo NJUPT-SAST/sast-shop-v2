@@ -18,6 +18,8 @@ message ListSpotOrderRequest {
   optional SpotOrderStatus filter_status = 3;
   int32 page = 4;
   int32 page_size = 5;
+  // 可选关键词：大小写无关字面子串，匹配订单号、商品标题/规格快照或店铺名；去除首尾空白后最多 200 个字符
+  string keyword = 6;
 }
 
 message ListSpotOrderResponse {

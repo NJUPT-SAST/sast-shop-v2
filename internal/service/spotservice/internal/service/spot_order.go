@@ -16,6 +16,7 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/bun/postgres"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/search"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/timeutil"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/spotservice/internal/model"
@@ -48,26 +49,12 @@ func ListSpotOrder(
 	userID int64,
 	req *spotv1.ListSpotOrderRequest,
 ) (*spotv1.ListSpotOrderResponse, error) {
-	if userID <= 0 || req == nil || req.StoreId < 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, ErrInvalidCreateSpotOrdersRequest)
-	}
-
-	perspective, err := parsePerspective(req.Perspective)
+	perspective, statusFilter, keyword, err := parseListSpotOrderFilters(userID, req)
 	if err != nil {
 		return nil, err
 	}
 
-	var statusFilter *model.SpotOrderStatus
-	if req.GetFilterStatus() != spotv1.SpotOrderStatus_SPOT_ORDER_STATUS_UNSPECIFIED {
-		status, ok := protoStatusToModel(req.GetFilterStatus())
-		if !ok {
-			return nil, connect.NewError(connect.CodeInvalidArgument, ErrInvalidSpotOrderStatus)
-		}
-		statusFilter = &status
-	}
-
-	if statusFilter == nil || *statusFilter == model.SpotOrderStatusPendingPayment ||
-		*statusFilter == model.SpotOrderStatusPaid {
+	if shouldSyncSpotOrderPayments(statusFilter) {
 		if err := syncPendingSpotOrderPayments(ctx, userID, req.StoreId, perspective); err != nil {
 			return nil, err
 		}
@@ -79,6 +66,7 @@ func ListSpotOrder(
 		req.StoreId,
 		perspective,
 		statusFilter,
+		keyword,
 		int(pageSize),
 		(int(page)-1)*int(pageSize),
 	)
@@ -106,6 +94,38 @@ func ListSpotOrder(
 		CurrentPage: page,
 		TotalCount:  totalCount,
 	}, nil
+}
+
+func parseListSpotOrderFilters(
+	userID int64,
+	req *spotv1.ListSpotOrderRequest,
+) (string, *model.SpotOrderStatus, string, error) {
+	if userID <= 0 || req == nil || req.StoreId < 0 {
+		return "", nil, "", connect.NewError(connect.CodeInvalidArgument, ErrInvalidCreateSpotOrdersRequest)
+	}
+	perspective, err := parsePerspective(req.Perspective)
+	if err != nil {
+		return "", nil, "", err
+	}
+	keyword, err := search.NormalizeKeyword(req.Keyword)
+	if err != nil {
+		return "", nil, "", connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	var statusFilter *model.SpotOrderStatus
+	if req.GetFilterStatus() != spotv1.SpotOrderStatus_SPOT_ORDER_STATUS_UNSPECIFIED {
+		status, ok := protoStatusToModel(req.GetFilterStatus())
+		if !ok {
+			return "", nil, "", connect.NewError(connect.CodeInvalidArgument, ErrInvalidSpotOrderStatus)
+		}
+		statusFilter = &status
+	}
+	return perspective, statusFilter, keyword, nil
+}
+
+func shouldSyncSpotOrderPayments(statusFilter *model.SpotOrderStatus) bool {
+	return statusFilter == nil ||
+		*statusFilter == model.SpotOrderStatusPendingPayment ||
+		*statusFilter == model.SpotOrderStatusPaid
 }
 
 func GetSpotOrderDetail(

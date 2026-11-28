@@ -17,6 +17,7 @@ import (
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/feishu"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/idgen"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/rpcerror"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/search"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/timeutil"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/client"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/errandservice/internal/model"
@@ -2416,12 +2417,16 @@ func GetErrandTaskList(
 	}
 
 	page, pageSize := normalizeErrandTaskListPage(req.Page, req.PageSize)
-	statusFilter, err := buildErrandTaskStatusFilter(req.FilterStatus)
+	statusFilters, err := buildErrandTaskStatusFilters(req.FilterStatus, req.FilterStatuses)
 	if err != nil {
 		return nil, err
 	}
+	keyword, err := search.NormalizeKeyword(req.Keyword)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 
-	totalCount, err := repository.CountErrandTasks(ctx, postgres.DB, captainID, statusFilter)
+	totalCount, err := repository.CountErrandTasks(ctx, postgres.DB, captainID, statusFilters, keyword)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -2434,7 +2439,8 @@ func GetErrandTaskList(
 		ctx,
 		postgres.DB,
 		captainID,
-		statusFilter,
+		statusFilters,
+		keyword,
 		int(pageSize),
 		(int(page)-1)*int(pageSize),
 	)
@@ -2447,15 +2453,29 @@ func GetErrandTaskList(
 	}
 
 	tasks, taskIDs := errandTaskListRowsToProto(rows)
-	itemRows, err := repository.ListErrandTaskItems(ctx, postgres.DB, taskIDs)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Int64("captain_id", captainID).
-			Msg("failed to list errand task items")
-		return nil, newErrandInternalError("")
+	if len(taskIDs) > 0 {
+		itemRows, err := repository.ListErrandTaskItems(ctx, postgres.DB, taskIDs)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Int64("captain_id", captainID).
+				Msg("failed to list errand task items")
+			return nil, newErrandInternalError("")
+		}
+		appendErrandTaskItems(tasks, itemRows)
+
+		participantRows, err := repository.ListErrandTaskParticipantsByTaskIDs(ctx, postgres.DB, taskIDs)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Int64("captain_id", captainID).
+				Msg("failed to list errand task participants")
+			return nil, newErrandInternalError("")
+		}
+		if err := applyErrandTaskParticipants(tasks, participantRows); err != nil {
+			return nil, err
+		}
 	}
-	appendErrandTaskItems(tasks, itemRows)
 
 	return &errandv1.GetErrandTaskListResponse{
 		ErrandTasks: tasks,
@@ -2512,17 +2532,68 @@ func normalizeErrandTaskListPage(page, pageSize int32) (int32, int32) {
 	return page, pageSize
 }
 
-func buildErrandTaskStatusFilter(protoStatus *errandv1.ErrandTaskStatus) (*model.ErrandTaskStatus, error) {
-	if protoStatus == nil || *protoStatus == errandv1.ErrandTaskStatus_ERRAND_TASK_STATUS_UNSPECIFIED {
-		return nil, nil
+func buildErrandTaskStatusFilters(
+	protoStatus *errandv1.ErrandTaskStatus,
+	protoStatuses []errandv1.ErrandTaskStatus,
+) ([]model.ErrandTaskStatus, error) {
+	seen := make(map[model.ErrandTaskStatus]struct{}, len(protoStatuses)+1)
+	filters := make([]model.ErrandTaskStatus, 0, len(protoStatuses)+1)
+
+	appendStatus := func(raw errandv1.ErrandTaskStatus) error {
+		status, ok := protoErrandTaskStatusToModel(raw)
+		if !ok {
+			return connect.NewError(errmsg.InvalidErrandTaskStatus.Code, errmsg.InvalidErrandTaskStatus)
+		}
+		if _, exists := seen[status]; !exists {
+			seen[status] = struct{}{}
+			filters = append(filters, status)
+		}
+		return nil
 	}
 
-	status, ok := protoErrandTaskStatusToModel(*protoStatus)
-	if !ok {
-		return nil, connect.NewError(errmsg.InvalidErrandTaskStatus.Code, errmsg.InvalidErrandTaskStatus)
+	if protoStatus != nil && *protoStatus != errandv1.ErrandTaskStatus_ERRAND_TASK_STATUS_UNSPECIFIED {
+		if err := appendStatus(*protoStatus); err != nil {
+			return nil, err
+		}
+	}
+	for _, raw := range protoStatuses {
+		if err := appendStatus(raw); err != nil {
+			return nil, err
+		}
 	}
 
-	return &status, nil
+	return filters, nil
+}
+
+func applyErrandTaskParticipants(
+	tasks []*errandv1.ErrandTask,
+	rows []repository.ErrandTaskParticipantRow,
+) error {
+	taskByID := make(map[int64]*errandv1.ErrandTask, len(tasks))
+	for _, task := range tasks {
+		taskByID[task.TaskId] = task
+	}
+
+	counts := make(map[int64]int, len(tasks))
+	for _, row := range rows {
+		task := taskByID[row.TaskID]
+		if task == nil {
+			continue
+		}
+		counts[row.TaskID]++
+		if len(task.ParticipantAvatars) < 3 {
+			task.ParticipantAvatars = append(task.ParticipantAvatars, row.AvatarURL)
+		}
+	}
+
+	for _, task := range tasks {
+		count, err := safeInt32FromInt(counts[task.TaskId])
+		if err != nil {
+			return err
+		}
+		task.ParticipantCount = count
+	}
+	return nil
 }
 
 func errandTaskListRowsToProto(rows []repository.ErrandTaskListRow) ([]*errandv1.ErrandTask, []int64) {

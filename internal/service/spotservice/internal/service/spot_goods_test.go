@@ -12,11 +12,11 @@ func TestModelToBriefUsesListingStock(t *testing.T) {
 
 	for _, stock := range []int32{-1, 0, 1, 25} {
 		goods := &model.SpotGoods{ID: 1, StoreID: 2, StockTotal: stock}
-		brief := modelToBrief(goods, &catalogv1.ProductTemplate{Id: 3, StoreId: 2})
+		brief := modelToBrief(goods, &catalogv1.ProductTemplate{Id: 3, StoreId: 2}, "Campus Shop")
 		if brief.Stock != stock {
 			t.Fatalf("listing stock = %d, want %d", brief.Stock, stock)
 		}
-		if brief.Id != goods.ID || brief.ProductTemplate.Id != 3 {
+		if brief.Id != goods.ID || brief.ProductTemplate.Id != 3 || brief.StoreName != "Campus Shop" {
 			t.Fatalf("unexpected listing or template mapping: %v", brief)
 		}
 	}
@@ -29,8 +29,8 @@ func TestListingTemplateCategoryFollowsItsStore(t *testing.T) {
 	template := &catalogv1.ProductTemplate{Id: 3, StoreId: 7, CategoryId: &categoryID}
 	originalListing := &model.SpotGoods{StoreID: 2}
 	for _, embedded := range []*catalogv1.ProductTemplate{
-		modelToBrief(originalListing, template).GetProductTemplate(),
-		modelToDetail(originalListing, template, nil).GetProductTemplate(),
+		modelToBrief(originalListing, template, "Old Store").GetProductTemplate(),
+		modelToDetail(originalListing, template, nil, "Old Store").GetProductTemplate(),
 	} {
 		if embedded.GetId() != 3 || embedded.GetStoreId() != 2 || embedded.CategoryId != nil {
 			t.Errorf("embedded template = %v, want template 3 at store 2 without a category", embedded)
@@ -38,8 +38,9 @@ func TestListingTemplateCategoryFollowsItsStore(t *testing.T) {
 	}
 
 	currentListing := &model.SpotGoods{StoreID: 7}
-	embedded := modelToBrief(currentListing, template).GetProductTemplate()
-	if embedded.GetStoreId() != 7 || embedded.GetCategoryId() != 21 {
-		t.Errorf("embedded template = %v, want store 7 with category 21", embedded)
+	brief := modelToBrief(currentListing, template, "New Store")
+	embedded := brief.GetProductTemplate()
+	if embedded.GetStoreId() != 7 || embedded.GetCategoryId() != 21 || brief.StoreName != "New Store" {
+		t.Errorf("embedded template = %v store = %q, want store 7 with category 21", embedded, brief.StoreName)
 	}
 }

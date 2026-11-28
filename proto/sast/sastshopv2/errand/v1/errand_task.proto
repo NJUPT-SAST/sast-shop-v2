@@ -14,4 +14,8 @@ message ErrandTask {
   repeated ErrandTaskItem items = 5;
   google.protobuf.Timestamp created_at = 6;
   int64 lifecycle_round = 7;
+  // 参与拼单的去重买家人数
+  int32 participant_count = 8;
+  // 前 3 位去重买家的头像 URL 预览
+  repeated string participant_avatars = 9;
 }

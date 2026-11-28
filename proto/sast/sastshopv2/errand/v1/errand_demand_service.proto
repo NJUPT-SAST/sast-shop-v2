@@ -4,6 +4,7 @@ package sast.sastshopv2.errand.v1;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
+import "sast/sastshopv2/catalog/v1/store.proto";
 import "sast/sastshopv2/errand/v1/errand_demand.proto";
 import "sast/sastshopv2/errand/v1/errand_demand_by_store.proto";
 import "sast/sastshopv2/errand/v1/errand_demand_detail.proto";
@@ -45,6 +46,8 @@ message GetDemandDetailRequest {
 
 message GetDemandDetailResponse {
   repeated sast.sastshopv2.errand.v1.ErrandDemandDetail details = 1;
+  // 当前店铺基础信息
+  sast.sastshopv2.catalog.v1.Store store = 2;
 }
 
 // 买家撤回未接单需求（open 状态）

@@ -6,6 +6,7 @@ import (
 	"buf.build/gen/go/sast/sast-shop-v2/connectrpc/go/sast/sastshopv2/catalog/v1/catalogv1connect"
 	catalogv1 "buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go/sast/sastshopv2/catalog/v1"
 	"connectrpc.com/connect"
+	"github.com/NJUPT-SAST/sast-shop-v2/internal/pkg/connect/interceptor"
 	"github.com/NJUPT-SAST/sast-shop-v2/internal/services/catalogservice/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
@@ -25,6 +26,22 @@ func (s *CatalogServiceServer) GetStoreList(
 	}
 	return connect.NewResponse(&catalogv1.GetStoreListResponse{
 		Stores: stores,
+	}), nil
+}
+
+func (s *CatalogServiceServer) GetStore(
+	ctx context.Context,
+	r *connect.Request[catalogv1.CatalogServiceGetStoreRequest],
+) (*connect.Response[catalogv1.CatalogServiceGetStoreResponse], error) {
+	if _, err := interceptor.UserIDFromContext(ctx); err != nil {
+		return nil, err
+	}
+	store, err := service.GetPublicStore(ctx, r.Msg.StoreId)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return connect.NewResponse(&catalogv1.CatalogServiceGetStoreResponse{
+		Store: store,
 	}), nil
 }
 

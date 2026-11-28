@@ -120,6 +120,13 @@ func TestSpotGoodsSearch(t *testing.T) {
 			var templateIDs []int64
 			for _, goods := range response.Msg.SpotGoodsList {
 				ids = append(ids, goods.Id)
+				wantStoreName := "Campus Shop"
+				if goods.ProductTemplate.StoreId == 2 {
+					wantStoreName = "Beta Market"
+				}
+				if goods.StoreName != wantStoreName {
+					t.Fatalf("goods %d store_name = %q, want %q", goods.Id, goods.StoreName, wantStoreName)
+				}
 				if !slices.Contains(templateIDs, goods.ProductTemplate.Id) {
 					templateIDs = append(templateIDs, goods.ProductTemplate.Id)
 				}
