@@ -48,7 +48,7 @@ func ListSpotOrder(
 	userID int64,
 	req *spotv1.ListSpotOrderRequest,
 ) (*spotv1.ListSpotOrderResponse, error) {
-	if userID <= 0 || req == nil || req.StoreId <= 0 {
+	if userID <= 0 || req == nil || req.StoreId < 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, ErrInvalidCreateSpotOrdersRequest)
 	}
 

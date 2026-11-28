@@ -18,14 +18,20 @@ func ListPendingSpotOrderPayments(
 	afterID int64,
 	limit int,
 ) ([]SpotOrderRecord, error) {
+	if storeID < 0 {
+		return nil, fmt.Errorf("invalid store id")
+	}
+
 	query := spotOrderRecordBaseQuery().
-		Where("sg.store_id = ?", storeID).
 		Where("so.status = ?", model.SpotOrderStatusPendingPayment).
 		Where("so.admin_operation_id = ''").
 		Where("so.payment_bill_id IS NOT NULL").
 		Where("so.id > ?", afterID).
 		OrderExpr("so.id ASC").
 		Limit(limit)
+	if storeID > 0 {
+		query = query.Where("sg.store_id = ?", storeID)
+	}
 	switch perspective {
 	case "purchaser":
 		query = query.Where("so.purchaser_id = ?", userID)

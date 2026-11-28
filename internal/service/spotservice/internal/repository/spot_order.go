@@ -69,10 +69,16 @@ func ListSpotOrders(
 	limit int,
 	offset int,
 ) ([]SpotOrderRecord, int, error) {
-	countQuery := spotOrderRecordBaseQuery().
-		Where("sg.store_id = ?", storeID)
-	listQuery := spotOrderRecordBaseQuery().
-		Where("sg.store_id = ?", storeID)
+	if storeID < 0 {
+		return nil, 0, fmt.Errorf("invalid store id")
+	}
+
+	countQuery := spotOrderRecordBaseQuery()
+	listQuery := spotOrderRecordBaseQuery()
+	if storeID > 0 {
+		countQuery = countQuery.Where("sg.store_id = ?", storeID)
+		listQuery = listQuery.Where("sg.store_id = ?", storeID)
+	}
 
 	switch perspective {
 	case "purchaser":

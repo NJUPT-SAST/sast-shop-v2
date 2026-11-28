@@ -10,7 +10,7 @@ import "sast/sastshopv2/spot/v1/spot_order.proto";
 import "sast/sastshopv2/spot/v1/spot_order_status.proto";
 
 message ListSpotOrderRequest {
-  // 店铺 ID
+  // 店铺 ID，0 表示全部店铺
   int64 store_id = 1;
   // 买家或卖家视角
   SpotGoodsPerspective perspective = 2;
@@ -71,7 +71,7 @@ message CompleteSpotOrderResponse {
 }
 
 service SpotOrderService {
-  // 获取当前用户在指定店铺下的现货订单列表
+  // 获取当前用户在指定店铺（store_id 为 0 时为全部店铺）下的现货订单列表
   rpc ListSpotOrder(ListSpotOrderRequest) returns (ListSpotOrderResponse);
 
   // 买家从现货购物车批量创建订单

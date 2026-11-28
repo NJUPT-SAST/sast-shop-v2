@@ -129,21 +129,112 @@ func TestCancelSpotOrderKeepsGoodsDelisted(t *testing.T) {
 	}
 }
 
+func TestListSpotOrderAllStores(t *testing.T) {
+	state := newSpotPaymentTestState(t, 3)
+	state.storeID[1] = 1
+	state.storeID[2] = 2
+	state.storeID[3] = 2
+	state.paid[2] = true
+
+	allResp, err := ListSpotOrder(context.Background(), 10, &spotv1.ListSpotOrderRequest{
+		StoreId:     0,
+		Perspective: spotv1.SpotGoodsPerspective_SPOT_GOODS_PERSPECTIVE_PURCHASER,
+		Page:        1,
+		PageSize:    20,
+	})
+	if err != nil {
+		t.Fatalf("ListSpotOrder(store_id=0) error = %v", err)
+	}
+	if allResp.TotalCount != 3 || len(allResp.SpotOrders) != 3 {
+		t.Fatalf("all stores response = total %d len %d, want 3", allResp.TotalCount, len(allResp.SpotOrders))
+	}
+	if state.status[2] != "paid" {
+		t.Fatalf("store 2 pending order was not synchronized: status=%s", state.status[2])
+	}
+	if slicesContainSubstring(state.queries, "sg.store_id =") {
+		t.Fatalf("unexpected store_id filter for store_id=0 queries: %v", state.queries)
+	}
+	if state.storeCalls[1] != 1 || state.storeCalls[2] != 1 {
+		t.Fatalf("store cache calls = %v, want 1 call per distinct store", state.storeCalls)
+	}
+}
+
+func TestListSpotOrderFiltersSpecificStore(t *testing.T) {
+	state := newSpotPaymentTestState(t, 3)
+	state.storeID[1] = 1
+	state.storeID[2] = 2
+	state.storeID[3] = 2
+
+	storeResp, err := ListSpotOrder(context.Background(), 10, &spotv1.ListSpotOrderRequest{
+		StoreId:     2,
+		Perspective: spotv1.SpotGoodsPerspective_SPOT_GOODS_PERSPECTIVE_PURCHASER,
+		Page:        1,
+		PageSize:    20,
+	})
+	if err != nil {
+		t.Fatalf("ListSpotOrder(store_id=2) error = %v", err)
+	}
+	if storeResp.TotalCount != 2 || len(storeResp.SpotOrders) != 2 {
+		t.Fatalf("store 2 response = total %d len %d, want 2", storeResp.TotalCount, len(storeResp.SpotOrders))
+	}
+	for _, order := range storeResp.SpotOrders {
+		if order.Store == nil || order.Store.Id != 2 {
+			t.Fatalf("unexpected order store in store 2 response: %+v", order.Store)
+		}
+	}
+	if !slicesContainSubstring(state.queries, "sg.store_id = 2") {
+		t.Fatalf("expected sg.store_id = 2 filter in queries: %v", state.queries)
+	}
+}
+
+func slicesContainSubstring(values []string, substr string) bool {
+	for _, value := range values {
+		if strings.Contains(value, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestListSpotOrderRejectsNegativeStoreID(t *testing.T) {
+	_, err := ListSpotOrder(context.Background(), 10, &spotv1.ListSpotOrderRequest{
+		StoreId:     -1,
+		Perspective: spotv1.SpotGoodsPerspective_SPOT_GOODS_PERSPECTIVE_PURCHASER,
+		Page:        1,
+		PageSize:    20,
+	})
+	if code := connect.CodeOf(err); code != connect.CodeInvalidArgument {
+		t.Fatalf("code = %v, want %v; err = %v", code, connect.CodeInvalidArgument, err)
+	}
+}
+
 type spotPaymentTestState struct {
 	status              map[int64]string
 	paid                map[int64]bool
+	storeID             map[int64]int64
+	storeCalls          map[int64]int
+	queries             []string
 	version             time.Time
 	stock               int
 	batchCalls          int
 	confirmDuringCancel bool
 }
 
+func (s *spotPaymentTestState) storeFor(id int64) int64 {
+	if storeID, ok := s.storeID[id]; ok {
+		return storeID
+	}
+	return 1
+}
+
 func newSpotPaymentTestState(t *testing.T, count int) *spotPaymentTestState {
 	t.Helper()
 	s := &spotPaymentTestState{
-		status:  map[int64]string{},
-		paid:    map[int64]bool{},
-		version: time.Date(2026, 9, 20, 1, 0, 0, 123456000, time.UTC),
+		status:     map[int64]string{},
+		paid:       map[int64]bool{},
+		storeID:    map[int64]int64{},
+		storeCalls: map[int64]int{},
+		version:    time.Date(2026, 9, 20, 1, 0, 0, 123456000, time.UTC),
 	}
 	for i := 1; i <= count; i++ {
 		s.status[int64(i)] = "pending_payment"
@@ -152,7 +243,7 @@ func newSpotPaymentTestState(t *testing.T, count int) *spotPaymentTestState {
 	oldDB, oldPayment, oldCatalog := postgres.DB, client.PaymentInternalServiceClient, client.CatalogInternalServiceClient
 	postgres.DB, client.PaymentInternalServiceClient, client.CatalogInternalServiceClient = db, &spotPaymentTestClient{
 		state: s,
-	}, spotCatalogTestClient{}
+	}, spotCatalogTestClient{state: s}
 	t.Cleanup(func() {
 		postgres.DB, client.PaymentInternalServiceClient, client.CatalogInternalServiceClient = oldDB, oldPayment, oldCatalog
 		if err := db.Close(); err != nil {
@@ -223,10 +314,24 @@ func (c *spotPaymentTestConn) QueryContext(ctx context.Context, q string, a []dr
 	if strings.Contains(q, "FOR UPDATE") {
 		return c.orderRows([]int64{1}, false), nil
 	}
+	c.state.queries = append(c.state.queries, q)
+	ids := c.matchingOrderIDs(q)
+	if strings.Contains(q, "count(*)") {
+		return &spotPaymentRows{columns: []string{"count"}, values: [][]driver.Value{{int64(len(ids))}}}, nil
+	}
+	limit := int(queryNumber(q, `LIMIT (\d+)`, int64(len(ids))))
+	if len(ids) > limit {
+		ids = ids[:limit]
+	}
+	return c.orderRows(ids, true), nil
+}
+
+func (c *spotPaymentTestConn) matchingOrderIDs(q string) []int64 {
 	ids := []int64{}
 	after := queryNumber(q, `so.id > (\d+)`, 0)
+	storeFilter := queryNumber(q, `sg\.store_id = (\d+)`, 0)
 	for id, status := range c.state.status {
-		if id <= after {
+		if id <= after || (storeFilter > 0 && c.state.storeFor(id) != storeFilter) {
 			continue
 		}
 		if strings.Contains(q, "so.status = 'paid'") && status != "paid" {
@@ -238,14 +343,7 @@ func (c *spotPaymentTestConn) QueryContext(ctx context.Context, q string, a []dr
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	if strings.Contains(q, "count(*)") {
-		return &spotPaymentRows{columns: []string{"count"}, values: [][]driver.Value{{int64(len(ids))}}}, nil
-	}
-	limit := int(queryNumber(q, `LIMIT (\d+)`, int64(len(ids))))
-	if len(ids) > limit {
-		ids = ids[:limit]
-	}
-	return c.orderRows(ids, true), nil
+	return ids
 }
 
 func (c *spotPaymentTestConn) orderRows(ids []int64, record bool) *spotPaymentRows {
@@ -266,7 +364,7 @@ func (c *spotPaymentTestConn) orderRows(ids []int64, record bool) *spotPaymentRo
 	for _, id := range ids {
 		values := []driver.Value{id, int64(10), int64(1), id, int64(1), int64(100), c.state.status[id], c.state.version}
 		if record {
-			values = append(values, int64(20), int64(1))
+			values = append(values, int64(20), c.state.storeFor(id))
 		}
 		rows.values = append(rows.values, values)
 	}
@@ -345,11 +443,19 @@ func (c *spotPaymentTestClient) CancelBillBySource(
 
 type spotCatalogTestClient struct {
 	catalogv1connect.CatalogInternalServiceClient
+	state *spotPaymentTestState
 }
 
-func (spotCatalogTestClient) GetStore(
-	context.Context,
-	*connect.Request[catalogv1.GetStoreRequest],
+func (c spotCatalogTestClient) GetStore(
+	_ context.Context,
+	req *connect.Request[catalogv1.GetStoreRequest],
 ) (*connect.Response[catalogv1.GetStoreResponse], error) {
-	return connect.NewResponse(&catalogv1.GetStoreResponse{Store: &catalogv1.Store{Id: 1}}), nil
+	storeID := req.Msg.StoreId
+	if storeID <= 0 {
+		storeID = 1
+	}
+	if c.state != nil {
+		c.state.storeCalls[storeID]++
+	}
+	return connect.NewResponse(&catalogv1.GetStoreResponse{Store: &catalogv1.Store{Id: storeID}}), nil
 }
