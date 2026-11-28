@@ -48,24 +48,27 @@ The workspace contains one shared library (`internal/pkg`) and **six** independe
 
 ```
 sast-shop-v2/
-├── proto/sast/sastshopv2/    # Protobuf API definitions (6 business domains + common)
+├── proto/sast/sastshopv2/    # Protobuf API definitions (7 business domains + common)
 │   ├── common/v1/            # Shared error types (BusinessError oneof)
+│   ├── admin/v1/             # Admin governance, audit & payment correction internal RPCs
 │   ├── user/v1/              # Auth, User, Address, UserInternal services
-│   ├── catalog/v1/           # Catalog (Store), ProductTemplate, CatalogInternal services
+│   ├── catalog/v1/           # Catalog (Store), ProductCategory, ProductTemplate, CatalogInternal services
 │   ├── payment/v1/           # Bill, QrCode, PaymentInternal services
 │   ├── spot/v1/              # SpotGoods, SpotOrder services
 │   ├── errand/v1/            # ErrandDemand, ErrandTask, BuyerErrandOrder, GroupTradeInternal services
 │   └── westpocket/v1/        # FaceProfile, WestPocket, WestPocketInternal services
 ├── gen/                      # Generated .pb.go + .connect.go (gitignored)
-├── migrations/               # SQL schema & additive migrations (001, 002, 003)
-├── deploy/                   # Local gateway config (Caddyfile.local)
-├── docs/                     # Operational & integration guides (see docs/README.md)
+├── migrations/               # SQL schema & additive migrations (001 through 010)
+├── deploy/                   # Local gateway config (Caddyfile.local) & PostgreSQL zhparser Dockerfile
+├── docs/                     # Operational & feature guides (see docs/README.md)
 ├── buf.yaml / buf.gen.yaml   # Buf module & codegen config
 ├── go.work                   # Go workspace (gitignored, generated via make proto; 9 modules)
 ├── .env.example              # Environment template
 ├── .golangci.yml             # Linter configuration
 └── internal/
     ├── pkg/                  # Shared library
+    │   ├── admin/            # Admin RBAC auth, queries, mutations & fund helpers
+    │   ├── adminflow/        # Cross-domain admin whole-order correction flows
     │   ├── bun/postgres/     # PostgreSQL connection (bun + pgdriver)
     │   ├── config/           # Env-var config (caarlos0/env/v11 + godotenv)
     │   ├── connect/interceptor/ # Validation, logging, auth & West Pocket internal token
@@ -114,8 +117,8 @@ The API defines **98 RPC methods across 19 services** (including internal servic
 
 Migrations live in `migrations/`:
 
-- **Fresh database**: run `make migrate` (`001_init.sql`, which already includes `stock_total >= -1`) and `make migrate-west-pocket` (`002_west_pocket.sql`).
-- **Existing database**: apply additive migrations (`002_west_pocket.sql`, `003_spot_goods_delisting.sql`) via `psql`; never rerun `001_init.sql`.
+- **Fresh database**: run `make migrate` (`001_init.sql`) followed by incremental migrations (`002_west_pocket.sql` through `010_store_product_categories.sql`).
+- **Existing database**: apply unapplied additive migrations (`002`–`010`) via `psql` after backup; never rerun `001_init.sql`. See [docs/admin.md](./docs/admin.md) and [docs/west-pocket.md](./docs/west-pocket.md).
 
 ## Getting Started
 

@@ -48,24 +48,27 @@
 
 ```
 sast-shop-v2/
-├── proto/sast/sastshopv2/    # Protobuf API 定义（6 个业务域 + common）
+├── proto/sast/sastshopv2/    # Protobuf API 定义（7 个业务域 + common）
 │   ├── common/v1/            # 共享错误类型（BusinessError oneof）
+│   ├── admin/v1/             # 管理员治理、审计与支付纠错内部 RPC
 │   ├── user/v1/              # Auth、User、Address、UserInternal 服务
-│   ├── catalog/v1/           # Catalog（店铺）、ProductTemplate、CatalogInternal 服务
+│   ├── catalog/v1/           # Catalog（店铺）、ProductCategory、ProductTemplate、CatalogInternal 服务
 │   ├── payment/v1/           # Bill、QrCode、PaymentInternal 服务
 │   ├── spot/v1/              # SpotGoods、SpotOrder 服务
 │   ├── errand/v1/            # ErrandDemand、ErrandTask、BuyerErrandOrder、GroupTradeInternal 服务
 │   └── westpocket/v1/        # FaceProfile、WestPocket、WestPocketInternal 服务
 ├── gen/                      # 生成的 .pb.go + .connect.go（gitignore）
-├── migrations/               # SQL 初始化与增量迁移（001、002、003）
-├── deploy/                   # 本地网关配置（Caddyfile.local）
-├── docs/                     # 运维与接入文档（见 docs/README.md）
+├── migrations/               # SQL 初始化与增量迁移（001–010）
+├── deploy/                   # 本地网关配置（Caddyfile.local）与 PostgreSQL zhparser Dockerfile
+├── docs/                     # 运维与功能文档（见 docs/README.md）
 ├── buf.yaml / buf.gen.yaml   # Buf 模块与代码生成配置
 ├── go.work                   # Go 工作区（gitignore，由 make proto 生成，含 9 个模块）
 ├── .env.example              # 环境变量模板
 ├── .golangci.yml             # Linter 配置
 └── internal/
     ├── pkg/                  # 共享库
+    │   ├── admin/            # 管理员 RBAC 鉴权、查询、变更与资金辅助
+    │   ├── adminflow/        # 跨服务管理员整单纠错流程
     │   ├── bun/postgres/     # PostgreSQL 连接（bun + pgdriver）
     │   ├── config/           # 环境变量配置（caarlos0/env/v11 + godotenv）
     │   ├── connect/interceptor/ # 校验、日志、认证与 West Pocket 内部令牌拦截器
@@ -114,8 +117,8 @@ API 共包含 **98 个 RPC 方法**，分布在 **19 个服务定义**中（含�
 
 迁移脚本位于 `migrations/`：
 
-- **全新数据库**：执行 `make migrate`（`001_init.sql`，已包含 `stock_total >= -1` 约束）与 `make migrate-west-pocket`（`002_west_pocket.sql`）。
-- **存量数据库**：通过 `psql` 执行增量迁移（`002_west_pocket.sql`、`003_spot_goods_delisting.sql`），切勿重跑 `001_init.sql`。
+- **全新数据库**：执行 `make migrate`（`001_init.sql`）后依次应用增量迁移（`002_west_pocket.sql`～`010_store_product_categories.sql`）。
+- **存量数据库**：备份后通过 `psql` 执行未应用的增量迁移（`002`～`010`），切勿重跑 `001_init.sql`。详见 [docs/admin.md](./docs/admin.md) 与 [docs/west-pocket.md](./docs/west-pocket.md)。
 
 ## 快速开始
 

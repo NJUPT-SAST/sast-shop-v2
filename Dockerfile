@@ -17,8 +17,8 @@ WORKDIR /src
 # Chinese mirrors: pass --build-arg GOPROXY=https://goproxy.cn,direct
 # (and GOSUMDB=off if the mirror's sumdb endpoint keeps failing).
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go install github.com/bufbuild/buf/cmd/buf@v1.54.0 || \
-    (sleep 5 && go install github.com/bufbuild/buf/cmd/buf@v1.54.0)
+    go install github.com/bufbuild/buf/cmd/buf@v1.75.0 || \
+    (sleep 5 && go install github.com/bufbuild/buf/cmd/buf@v1.75.0)
 COPY buf.yaml buf.gen.yaml buf.lock ./
 COPY proto/ proto/
 # Writes gen/protocolbuffers/go + gen/connectrpc/go (no go.mod files; created below).

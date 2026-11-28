@@ -75,11 +75,12 @@ redis.Init(name)    // go-redis client global with service key prefix (pings Red
 feishu.Init()       // Feishu SDK client (panics on missing creds in prod; conditional in westpocketservice)
 e := echo.New()
 v1.Init(e)          // Registers Connect-RPC handlers and HTTP endpoints (catalogservice also calls cos.Init())
-e.Start(":port")    // westpocketservice wires westpocket.NewService/Register/Run with graceful http.Server shutdown
+e.Start(":port")    // westpocketservice wires internal/{handler/v1,model,repository,service,support} with graceful http.Server shutdown
 ```
 
 ### Shared Library (`internal/pkg/`)
 
+- `admin/` & `adminflow/` — Admin RBAC auth checks, fund/correction queries, mutation audit helpers, and whole-order correction flows.
 - `bun/postgres/` — PostgreSQL connection (`uptrace/bun` + `pgdriver`).
 - `config/` — env-var parsing via `caarlos0/env/v11` + `godotenv`. Global `AppConfig *Config`.
 - `connect/interceptor/` — validation+logging chain, `AuthRequired` (Bearer session token + dev `X-Dev-User-ID` bypass), and `west_pocket` internal token check.
@@ -110,19 +111,19 @@ func userError(code userv1.UserErrorCode, msg string) *connect.Error {
 ### Database & Migrations
 
 - All models use `uptrace/bun` with schema-qualified tables across 6 PostgreSQL schemas: `user`, `catalog`, `payment`, `spot`, `errand`, `westpocket`.
-- Migrations live in `migrations/` (`001_init.sql`, `002_west_pocket.sql`, `003_spot_goods_delisting.sql`). Keep migrations additive for existing databases; never modify `001_init.sql` in a way that breaks incremental rollouts without a matching migration.
+- Migrations live in `migrations/` (`001_init.sql` through `010_store_product_categories.sql`, covering West Pocket, spot delisting, `zhparser` full-text search, admin RBAC/corrections, and two-level store product categories). Keep migrations additive for existing databases; never modify `001_init.sql` in a way that breaks incremental rollouts without a matching migration.
 - Money is always stored and computed as integer cents (`int32` in Go models and protos, `INTEGER` in PostgreSQL).
 
 ### Protobuf & Code Generation
 
-- Proto files live in `proto/sast/sastshopv2/{common,user,catalog,payment,spot,errand,westpocket}/v1/`.
-- Generated code (`gen/protocolbuffers/go` and `gen/connectrpc/go`) is gitignored. After editing any `.proto` file, run `make proto-lint && make proto` and verify all affected services build and pass tests.
+- Proto files live in `proto/sast/sastshopv2/{common,admin,user,catalog,payment,spot,errand,westpocket}/v1/`.
+- Generated code (`gen/protocolbuffers/go` and `gen/connectrpc/go`) is gitignored and linked via `go.work`. After editing any `.proto` file, run `make proto-lint && make proto` and verify all affected services build and pass tests. When updating Go module dependencies locally before new protos are published to BSR, use `go get ... && go work sync` instead of `go mod tidy` (since `go mod tidy` ignores `go.work`).
 
 ### Security & Privacy Constraints
 
 - `X-Dev-User-ID` bypass is strictly gated to `APP_ENV=development`; never relax production auth checks.
 - `*InternalService` endpoints must not be exposed on public gateways. West Pocket internal RPCs require `X-West-Pocket-Token` (stripped at public gateways).
-- Never log plaintext QR snapshots, private COS signed URLs, encryption keys (`WEST_POCKET_ENCRYPTION_KEY`), or cloud/Feishu credentials. See `docs/README.md` (`docs/west-pocket.md`, `docs/deployment-ci.md`) for West Pocket security/outbox contracts and CI/deployment rules.
+- Never log plaintext QR snapshots, private COS signed URLs, encryption keys (`WEST_POCKET_ENCRYPTION_KEY`), or cloud/Feishu credentials. See `docs/README.md` (`docs/west-pocket.md`, `docs/admin.md`, `docs/deployment-ci.md`) for West Pocket, admin RBAC, and CI/deployment contracts.
 
 ## Testing
 
