@@ -3,22 +3,22 @@ module github.com/NJUPT-SAST/sast-shop-v2/internal/services/westpocketservice
 go 1.26.11
 
 require (
-	buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.20.0-20260729122644-8226c83aee9b.1
-	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.12-20260803135432-3e26db0084c4.2
+	buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.21.1-20261127132916-2060b312e15d.1
+	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.12-20261127132916-2060b312e15d.2
 	connectrpc.com/connect v1.21.1
 	github.com/NJUPT-SAST/sast-shop-v2/internal/pkg v0.0.0
 	github.com/disintegration/imaging v1.6.2
 	github.com/labstack/echo/v5 v5.4.7
-	github.com/larksuite/oapi-sdk-go/v3 v3.9.4
+	github.com/larksuite/oapi-sdk-go/v3 v3.14.0
 	github.com/rs/zerolog v1.35.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.3.185
-	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/iai v1.3.155
+	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.3.220
+	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/iai v1.3.209
 	github.com/tencentyun/cos-go-sdk-v5 v0.7.77
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18
 	github.com/uptrace/bun/driver/pgdriver v1.2.18
-	golang.org/x/image v0.46.0
+	golang.org/x/image v0.48.0
 	google.golang.org/protobuf v1.36.12
 )
 

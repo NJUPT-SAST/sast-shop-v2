@@ -3,12 +3,13 @@ module github.com/NJUPT-SAST/sast-shop-v2/internal/pkg
 go 1.26.11
 
 require (
+	buf.build/gen/go/sast/sast-shop-v2/connectrpc/go v1.21.1-20261127132916-2060b312e15d.1
 	buf.build/go/protovalidate v1.4.1
 	connectrpc.com/connect v1.21.1
 	connectrpc.com/validate v0.9.0
 	github.com/caarlos0/env/v11 v11.4.2
 	github.com/joho/godotenv v1.5.1
-	github.com/larksuite/oapi-sdk-go/v3 v3.9.4
+	github.com/larksuite/oapi-sdk-go/v3 v3.14.0
 	github.com/redis/go-redis/v9 v9.24.1
 	github.com/rs/zerolog v1.35.1
 	github.com/tencentyun/cos-go-sdk-v5 v0.7.77
@@ -41,7 +42,7 @@ require (
 )
 
 require (
-	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.12-20260803135432-3e26db0084c4.2
+	buf.build/gen/go/sast/sast-shop-v2/protocolbuffers/go v1.36.12-20261127132916-2060b312e15d.2
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
